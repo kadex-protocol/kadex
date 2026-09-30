@@ -1,0 +1,17 @@
+[package]
+name = "slab-interface"
+version = "0.1.0"
+description = "Interfaces CONGELADAS entre os programas do SLAB. Mudar aqui quebra outro time."
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["lib"]
+name = "slab_interface"
+
+[dependencies]
+anchor-lang = { workspace = true }
+slab-math = { workspace = true }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

@@ -1,0 +1,15 @@
+[package]
+name = "slab-math"
+version = "0.1.0"
+description = "Aritmetica de ponto fixo do SLAB. Sem float, escalas e arredondamento explicitos."
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["lib"]
+name = "slab_math"
+
+[dependencies]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
