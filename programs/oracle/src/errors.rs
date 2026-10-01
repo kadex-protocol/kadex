@@ -2,20 +2,20 @@ use anchor_lang::prelude::*;
 
 #[error_code]
 pub enum OracleError {
-    #[msg("Pool AMM vazio ou sem reserva de fracao")]
+    #[msg("AMM pool is empty or has no fraction reserve")]
     EmptyPool,
-    #[msg("Preco nao cabe em u64")]
+    #[msg("Price does not fit in u64")]
     PriceOverflow,
-    #[msg("Nenhuma observacao registrada")]
+    #[msg("No observations recorded")]
     NoObservations,
-    #[msg("Conta de pool AMM diferente da registrada no oraculo")]
+    #[msg("AMM pool account differs from the one registered on the oracle")]
     WrongAmmPool,
-    #[msg("Somente o admin do oraculo")]
+    #[msg("Only the oracle admin")]
     NotAdmin,
-    #[msg("Parametro invalido")]
+    #[msg("Invalid parameter")]
     BadParams,
-    #[msg("Adaptador de AMM ainda nao implementado")]
+    #[msg("AMM adapter not implemented yet")]
     AdapterUnsupported,
-    #[msg("Conta de pool AMM com layout inesperado")]
+    #[msg("AMM pool account has an unexpected layout")]
     AdapterBadAccount,
 }

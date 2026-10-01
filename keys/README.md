@@ -1,14 +1,14 @@
 # Program keypairs
 
-Os quatro programas usam IDs fixos, versionados aqui, para que os tres
-desenvolvedores deployem nos mesmos enderecos e o frontend nao precise
-trocar de endereco a cada `anchor build`.
+The four programs use fixed IDs, versioned here, so all three developers
+deploy to the same addresses and the frontend does not have to change an
+address after every `anchor build`.
 
-Antes do primeiro build:
+Before your first build:
 
-    npm run sync-keys      # copia keys/*.json -> target/deploy/
+    npm run sync-keys      # copies keys/*.json -> target/deploy/
 
-`target/` esta no .gitignore, entao as chaves vivem em `keys/`.
+`target/` is gitignored, so the keys live in `keys/`.
 
-Estas chaves sao de DEVNET e de demo. Nao usar em mainnet, nao guardar
-valor real nelas.
+These are DEVNET and demo keys. Do not use them on mainnet and do not hold
+real value in them.

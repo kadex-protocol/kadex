@@ -1,13 +1,13 @@
-//! Programa `card-vault` — DONO: Backend A.
+//! Program `card-vault` — OWNER: Backend A.
 //!
-//! Trava o NFT de um card graded tokenizado e minta fracoes SPL fungiveis
-//! contra ele. Resgatar exige devolver TODAS as fracoes daquele card.
+//! Locks the NFT of a tokenized graded card and mints fungible SPL fractions
+//! against it. Redeeming requires returning ALL of that card's fractions.
 //!
-//! Invariante central: `fracoes_em_circulacao == fractions_per_card` enquanto
-//! o NFT estiver travado, e `0` depois do resgate. O supply nunca sai disso.
+//! Core invariant: `fractions_outstanding == fractions_per_card` while the NFT
+//! is locked, and `0` after redemption. Supply never leaves that.
 //!
-//! Este programa NAO sabe o que e preco, pool ou posicao. Ele so converte
-//! NFT em fracao e de volta.
+//! This program knows nothing about price, pools or positions. It only
+//! converts an NFT into fractions and back.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
@@ -18,24 +18,24 @@ declare_id!("J8Tef8N4YSfVwAxpBemCZrz3qCxehTeb2cd1jTwoBczW");
 pub mod errors;
 use errors::VaultError;
 
-/// Casas decimais das fracoes.
+/// Decimal places of the fractions.
 ///
-/// ESCOLHA DO DIA 1, e ela e irreversivel depois do primeiro mint: 6 casas,
-/// igual ao USDC. Isso faz `preco = reserva_usdc / reserva_fracao` cair
-/// direto em WAD sem conversao, que e exatamente o que o oraculo assume.
-/// Mudar aqui quebra o oraculo silenciosamente.
+/// A DAY-1 CHOICE, and irreversible after the first mint: 6 places, same as
+/// USDC. That makes `price = usdc_reserve / fraction_reserve` land directly
+/// in WAD with no conversion, which is exactly what the oracle assumes.
+/// Changing this breaks the oracle silently.
 pub const FRACTION_DECIMALS: u8 = 6;
 
-/// Quantas fracoes um card vale por dolar de valor de referencia.
-/// 1 fracao = $1 no momento do deposito, entao um card de $1.420 vira
-/// 1.420 * 10^6 unidades nativas.
+/// How many fractions a card is worth per dollar of reference value.
+/// 1 fraction = $1 at deposit time, so a $1,420 card becomes
+/// 1,420 * 10^6 native units.
 pub const FRACTIONS_PER_USD: u64 = 1_000_000;
 
 #[program]
 pub mod card_vault {
     use super::*;
 
-    /// Cria o registro global. Uma vez, pelo admin.
+    /// Create the global registry. Once, by the admin.
     pub fn initialize_registry(ctx: Context<InitializeRegistry>) -> Result<()> {
         let r = &mut ctx.accounts.registry;
         r.admin = ctx.accounts.admin.key();
@@ -44,10 +44,10 @@ pub mod card_vault {
         Ok(())
     }
 
-    /// Coloca um mint de NFT na whitelist e fixa quantas fracoes ele gera.
+    /// Whitelist an NFT mint and fix how many fractions it produces.
     ///
-    /// Whitelist e defesa, nao burocracia: sem ela qualquer um deposita o card
-    /// mais ilegal de vender e saca CLP liquido.
+    /// The whitelist is a defence, not paperwork: without it anyone could
+    /// deposit the least sellable card they own and withdraw liquid CLP.
     pub fn whitelist_card(
         ctx: Context<WhitelistCard>,
         fractions_per_card: u64,
@@ -69,7 +69,7 @@ pub mod card_vault {
         Ok(())
     }
 
-    /// Trava o NFT e minta as fracoes para o depositante.
+    /// Lock the NFT and mint the fractions to the depositor.
     pub fn fractionalize(ctx: Context<Fractionalize>) -> Result<()> {
         let card = &ctx.accounts.card;
         require!(card.enabled, VaultError::CardDisabled);
@@ -77,7 +77,7 @@ pub mod card_vault {
         let vault = &mut ctx.accounts.vault;
         require!(!vault.locked, VaultError::AlreadyLocked);
 
-        // 1) NFT do depositante -> escrow do programa
+        // 1) depositor's NFT -> program escrow
         token::transfer(
             CpiContext::new(
                 ctx.accounts.token_program.key(),
@@ -90,7 +90,7 @@ pub mod card_vault {
             1,
         )?;
 
-        // 2) minta exatamente `fractions_per_card`, nunca outro numero
+        // 2) mint exactly `fractions_per_card`, never another number
         let nft_key = ctx.accounts.nft_mint.key();
         let signer_seeds: &[&[&[u8]]] =
             &[&[seeds::VAULT, nft_key.as_ref(), &[vault.bump]]];
@@ -121,9 +121,9 @@ pub mod card_vault {
         Ok(())
     }
 
-    /// Queima TODAS as fracoes e devolve o NFT.
+    /// Burn ALL fractions and return the NFT.
     ///
-    /// Nao existe resgate parcial: metade das fracoes nao te da meio card.
+    /// There is no partial redemption: half the fractions do not buy half a card.
     pub fn redeem_card(ctx: Context<RedeemCard>) -> Result<()> {
         let vault = &mut ctx.accounts.vault;
         require!(vault.locked, VaultError::NotLocked);
@@ -132,7 +132,7 @@ pub mod card_vault {
             VaultError::InsufficientFractions
         );
 
-        // 1) queima o supply inteiro
+        // 1) burn the entire supply
         token::burn(
             CpiContext::new(
                 ctx.accounts.token_program.key(),
@@ -145,7 +145,7 @@ pub mod card_vault {
             vault.fractions_minted,
         )?;
 
-        // 2) devolve o NFT
+        // 2) return the NFT
         let nft_key = ctx.accounts.nft_mint.key();
         let signer_seeds: &[&[&[u8]]] =
             &[&[seeds::VAULT, nft_key.as_ref(), &[vault.bump]]];
@@ -172,22 +172,22 @@ pub mod card_vault {
         Ok(())
     }
 
-    /// Desliga um card sem apagar o registro. Card desligado nao aceita novo
-    /// `fractionalize`, mas quem ja tem fracao continua podendo resgatar.
+    /// Disable a card without deleting its record. A disabled card accepts no
+    /// new `fractionalize`, but existing holders can still redeem.
     pub fn set_card_enabled(ctx: Context<SetCardEnabled>, enabled: bool) -> Result<()> {
         ctx.accounts.card.enabled = enabled;
         Ok(())
     }
 }
 
-/// Converte valor em dolares (6 casas) para quantidade de fracoes.
+/// Convert a dollar value (6 decimals) into a fraction amount.
 pub fn fractions_for_value(value_usdc: u64) -> Option<u64> {
-    // 1 fracao = $1, ambos com 6 casas -> relacao 1:1 em unidades nativas
+    // 1 fraction = $1, both with 6 decimals -> 1:1 in native units
     Some(value_usdc)
 }
 
 // ---------------------------------------------------------------------------
-// contas
+// accounts
 // ---------------------------------------------------------------------------
 
 #[account]
@@ -203,9 +203,9 @@ pub struct Registry {
 pub struct WhitelistedCard {
     pub nft_mint: Pubkey,
     pub fraction_mint: Pubkey,
-    /// Supply fixo de fracoes deste card. Escolhido no whitelist e imutavel.
+    /// Fixed fraction supply for this card. Chosen at whitelist time, immutable.
     pub fractions_per_card: u64,
-    /// Peso do card no indice da cesta, em bps.
+    /// The card's weight in the basket index, in bps.
     pub weight_bps: u16,
     pub enabled: bool,
     pub bump: u8,
@@ -368,15 +368,15 @@ mod tests {
 
     #[test]
     fn fraction_decimals_must_match_usdc_or_the_oracle_breaks() {
-        // O oraculo calcula preco = reserva_usdc / reserva_fracao e espera o
-        // resultado em WAD (1e6). Isso so vale com as duas pontas em 6 casas.
+        // The oracle computes price = usdc_reserve / fraction_reserve and
+        // expects WAD (1e6). That only holds with both sides at 6 decimals.
         assert_eq!(FRACTION_DECIMALS, 6);
         assert_eq!(FRACTIONS_PER_USD, slab_math::WAD as u64);
     }
 
     #[test]
     fn value_maps_one_to_one_into_fractions() {
-        // card de $1.420 -> 1.420 fracoes, ambos com 6 casas
+        // a $1,420 card -> 1,420 fractions, both at 6 decimals
         assert_eq!(fractions_for_value(1_420_000_000).unwrap(), 1_420_000_000);
     }
 }

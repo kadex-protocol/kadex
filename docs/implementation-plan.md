@@ -1,145 +1,161 @@
-# SLAB — plano de implementação
+# SLAB — implementation plan
 
-> Fonte de verdade econômica: o spec do SLAB. Este documento traduz o spec em
-> fronteiras de código e diz quem constrói o quê sem bloquear os outros.
+> The SLAB spec is the source of economic truth. This document turns it into
+> code boundaries and says who builds what without blocking anyone else.
 
-Estado em 30/09/2026 — dia 1 concluído. Prazo de submissão: 12/10/2026.
+State as of 1 Oct 2026 — days 1 and 2 complete. Submission: 12 Oct 2026.
 
-## 1. O mapa
+## 1. The map
 
-Quatro programas on-chain, dois pacotes Rust compartilhados, três pacotes
-TypeScript, três apps.
+Four on-chain programs, three shared Rust crates, three TypeScript packages,
+three apps.
 
-| Peça | Tipo | Dono | Estado |
+| Piece | Kind | Owner | State |
 |---|---|---|---|
-| `packages/slab-math` | crate Rust | compartilhado | **pronto**, 32 testes |
-| `packages/slab-interface` | crate Rust | compartilhado | **congelado**, 3 testes |
-| `programs/oracle` | programa | Backend A | estado + defesas, 11 testes |
-| `programs/card-vault` | programa | Backend A | ciclo completo, 2 testes |
-| `programs/clp-pool` | programa | Backend B | estado + invariantes, 13 testes |
-| `programs/perp` | programa | Backend B | estado + `check_open`, 17 testes |
-| `packages/types` | TS | Frontend | PDAs e views congelados |
-| `packages/sdk` | TS | Frontend | espelho da matemática + derivados |
-| `packages/oracle` | TS | Backend A | adaptadores, mock funcionando |
-| `apps/keeper` | TS | Backend A | vazio |
-| `apps/liquidator` | TS | Backend B | vazio |
-| `apps/web` | Next.js | Frontend | vazio |
+| `packages/slab-math` | Rust crate | shared | **done**, 32 tests |
+| `packages/slab-risk` | Rust crate | shared | **done**, 23 tests |
+| `packages/slab-interface` | Rust crate | shared | **frozen**, 6 tests |
+| `programs/oracle` | program | Backend A | state + defences, 11 tests |
+| `programs/card-vault` | program | Backend A | full cycle, 2 tests |
+| `programs/clp-pool` | program | Backend B | accounting, 12 tests |
+| `programs/perp` | program | Backend B | `open_position` done, 2 guards |
+| `packages/types` | TS | Frontend | PDAs and views frozen |
+| `packages/sdk` | TS | Frontend | maths mirror + derivations |
+| `packages/oracle` | TS | Backend A | adapters, mock working |
+| `apps/keeper` | TS | Backend A | empty |
+| `apps/liquidator` | TS | Backend B | empty |
+| `apps/web` | Next.js | Frontend | empty |
 
-## 2. Desvio declarado do spec
+107 tests: 88 Rust, 19 Rust↔TS parity.
 
-**O spec descreve três programas. Foram implementados quatro.**
+## 2. Declared deviations from the spec
 
-O oráculo virou programa próprio em vez de morar dentro do `clp-pool`.
+### Four programs, not three
 
-Motivo: propriedade de conta em Solana é por programa. Se a conta do oráculo
-vivesse no `clp-pool`, Backend A e Backend B editariam o mesmo programa todo
-dia, que é exatamente o que este trabalho existe para evitar. Com programa
-separado, A é dono do oráculo, B é dono do risco, e a única coisa entre eles é
-uma conta lida.
+The oracle became its own program instead of living inside `clp-pool`.
 
-Custo: zero CPI. `perp` recebe a conta do oráculo e desserializa. O Anchor
-confere sozinho que ela pertence ao programa `oracle`, porque
-`slab-interface` declara esse ID — conta forjada por outro programa é rejeitada
-antes de qualquer lógica rodar.
+Account ownership in Solana is per program. With the oracle account inside
+`clp-pool`, Backend A and Backend B would be editing the same program every
+day — exactly what this work exists to prevent. As a separate program, A owns
+the oracle, B owns risk, and the only thing between them is an account read.
 
-## 3. Grafo de dependências
+Cost: zero CPI. `perp` takes the account and deserializes it; Anchor checks
+the owner itself because `slab-interface` declares the oracle program's ID.
+
+### A fourth crate: `slab-risk`
+
+Rules were originally written as methods on the program's account structs.
+They now live in a crate that depends on neither `anchor-lang` nor
+`solana-program`.
+
+The point is that the separation is enforced rather than agreed. A rule in
+`slab-risk` has no `AccountInfo` reachable from it, so it cannot read an
+account, and it needs no validator to be tested. Two tests hold the line:
+`risk_crate_cannot_reach_solana` and `handlers_stay_thin`.
+
+## 3. Dependency graph
 
 ```
-slab-math  ──────────────┐
-                         ├──> oracle ──(conta OracleAccount)──> perp
-slab-interface ──────────┤                                       │
-  (OracleAccount,        ├──> card-vault                         │
-   PoolParams,           │                                       v
-   seeds, estados)       └──> clp-pool <────(CPI de risco)──── perp
-                                  │
-                                  v
-                          packages/types (espelho TS)
-                                  │
-                                  v
-                          packages/sdk ──> apps/web
+slab-math ──> slab-risk ──┬──> slab-interface ──> all four programs
+                          │
+                          └──> perp, clp-pool  (decisions)
+
+oracle ──(OracleAccount, read only)──> perp, clp-pool
+
+slab-interface ──> packages/types (TS mirror) ──> packages/sdk ──> apps/web
 ```
 
-O que isso quer dizer na prática:
+What that means day to day:
 
-- **A não espera B.** `oracle` e `card-vault` só dependem dos dois crates
-  compartilhados, que já estão prontos.
-- **B não espera A.** `perp` consome `OracleView`, não o programa `oracle`.
-  Os testes de B constroem `OracleView` na mão.
-- **Frontend não espera ninguém.** `packages/types` já tem os PDAs e as views;
-  `target/idl/*.json` e `target/types/*.ts` já existem.
+- **A does not wait for B.** `oracle` and `card-vault` depend only on the
+  shared crates, which are done.
+- **B does not wait for A.** `perp` consumes `OracleView`, not the oracle
+  program. B's tests build that struct by hand.
+- **The frontend waits for nobody.** `packages/types` has the PDAs;
+  `target/idl/*.json` and `target/types/*.ts` already exist.
 
-## 4. Ordem recomendada D1–D3
+## 4. Order for D1–D3
 
-| Dia | Backend A | Backend B | Frontend |
+| Day | Backend A | Backend B | Frontend |
 |---|---|---|---|
-| D1 | ✅ decimais das frações (6, travado) | ✅ esqueleto de contas + ponto fixo | ✅ scaffold + PDAs |
-| D2 | `fractionalize`/`redeem` em litesvm | `deposit`/`withdraw` proporcional | leitura de contas via SDK |
-| D3 | pool AMM mock + primeira liquidez | NAV + mint/burn de CLP | tela do pool com dados reais |
+| D1 | ✅ fraction decimals (6, fixed) | ✅ accounts + fixed point | ✅ scaffold + PDAs |
+| D2 | litesvm for `fractionalize`/`redeem` | ✅ `open_position` reference | account reads via SDK |
+| D3 | mock AMM pool + first liquidity | `deposit`/proportional `withdraw` | pool screen with real shapes |
 
-## 5. O que está congelado
+## 5. What is frozen
 
-Mudar qualquer coisa desta lista exige o processo descrito no topo de
+Changing any of these needs the process at the top of
 `packages/slab-interface/src/lib.rs`.
 
-1. `slab_interface::seeds` — todos os PDAs
-2. `OracleAccount` e `OracleView` — a interface A↔B
-3. `PoolParams` — configuração econômica
-4. `MarketState` e `OracleState` — máquina de estados
-5. Escalas: WAD = 1e6, BPS = 1e4, RAY = 1e12
-6. `FRACTION_DECIMALS = 6` — mudar quebra o oráculo silenciosamente
-7. Os quatro program IDs em `keys/`
+1. `slab_interface::seeds` — every PDA
+2. `OracleAccount` and `OracleView` — the A↔B interface
+3. `PoolParams` — economic configuration
+4. `MarketState` and `OracleState`
+5. Scales: WAD = 1e6, BPS = 1e4, RAY = 1e12
+6. `FRACTION_DECIMALS = 6` — changing it breaks the oracle silently
+7. The four program IDs in `keys/`
 
-## 6. Bloqueadores
+## 6. Blockers
 
-### Blocker #1 — layout do AMM real (ALTO, dono: A)
+### Blocker #1 — real AMM layout (HIGH, owner: A)
 
-O formato on-chain do pool de frações/USDC não foi confirmado. Os adaptadores
-`Meteora`, `Orca` e `Raydium` **falham alto** de propósito, em Rust e em TS.
-O adaptador `Mock` existe para todo mundo trabalhar sem fingir integração.
+The on-chain layout of the fraction/USDC pool is unconfirmed. The `Meteora`,
+`Orca` and `Raydium` adapters **fail loudly** on purpose, in Rust and in TS.
+The `Mock` adapter exists so everyone can work without faking an integration.
 
-Quando confirmar, só mudam `programs/oracle/src/adapter.rs` e
-`packages/oracle/src/index.ts`. Nada em `perp` ou `clp-pool` é tocado.
+When it is confirmed, only `programs/oracle/src/adapter.rs` and
+`packages/oracle/src/index.ts` change.
 
-### Blocker #2 — quem é o primeiro LP (ALTO, dono: A + produto)
+### Blocker #2 — who provides the first liquidity (HIGH, owner: A + product)
 
-Sem depósito inicial no AMM não existe reserva, não existe preço, e nada mais
-funciona. O tamanho desse depósito define o teto de OI do mercado inteiro.
+Without an initial AMM deposit there is no reserve, no price, and nothing else
+works. The size of that deposit sets the open-interest ceiling for the whole
+market. This is a product decision, not a coding one.
 
-### Blocker #3 — circularidade do NAV (ALTO, dono: B)
+### Blocker #3 — NAV circularity (HIGH, owner: B)
 
-O mesmo pool AMM precifica o perp **e** a manga de cards do CLP. Quem empurra
-o AMM move os dois. A manga líquida mitiga; não elimina. Vai declarado na
-submissão.
+The same AMM pool prices the perp **and** the CLP's card sleeve. Pushing the
+AMM moves both. The liquid sleeve mitigates this; it does not eliminate it.
+It goes in the submission as written.
 
-### Blocker #4 — CPI de risco entre `perp` e `clp-pool` (MÉDIO, dono: B)
+### Blocker #4 — risk CPI between `perp` and `clp-pool` (MEDIUM, owner: B)
 
-`perp` precisa mover USDC do cofre do pool ao fechar posição vencedora. O
-desenho é: `Pool.perp_market` guarda o PDA autorizado, e só ele assina. Ainda
-não implementado — é o trabalho de D6–D8.
+`perp` has to move USDC out of the pool's vault when a winning position
+closes. The design: `Pool.perp_market` holds the authorised PDA, and only it
+signs. Not implemented yet — this is the D6–D8 work.
 
-### Blocker #5 — espaço no nome da pasta (BAIXO, mas irritante)
+~~Blocker #5 — trailing space in the folder name~~ — resolved on 1 Oct. The
+project directory is now `slab`, matching the repository.
 
-O diretório do projeto termina com espaço. `anchor build` funciona, mas
-`solana-keygen` recusa caminho absoluto com espaço e qualquer script que não
-cite o caminho vai quebrar. Recomendo renomear para `Ooffset` antes de
-clonar em outras máquinas.
+## 7. Test strategy
 
-## 7. Estratégia de testes
+Three layers, and the first catches the most bugs.
 
-Três camadas, e a primeira é a que mais pega bug.
+**Pure unit tests (`cargo test`)** — 88 tests, under a second, no validator.
+This is where the economic invariants live. Every risk function is written as
+a pure function over plain structs so it can be tested here.
 
-**Unitários puros (`cargo test`)** — 78 testes, rodam em menos de um segundo,
-sem validador. É onde vivem as invariantes econômicas. Toda função de risco é
-escrita como função pura sobre structs para poder ser testada aqui.
+**Rust↔TS parity (`node --test`)** — 19 tests with the same vectors as the
+Rust ones. If the frontend's maths drifts from the program's, the screen shows
+one liquidation price and the program uses another. This file catches that.
 
-**Paridade Rust↔TS (`node --test`)** — 19 testes com os mesmos vetores dos
-testes Rust. Se a matemática do frontend divergir da do programa, a tela mostra
-um preço de liquidação e o programa usa outro. Este arquivo pega isso.
+**Program tests in litesvm** — per-instruction, against the compiled `.so`.
+Not written yet; they start at D2.
 
-**Programa em litesvm** — testes por instrução, com o `.so` compilado. Ainda
-não escritos; entram a partir de D2.
+The **negative** tests matter more than the positive ones and are marked as
+such: capacity exceeded, forged oracle, a jump past the clamp, a stale oracle,
+insufficient depth, excessive divergence, opening outside `Active`,
+insufficient margin, liquidation before the threshold, bad debt, pro-rata
+haircut.
 
-Os **negativos** valem mais que os positivos e estão marcados como tal:
-capacidade estourada, oráculo forjado, salto acima do clamp, oráculo velho,
-profundidade insuficiente, divergência excessiva, abertura fora de `Active`,
-margem insuficiente, liquidação antes do gatilho, bad debt, haircut pro-rata.
+## 8. The finding that changes the plan
+
+```
+CLP solvency ceiling    $233,333
+AMM depth ceiling        $17,944   ← binds
+```
+
+AMM depth binds 13x before solvency. The ceiling the spec details most will
+almost never bite; what sizes the market is the liquidity in the fraction
+pool. Worth deciding whether `phi` and `delta_max` are too conservative for a
+constraint that barely ever binds.

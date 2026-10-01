@@ -1,46 +1,47 @@
 # SLAB
 
-Perps sobre índice de cards tokenizados na Solana. O pool CLP é a contraparte
-de todo trade; o preço vem de um pool AMM de frações, não de oráculo assinado.
+Perpetual futures on an index of tokenized trading cards, on Solana. The CLP
+pool is the counterparty to every trade; the price comes from an AMM pool of
+card fractions, not from a signed oracle.
 
-## Começar
+## Getting started
 
 ```sh
 npm install
-npm run sync-keys        # keys/ -> target/deploy/ (program IDs fixos)
-anchor build             # compila os 4 programas + IDLs + tipos TS
-cargo test --workspace   # 78 testes de invariante, < 1s
-node --test tests/parity.test.mjs   # 19 testes de paridade Rust <-> TS
+npm run sync-keys        # keys/ -> target/deploy/ (fixed program IDs)
+anchor build             # 4 programs + IDLs + TS types
+cargo test --workspace   # 88 invariant tests, < 1s
+node --test tests/parity.test.mjs   # 19 Rust <-> TS parity tests
 ```
 
-## Onde está o quê
+## Layout
 
-| Caminho | O quê |
+| Path | What |
 |---|---|
-| `packages/slab-math` | aritmética de ponto fixo, sem float |
-| `packages/slab-interface` | **interfaces congeladas** entre times |
-| `programs/oracle` | preço: TWAP, clamp, profundidade, divergência |
-| `programs/card-vault` | NFT ↔ frações SPL |
-| `programs/clp-pool` | pool, NAV, mangas, estado |
-| `programs/perp` | posições, borrow, liquidação |
-| `packages/types` `packages/sdk` | contrato com o frontend |
-| `docs/` | plano, arquitetura, invariantes, oráculo, frontend |
+| `packages/slab-math` | fixed-point arithmetic, no floats |
+| `packages/slab-risk` | every risk rule. No Anchor, no Solana, by design |
+| `packages/slab-interface` | **frozen interfaces** between tracks |
+| `programs/oracle` | price: TWAP, clamp, depth, divergence |
+| `programs/card-vault` | NFT ↔ SPL fractions |
+| `programs/clp-pool` | pool, NAV, sleeves, state |
+| `programs/perp` | positions, borrow, liquidation |
+| `packages/types` `packages/sdk` | the frontend contract |
+| `docs/` | handoff, plan, architecture, invariants, oracle, frontend |
 
-## Leia antes de programar
+## Read before writing code
 
-0. `docs/handoff.md` — **comece por aqui**
-1. `docs/implementation-plan.md` — quem faz o quê e o que está bloqueado
-2. `docs/invariants.md` — as 12 regras que não se negociam
-3. `packages/slab-interface/src/lib.rs` — o que está congelado e como mudar
+0. `docs/handoff.md` — **start here**
+1. `docs/implementation-plan.md` — who does what, and what is blocked
+2. `docs/invariants.md` — the 12 rules that are not negotiable
+3. `packages/slab-interface/src/lib.rs` — what is frozen and how to change it
 
 ## Branches
 
 ```
-main                          integração, sempre verde
+main                          integration, always green
 backend/card-vault-oracle     Backend A
 backend/risk-engine           Backend B
 frontend/web                  Frontend
 ```
 
-Commits pequenos e isolados. Não misture oráculo, risco e frontend no mesmo
-commit.
+Small, isolated commits. Never mix oracle, risk and frontend in one.

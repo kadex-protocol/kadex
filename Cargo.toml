@@ -1,5 +1,5 @@
 [workspace]
-members = ["programs/*", "packages/slab-math", "packages/slab-interface"]
+members = ["programs/*", "packages/slab-math", "packages/slab-risk", "packages/slab-interface"]
 resolver = "2"
 
 [workspace.package]
@@ -10,6 +10,7 @@ rust-version = "1.89.0"
 anchor-lang = "1.2.0"
 anchor-spl = "1.2.0"
 slab-math = { path = "packages/slab-math" }
+slab-risk = { path = "packages/slab-risk" }
 slab-interface = { path = "packages/slab-interface" }
 
 [profile.release]

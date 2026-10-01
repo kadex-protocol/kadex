@@ -1,89 +1,90 @@
-# Oráculo
+# Oracle
 
-> Dono: Backend A. Consumido por Backend B apenas através de `OracleView`.
+> Owner: Backend A. Consumed by Backend B only through `OracleView`.
 
-## O desenho
+## The design
 
 ```
-reservas do AMM externo
+external AMM reserves
         │
-        ▼  spot = reserva_usdc / reserva_fracao
-   observação no buffer circular (32 posições)
+        ▼  spot = usdc_reserve / fraction_reserve
+   observation in the ring buffer (32 slots)
         │
-        ▼  TWAP da janela de 30 min
-   clamp de 5% por atualização sobre o preço anterior
+        ▼  TWAP over a 30-minute window
+   5% clamp per update against the previous price
         │
         ▼
-   PREÇO OFICIAL  ──> perp (PnL, liquidação), clp-pool (marcação da manga)
+   OFFICIAL PRICE  ──> perp (PnL, liquidation), clp-pool (sleeve marking)
 ```
 
-Fills externos **não são fonte de preço**. Entram como `external_median` e
-servem só de limite de sanidade. Se essa alimentação falhar, o mercado perde
-uma defesa e continua funcionando.
+External fills are **not a price source**. They arrive as `external_median`
+and serve only as a sanity bound. If that feed fails, the market loses one
+defence and keeps working.
 
-## Por que não existe chave de oráculo
+## Why there is no oracle key
 
-`refresh_price` é permissionless e recalcula tudo a partir de estado on-chain.
-Não existe assinatura off-chain para ser roubada, e se o nosso keeper cair,
-qualquer pessoa mantém o preço vivo.
+`refresh_price` is permissionless and recomputes everything from on-chain
+state. There is no off-chain signature to steal, and if our keeper goes down
+anyone can keep the price alive.
 
-Isso é uma melhoria sobre a versão anterior do spec, que tinha oráculo assinado
-com chave única listada como risco.
+This is an improvement over the earlier version of the spec, which had a
+signed oracle with a single key listed as a risk.
 
-## As quatro defesas
+## The four defences
 
-| Defesa | Parâmetro | Ataque que barra |
+| Defence | Parameter | Attack it blocks |
 |---|---|---|
-| TWAP | `twap_window_secs` = 1800 | manipulação de bloco único |
-| Clamp por tick | `max_tick_move` = 5% | salto para caçar liquidação |
-| Piso de profundidade | `min_pool_depth` = $25k | sacar liquidez para deixar o oráculo barato |
-| Divergência externa | `max_divergence` = 15% | manipulação sustentada do pool |
+| TWAP | `twap_window_secs` = 1800 | single-block manipulation |
+| Per-tick clamp | `max_tick_move` = 5% | a jump to hunt liquidations |
+| Minimum depth | `min_pool_depth` = $25k | pulling liquidity to make the oracle cheap |
+| External divergence | `max_divergence` = 15% | sustained manipulation of the pool |
 
-Mais `max_staleness_secs` = 900, que derruba para `Stale`.
+Plus `max_staleness_secs` = 900, which drops the oracle to `Stale`.
 
-O clamp **não impede manipulação lenta**. Ele encarece e mata a versão
-instantânea e lucrativa dela. Um teste mede isso:
-`clamp_reaches_the_target_over_repeated_updates` prova que mover o preço 50%
-exige pelo menos 8 atualizações consecutivas.
+The clamp **does not prevent slow manipulation**. It makes it expensive and
+kills the instantaneous, profitable version. A test measures this:
+`clamp_reaches_the_target_over_repeated_updates` proves that moving the price
+50% takes at least 8 consecutive updates.
 
-## A interface congelada
+## The frozen interface
 
 ```rust
 pub struct OracleView {
-    pub price: u64,   // WAD, já com TWAP e clamp — use este
-    pub twap: u64,    // WAD, bruto, só diagnóstico
+    pub price: u64,   // WAD, TWAP and clamp applied — use this one
+    pub twap: u64,    // WAD, raw, diagnostics only
     pub ts: i64,
-    pub depth: u64,   // USDC nativo, entra no teto de OI
+    pub depth: u64,   // native USDC, feeds the OI ceiling
     pub state: OracleState,
 }
 
 impl OracleView {
-    fn require_tradeable(&self) -> Result<u64>;  // só OracleState::Ok
+    fn require_tradeable(&self) -> Result<u64>;  // OracleState::Ok only
     fn require_markable(&self, now, max_staleness) -> Result<u64>;
+    fn risk_input(&self) -> slab_risk::PriceInput;
 }
 ```
 
-`require_tradeable` é para abrir risco. `require_markable` é para liquidar e
-marcar — permitido mesmo fora de `Ok`, porque travar liquidação seria deixar
-posição podre acumulando.
+`require_tradeable` is for opening risk. `require_markable` is for liquidating
+and marking — allowed outside `Ok`, because blocking liquidation would leave
+rotten positions accumulating.
 
-Backend B chama `perp::oracle_view(account_info)` e nunca desserializa na mão.
+Backend B calls `OpenPosition::oracle_view()` and never deserializes by hand.
 
-## Blocker #1 — layout do AMM real
+## Blocker #1 — the real AMM layout
 
-**O formato on-chain do pool real de frações/USDC ainda não foi confirmado.**
+**The on-chain layout of the real fraction/USDC pool is not yet confirmed.**
 
-Os adaptadores `Meteora`, `Orca` e `Raydium` retornam erro em Rust
-(`AdapterUnsupported`) e lançam em TypeScript. Isso é deliberado: retornar zero
-ou um número plausível seria pior, porque o mercado abriria com preço
-inventado.
+The `Meteora`, `Orca` and `Raydium` adapters return an error in Rust
+(`AdapterUnsupported`) and throw in TypeScript. This is deliberate: returning
+zero, or a plausible number, would be worse, because the market would open on
+an invented price.
 
-O adaptador `Mock` lê um layout próprio (8 bytes de discriminador + dois u64
-little-endian) e serve devnet e testes.
+The `Mock` adapter reads its own layout (8 discriminator bytes + two
+little-endian u64) and covers devnet and tests.
 
-Quando o layout real for confirmado, mudam **apenas**:
+When the real layout is confirmed, **only** these change:
 
 - `programs/oracle/src/adapter.rs`
 - `packages/oracle/src/index.ts`
 
-Nada em `perp`, `clp-pool` ou no frontend é tocado.
+Nothing in `perp`, `clp-pool` or the frontend is touched.

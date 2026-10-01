@@ -1,25 +1,31 @@
-//! Programa `perp` — DONO: Backend B.
+//! Program `perp` — OWNER: Backend B.
 //!
-//! Posicoes long e short contra o pool CLP. Nao existe livro de ofertas e nao
-//! existe contraparte trader-a-trader: o pool aluga exposicao e cobra borrow
-//! por hora.
+//! Long and short positions against the CLP pool. There is no order book and
+//! no trader-to-trader matching: the pool rents out exposure and charges
+//! borrow by the hour.
 //!
-//! Tres regras que nao se negociam:
+//! # The shape to copy
 //!
-//! 1. Abrir posicao checa OS DOIS tetos de OI e obedece ao MENOR.
-//! 2. Liquidacao usa o preco do oraculo, nunca um preco interno. Se usasse um
-//!    preco interno, alguem empurraria esse preco para cacar liquidacao alheia.
-//! 3. Bad debt e registrado explicitamente e descontado do NAV. Nunca some.
+//! `open_position` below is the reference. Every instruction in this codebase
+//! follows it:
+//!
+//! 1. Anchor validates the accounts (constraints in the `#[derive(Accounts)]`)
+//! 2. the handler reads what it needs and calls **one** function in `slab-risk`
+//! 3. the handler moves tokens and writes state
+//! 4. the handler emits an event
+//!
+//! The handler decides nothing. Every rule — the two ceilings, the margin
+//! requirement, the utilization gate — lives in `slab-risk`, which cannot
+//! reach an `AccountInfo` and is therefore testable in milliseconds.
+//!
+//! If a handler here grows past ~25 lines, a rule has leaked out of
+//! `slab-risk`. Move it back. `handlers_stay_thin` fails when that happens.
 
 use anchor_lang::prelude::*;
-use slab_interface::{
-    m, read_oracle, seeds, MarketState, OracleView, PoolParams, Side, ORACLE_PROGRAM_ID,
-};
-use slab_math::{
-    accrue_borrow_index, borrow_owed, borrow_rate_hourly, equity, health_wad, liquidation_price,
-    min_margin, mul_wad_ceil, oi_allowed, oi_cap_depth, oi_cap_solvency, pnl, side_multiplier,
-    to_u64, utilization, RAY,
-};
+use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use clp_pool::Pool;
+use slab_interface::{m, r, read_oracle, seeds, OracleView, Side, ORACLE_PROGRAM_ID};
+use slab_risk::{self as risk, Gates, MarketRisk, PositionRisk};
 
 declare_id!("BcVwJ91Jd1k7xUNcGYzRygq2ubaCYn7p5MeUZzy1EyLR");
 
@@ -30,247 +36,109 @@ use errors::PerpError;
 pub mod perp {
     use super::*;
 
-    /// Cria o mercado ligado a um pool e a um oraculo.
+    /// Create the market for a pool and an oracle.
     pub fn initialize_market(ctx: Context<InitializeMarket>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
         let mk = &mut ctx.accounts.market;
         mk.pool = ctx.accounts.pool.key();
         mk.oracle = ctx.accounts.oracle.key();
-        mk.oi_long = 0;
-        mk.oi_short = 0;
-        mk.borrow_idx_long = RAY;
-        mk.borrow_idx_short = RAY;
-        mk.last_accrual_ts = Clock::get()?.unix_timestamp;
+        mk.set_risk(MarketRisk::new(now));
         mk.open_positions = 0;
         mk.bump = ctx.bumps.market;
         Ok(())
     }
 
-    /// Avanca os indices de borrow. PERMISSIONLESS: sem ator, ninguem paga
-    /// aluguel, entao qualquer um pode chamar.
-    pub fn accrue_borrow(ctx: Context<AccrueBorrow>, oi_cap: u64) -> Result<()> {
-        let now = Clock::get()?.unix_timestamp;
-        let params = ctx.accounts.params()?;
-        ctx.accounts.market.accrue(now, oi_cap, &params)?;
-        Ok(())
-    }
-}
-
-// ---------------------------------------------------------------------------
-// logica pura
-// ---------------------------------------------------------------------------
-
-impl Market {
-    pub fn oi_total(&self) -> Result<u64> {
-        self.oi_long
-            .checked_add(self.oi_short)
-            .ok_or(error!(PerpError::MathFailure))
-    }
-
-    pub fn oi_of(&self, side: Side) -> u64 {
-        match side {
-            Side::Long => self.oi_long,
-            Side::Short => self.oi_short,
-        }
-    }
-
-    pub fn oi_opposite(&self, side: Side) -> u64 {
-        match side {
-            Side::Long => self.oi_short,
-            Side::Short => self.oi_long,
-        }
-    }
-
-    pub fn borrow_index(&self, side: Side) -> u128 {
-        match side {
-            Side::Long => self.borrow_idx_long,
-            Side::Short => self.borrow_idx_short,
-        }
-    }
-
-    /// Taxa de borrow do lado, ja com o acrescimo do lado lotado.
-    pub fn borrow_rate(&self, side: Side, oi_cap: u64, params: &PoolParams) -> Result<u128> {
-        let u = m(utilization(self.oi_total()?, oi_cap))?;
-        let base = m(borrow_rate_hourly(params.r0 as u128, params.r1 as u128, u))?;
-        let mult = m(side_multiplier(
-            self.oi_of(side),
-            self.oi_opposite(side),
-            params.psi as u128,
-        ))?;
-        m(mul_wad_ceil(base, mult))
-    }
-
-    /// Avanca os dois indices ate `now`.
-    pub fn accrue(&mut self, now: i64, oi_cap: u64, params: &PoolParams) -> Result<()> {
-        let elapsed = now.saturating_sub(self.last_accrual_ts);
-        if elapsed <= 0 {
-            return Ok(());
-        }
-        let rl = self.borrow_rate(Side::Long, oi_cap, params)?;
-        let rs = self.borrow_rate(Side::Short, oi_cap, params)?;
-        self.borrow_idx_long = m(accrue_borrow_index(self.borrow_idx_long, rl, elapsed))?;
-        self.borrow_idx_short = m(accrue_borrow_index(self.borrow_idx_short, rs, elapsed))?;
-        self.last_accrual_ts = now;
-        Ok(())
-    }
-
-    /// Checa TODAS as condicoes de abertura. Falha alto e cedo.
+    /// Open a leveraged position against the pool.
     ///
-    /// Esta funcao e a porta unica de entrada de risco no protocolo.
-    #[allow(clippy::too_many_arguments)]
-    pub fn check_open(
-        &self,
-        state: MarketState,
-        oracle: &OracleView,
-        _side: Side,
+    /// REFERENCE IMPLEMENTATION — copy this shape.
+    pub fn open_position(
+        ctx: Context<OpenPosition>,
+        nonce: u64,
+        side: Side,
         notional: u64,
         margin: u64,
-        usdc_sleeve: u64,
-        params: &PoolParams,
-    ) -> Result<u64> {
-        require!(state.allows_open(), PerpError::StateForbidsOpen);
-        require!(notional > 0, PerpError::ZeroNotional);
+    ) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let pool = &ctx.accounts.pool;
+        let params = pool.params.risk();
+        let oracle = ctx.accounts.oracle_view()?;
 
-        // preco so vale se o oraculo esta saudavel
-        let price = oracle.require_tradeable()?;
-
-        // margem minima pela alavancagem maxima
-        let needed = m(min_margin(notional, params.base_leverage as u128))?;
-        require!(margin >= needed, PerpError::InsufficientMargin);
-
-        // OS DOIS TETOS. O menor manda.
-        let cap_solv = m(oi_cap_solvency(
-            usdc_sleeve,
-            params.phi as u128,
-            params.delta_max as u128,
+        // One call. Every rule that can refuse this order refuses in there.
+        let approval = r(risk::check_open(
+            &ctx.accounts.market.risk(),
+            ctx.accounts.gates(&oracle),
+            oracle.risk_input(),
+            pool.usdc_sleeve,
+            side.into(),
+            notional,
+            margin,
+            &params,
         ))?;
-        let cap_depth = m(oi_cap_depth(
-            oracle.depth,
-            params.delta_liq as u128,
-            params.mu as u128,
-        ))?;
-        let cap = oi_allowed(cap_solv, cap_depth);
 
-        let oi_after = self
-            .oi_total()?
-            .checked_add(notional)
-            .ok_or(error!(PerpError::MathFailure))?;
-        require!(oi_after <= cap, PerpError::CapacityExceeded);
-
-        // utilizacao acima do limite derruba o mercado para ReduceOnly; nao
-        // deixamos a ultima ordem entrar e so depois perceber
-        let u = m(utilization(oi_after, cap))?;
-        require!(
-            u < params.reduce_only_utilization as u128,
-            PerpError::UtilizationTooHigh
-        );
-
-        Ok(price)
-    }
-
-    pub fn add_oi(&mut self, side: Side, notional: u64) -> Result<()> {
-        match side {
-            Side::Long => {
-                self.oi_long = self
-                    .oi_long
-                    .checked_add(notional)
-                    .ok_or(error!(PerpError::MathFailure))?
-            }
-            Side::Short => {
-                self.oi_short = self
-                    .oi_short
-                    .checked_add(notional)
-                    .ok_or(error!(PerpError::MathFailure))?
-            }
-        }
-        self.open_positions = self.open_positions.saturating_add(1);
-        Ok(())
-    }
-
-    pub fn remove_oi(&mut self, side: Side, notional: u64) -> Result<()> {
-        match side {
-            Side::Long => self.oi_long = self.oi_long.saturating_sub(notional),
-            Side::Short => self.oi_short = self.oi_short.saturating_sub(notional),
-        }
-        self.open_positions = self.open_positions.saturating_sub(1);
-        Ok(())
-    }
-}
-
-impl Position {
-    /// Borrow devido desde a abertura, arredondado a favor do pool.
-    pub fn borrow_owed(&self, index_now: u128) -> Result<u64> {
-        m(borrow_owed(self.notional, self.borrow_idx_entry, index_now))
-    }
-
-    pub fn pnl(&self, price: u64) -> Result<i128> {
-        m(pnl(self.side.into(), self.entry_price, price, self.notional))
-    }
-
-    pub fn equity(&self, price: u64, index_now: u128) -> Result<i128> {
-        m(equity(self.margin, self.pnl(price)?, self.borrow_owed(index_now)?))
-    }
-
-    pub fn health(&self, price: u64, index_now: u128) -> Result<i128> {
-        m(health_wad(self.equity(price, index_now)?, self.notional))
-    }
-
-    /// Preco de liquidacao, deterministico e calculavel na abertura. O
-    /// frontend le exatamente este valor.
-    pub fn liquidation_price(&self, index_now: u128, maintenance: u64) -> Result<u64> {
-        m(liquidation_price(
-            self.side.into(),
-            self.entry_price,
-            self.margin,
-            self.notional,
-            self.borrow_owed(index_now)?,
-            maintenance as u128,
-        ))
-    }
-
-    pub fn is_liquidatable(&self, price: u64, index_now: u128, maintenance: u64) -> Result<bool> {
-        Ok(self.health(price, index_now)? < maintenance as i128)
-    }
-
-    /// Reparte o que sobra numa liquidacao: taxa do liquidador primeiro, resto
-    /// para o pool. Patrimonio negativo vira bad debt, nunca some.
-    pub fn settle_liquidation(
-        &self,
-        price: u64,
-        index_now: u128,
-        liquidator_fee_bps: u16,
-    ) -> Result<Liquidation> {
-        let eq = self.equity(price, index_now)?;
-        if eq <= 0 {
-            return Ok(Liquidation {
-                liquidator_fee: 0,
-                to_pool: 0,
-                bad_debt: m(to_u64(eq.unsigned_abs()))?,
-            });
-        }
-        let eq_u = m(to_u64(eq as u128))?;
         let fee = m(slab_math::apply_bps_ceil(
-            self.notional as u128,
-            liquidator_fee_bps as u128,
-        ))?;
-        let fee = m(to_u64(fee))?.min(eq_u);
-        Ok(Liquidation {
-            liquidator_fee: fee,
-            to_pool: eq_u - fee,
-            bad_debt: 0,
-        })
-    }
-}
+            notional as u128,
+            pool.params.open_close_fee_bps as u128,
+        ))
+        .and_then(|v| m(slab_math::to_u64(v)))?;
+        ctx.accounts.collect(margin + fee)?;
 
-/// Resultado de uma liquidacao. Soma sempre bate com o patrimonio da posicao.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Liquidation {
-    pub liquidator_fee: u64,
-    pub to_pool: u64,
-    pub bad_debt: u64,
+        let mk = &mut ctx.accounts.market;
+        let mut state = mk.risk();
+        r(state.add_oi(side.into(), notional))?;
+        mk.set_risk(state);
+        mk.open_positions = mk.open_positions.saturating_add(1);
+
+        ctx.accounts.position.set_inner(Position {
+            owner: ctx.accounts.trader.key(),
+            market: mk.key(),
+            side,
+            notional,
+            margin,
+            entry_price: approval.entry_price,
+            borrow_idx_entry: approval.borrow_idx_entry,
+            opened_ts: now,
+            nonce,
+            bump: ctx.bumps.position,
+        });
+
+        emit!(PositionOpened {
+            position: ctx.accounts.position.key(),
+            owner: ctx.accounts.trader.key(),
+            side,
+            notional,
+            margin,
+            entry_price: approval.entry_price,
+            fee,
+            oi_after: approval.oi_after,
+            cap: approval.capacity.cap,
+        });
+        Ok(())
+    }
+
+    /// Advance both borrow indices. PERMISSIONLESS: without an actor nobody
+    /// pays rent, so anyone may call it.
+    pub fn accrue_borrow(ctx: Context<AccrueBorrow>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let params = ctx.accounts.pool.params.risk();
+        let depth = ctx.accounts.oracle_view()?.depth;
+        let cap = r(risk::capacity(ctx.accounts.pool.usdc_sleeve, depth, &params))?.cap;
+        let mk = &mut ctx.accounts.market;
+        let mut state = mk.risk();
+        r(risk::accrue(&mut state, now, cap, &params))?;
+        mk.set_risk(state);
+        Ok(())
+    }
+
+    // D6-D8 (Backend B): close_position, liquidate.
+    //
+    // Both follow the shape above. The decisions already exist and are tested:
+    // `risk::settle_close` and `risk::settle_liquidation`. What is missing is
+    // only the payout, which needs a CPI into `clp-pool` signed by the market
+    // PDA — see Blocker #4 in docs/implementation-plan.md.
 }
 
 // ---------------------------------------------------------------------------
-// contas
+// accounts
 // ---------------------------------------------------------------------------
 
 #[account]
@@ -285,6 +153,32 @@ pub struct Market {
     pub last_accrual_ts: i64,
     pub open_positions: u32,
     pub bump: u8,
+}
+
+impl Market {
+    /// Project onto the plain struct `slab-risk` works with.
+    ///
+    /// The fields are stored flat rather than as a nested `MarketRisk` on
+    /// purpose: nesting it would force `slab-risk` to depend on Borsh and
+    /// Anchor's `InitSpace`, and the whole value of that crate is that it
+    /// depends on neither. A copy in and out is the price of the guarantee.
+    pub fn risk(&self) -> MarketRisk {
+        MarketRisk {
+            oi_long: self.oi_long,
+            oi_short: self.oi_short,
+            borrow_idx_long: self.borrow_idx_long,
+            borrow_idx_short: self.borrow_idx_short,
+            last_accrual_ts: self.last_accrual_ts,
+        }
+    }
+
+    pub fn set_risk(&mut self, r: MarketRisk) {
+        self.oi_long = r.oi_long;
+        self.oi_short = r.oi_short;
+        self.borrow_idx_long = r.borrow_idx_long;
+        self.borrow_idx_short = r.borrow_idx_short;
+        self.last_accrual_ts = r.last_accrual_ts;
+    }
 }
 
 #[account]
@@ -302,13 +196,26 @@ pub struct Position {
     pub bump: u8,
 }
 
+impl Position {
+    /// Shape this position takes when handed to `slab-risk`.
+    pub fn risk(&self) -> PositionRisk {
+        PositionRisk {
+            side: self.side.into(),
+            notional: self.notional,
+            margin: self.margin,
+            entry_price: self.entry_price,
+            borrow_idx_entry: self.borrow_idx_entry,
+        }
+    }
+}
+
 #[derive(Accounts)]
 pub struct InitializeMarket<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
-    /// CHECK: conta do pool; a contabilidade e validada na CPI.
+    /// CHECK: pool identity only; its fields are read where they are needed.
     pub pool: UncheckedAccount<'info>,
-    /// CHECK: conta do oraculo; dono validado em `read_oracle`.
+    /// CHECK: oracle account; ownership checked on every read.
     pub oracle: UncheckedAccount<'info>,
     #[account(
         init, payer = admin, space = 8 + Market::INIT_SPACE,
@@ -319,309 +226,196 @@ pub struct InitializeMarket<'info> {
 }
 
 #[derive(Accounts)]
-pub struct AccrueBorrow<'info> {
-    /// Permissionless de proposito.
-    pub caller: Signer<'info>,
-    #[account(mut, seeds = [seeds::MARKET, market.pool.as_ref()], bump = market.bump)]
+#[instruction(nonce: u64)]
+pub struct OpenPosition<'info> {
+    #[account(mut)]
+    pub trader: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [seeds::MARKET, market.pool.as_ref()], bump = market.bump,
+        has_one = pool @ PerpError::WrongPool,
+        has_one = oracle @ PerpError::WrongOracle,
+    )]
     pub market: Account<'info, Market>,
-    /// CHECK: le os parametros; validado por dono.
-    pub pool: UncheckedAccount<'info>,
+
+    /// Read-only here: the pool supplies the parameters and the liquid sleeve
+    /// that the capacity ceiling is computed from.
+    pub pool: Account<'info, Pool>,
+
+    /// CHECK: deserialized through `read_oracle`, which verifies the owner is
+    /// the oracle program. Never read by hand.
+    pub oracle: UncheckedAccount<'info>,
+
+    #[account(
+        init, payer = trader, space = 8 + Position::INIT_SPACE,
+        seeds = [seeds::POSITION, market.key().as_ref(), trader.key().as_ref(), &nonce.to_le_bytes()],
+        bump
+    )]
+    pub position: Account<'info, Position>,
+
+    #[account(
+        mut,
+        constraint = trader_usdc.mint == pool.usdc_mint @ PerpError::WrongMint,
+        constraint = trader_usdc.owner == trader.key() @ PerpError::NotOwner,
+    )]
+    pub trader_usdc: Account<'info, TokenAccount>,
+
+    #[account(mut, address = pool.usdc_vault @ PerpError::WrongVault)]
+    pub usdc_vault: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
 }
 
-impl<'info> AccrueBorrow<'info> {
-    /// D6-D8: trocar por leitura real da conta `Pool` via `clp_pool::Pool`.
-    /// Por ora usa os defaults do spec para o indice ja poder avancar.
-    pub fn params(&self) -> Result<PoolParams> {
-        Ok(PoolParams::default())
+impl<'info> OpenPosition<'info> {
+    /// The only door to the oracle.
+    pub fn oracle_view(&self) -> Result<OracleView> {
+        read_oracle(&self.oracle.to_account_info(), &ORACLE_PROGRAM_ID)
+    }
+
+    /// Translate the two state enums into the booleans `slab-risk` asks for.
+    /// Keeping the enums out of the risk crate means a change in their shape
+    /// never reaches a rule.
+    pub fn gates(&self, oracle: &OracleView) -> Gates {
+        Gates {
+            market_allows_open: self.pool.state.allows_open(),
+            oracle_tradeable: oracle.state.is_tradeable(),
+        }
+    }
+
+    /// Margin plus fee, from the trader into the pool's liquid sleeve.
+    pub fn collect(&self, amount: u64) -> Result<()> {
+        token::transfer(
+            CpiContext::new(
+                self.token_program.key(),
+                Transfer {
+                    from: self.trader_usdc.to_account_info(),
+                    to: self.usdc_vault.to_account_info(),
+                    authority: self.trader.to_account_info(),
+                },
+            ),
+            amount,
+        )
     }
 }
 
-/// Le o oraculo pela porta unica. Nenhum outro caminho e aceito.
-pub fn oracle_view(ai: &AccountInfo) -> Result<OracleView> {
-    read_oracle(ai, &ORACLE_PROGRAM_ID)
+#[derive(Accounts)]
+pub struct AccrueBorrow<'info> {
+    /// Permissionless by design.
+    pub caller: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [seeds::MARKET, market.pool.as_ref()], bump = market.bump,
+        has_one = pool @ PerpError::WrongPool,
+        has_one = oracle @ PerpError::WrongOracle,
+    )]
+    pub market: Account<'info, Market>,
+    pub pool: Account<'info, Pool>,
+    /// CHECK: read through `read_oracle`.
+    pub oracle: UncheckedAccount<'info>,
+}
+
+impl<'info> AccrueBorrow<'info> {
+    pub fn oracle_view(&self) -> Result<OracleView> {
+        read_oracle(&self.oracle.to_account_info(), &ORACLE_PROGRAM_ID)
+    }
+}
+
+#[event]
+pub struct PositionOpened {
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub side: Side,
+    pub notional: u64,
+    pub margin: u64,
+    pub entry_price: u64,
+    pub fee: u64,
+    pub oi_after: u64,
+    /// Capacity at the moment of approval, so the log explains refusals later.
+    pub cap: u64,
 }
 
 // ---------------------------------------------------------------------------
-// testes
+// structural guards
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use slab_interface::OracleState;
-    use slab_math::WAD;
-
-    const USDC: u64 = 1_000_000;
-
-    fn market() -> Market {
-        Market {
-            pool: Pubkey::default(),
-            oracle: Pubkey::default(),
-            oi_long: 0,
-            oi_short: 0,
-            borrow_idx_long: RAY,
-            borrow_idx_short: RAY,
-            last_accrual_ts: 0,
-            open_positions: 0,
-            bump: 255,
-        }
-    }
-
-    fn healthy_oracle(depth: u64) -> OracleView {
-        OracleView {
-            price: WAD as u64,
-            twap: WAD as u64,
-            ts: 1_000,
-            depth,
-            state: OracleState::Ok,
-        }
-    }
-
-    fn position(side: Side, notional: u64, lev: u64) -> Position {
-        Position {
-            owner: Pubkey::default(),
-            market: Pubkey::default(),
-            side,
-            notional,
-            margin: notional / lev,
-            entry_price: WAD as u64,
-            borrow_idx_entry: RAY,
-            opened_ts: 0,
-            nonce: 0,
-            bump: 255,
-        }
-    }
-
-    // ---- abertura ----
+    /// A handler longer than this almost always has a rule hidden inside it.
+    /// Decisions belong in `slab-risk`, where they can be tested without a
+    /// validator.
+    ///
+    /// This is a blunt instrument on purpose: it fails in the `cargo test` of
+    /// whoever broke it, within the same minute, instead of surfacing in a
+    /// code review nobody has time for.
+    const MAX_HANDLER_LINES: usize = 45;
 
     #[test]
-    fn open_is_refused_when_the_depth_cap_is_exceeded() {
-        let mk = market();
-        let p = PoolParams::default();
-        let o = healthy_oracle(60_000 * USDC);
-        // teto de profundidade ~17.944; solvencia ~233.333
-        assert!(mk
-            .check_open(MarketState::Active, &o, Side::Long, 10_000 * USDC, 2_000 * USDC, 140_000 * USDC, &p)
-            .is_ok());
+    fn handlers_stay_thin() {
+        let src = include_str!("lib.rs");
+        let mut inside = false;
+        let mut depth = 0usize;
+        let mut current: Option<(String, usize)> = None;
+        let mut seen: Vec<String> = Vec::new();
+
+        for line in src.lines() {
+            let t = line.trim();
+            if t.starts_with("pub mod perp {") {
+                inside = true;
+                continue;
+            }
+            if !inside {
+                continue;
+            }
+            if let Some(rest) = t.strip_prefix("pub fn ") {
+                let name = rest.split('(').next().unwrap_or("?").to_string();
+                current = Some((name, 0));
+                depth = 0;
+            }
+            if let Some((_, ref mut n)) = current {
+                *n += 1;
+                depth += t.matches('{').count();
+                depth -= t.matches('}').count().min(depth);
+                if depth == 0 && *n > 1 {
+                    let (name, count) = current.take().unwrap();
+                    assert!(
+                        count <= MAX_HANDLER_LINES,
+                        "handler `{name}` is {count} lines; limit is {MAX_HANDLER_LINES}. \
+                         A rule probably leaked out of slab-risk — move it back."
+                    );
+                    seen.push(name);
+                }
+            }
+        }
+
+        // A guard that silently finds nothing is worse than no guard: it
+        // reports green while the thing it watches rots. If the parser stops
+        // recognising handlers — say someone reformats the `#[program]`
+        // module — this fails instead of passing vacuously.
         assert!(
-            mk.check_open(MarketState::Active, &o, Side::Long, 20_000 * USDC, 4_000 * USDC, 140_000 * USDC, &p)
-                .is_err(),
-            "acima do teto de profundidade tem que ser recusado"
+            seen.len() >= 3,
+            "the thin-handler guard only found {seen:?}; it has stopped \
+             parsing the #[program] module and is no longer checking anything"
         );
     }
 
     #[test]
-    fn open_is_refused_when_the_solvency_cap_is_exceeded() {
-        let mk = market();
-        let p = PoolParams::default();
-        // AMM fundo: quem trava agora e a solvencia
-        let o = healthy_oracle(5_000_000 * USDC);
-        // manga liquida pequena -> teto de 1.666
-        let small = 1_000 * USDC;
-        assert!(mk
-            .check_open(MarketState::Active, &o, Side::Long, 1_000 * USDC, 200 * USDC, small, &p)
-            .is_ok());
-        assert!(mk
-            .check_open(MarketState::Active, &o, Side::Long, 5_000 * USDC, 1_000 * USDC, small, &p)
-            .is_err());
-    }
-
-    #[test]
-    fn open_is_refused_with_insufficient_margin() {
-        let mk = market();
-        let p = PoolParams::default();
-        let o = healthy_oracle(60_000 * USDC);
-        // 5x exige 20% de margem
-        let n = 1_000 * USDC;
-        assert!(mk
-            .check_open(MarketState::Active, &o, Side::Long, n, 200 * USDC, 140_000 * USDC, &p)
-            .is_ok());
-        assert!(mk
-            .check_open(MarketState::Active, &o, Side::Long, n, 199 * USDC, 140_000 * USDC, &p)
-            .is_err());
-    }
-
-    #[test]
-    fn open_is_refused_when_the_oracle_is_not_ok() {
-        let mk = market();
-        let p = PoolParams::default();
-        for bad in [
-            OracleState::Stale,
-            OracleState::ShallowDepth,
-            OracleState::Diverged,
-            OracleState::Uninitialized,
-        ] {
-            let mut o = healthy_oracle(60_000 * USDC);
-            o.state = bad;
+    fn risk_crate_cannot_reach_solana() {
+        // The guarantee is structural: if slab-risk ever gains anchor-lang or
+        // solana-program, a rule can start reading accounts and the split
+        // stops meaning anything.
+        let manifest = include_str!("../../../packages/slab-risk/Cargo.toml");
+        let deps = manifest
+            .split("[dependencies]")
+            .nth(1)
+            .expect("slab-risk manifest must declare [dependencies]");
+        for forbidden in ["anchor-lang", "anchor-spl", "solana-program", "solana-sdk"] {
             assert!(
-                mk.check_open(MarketState::Active, &o, Side::Long, 1_000 * USDC, 500 * USDC, 140_000 * USDC, &p)
-                    .is_err(),
-                "{bad:?} deveria bloquear abertura"
+                !deps.contains(forbidden),
+                "slab-risk must not depend on {forbidden}: risk rules would be \
+                 able to touch accounts and stop being testable without a validator"
             );
         }
-    }
-
-    #[test]
-    fn open_is_refused_outside_active() {
-        let mk = market();
-        let p = PoolParams::default();
-        let o = healthy_oracle(60_000 * USDC);
-        for s in [MarketState::ReduceOnly, MarketState::Settled] {
-            assert!(mk
-                .check_open(s, &o, Side::Long, 1_000 * USDC, 500 * USDC, 140_000 * USDC, &p)
-                .is_err());
-        }
-    }
-
-    #[test]
-    fn zero_notional_is_refused() {
-        let mk = market();
-        let p = PoolParams::default();
-        let o = healthy_oracle(60_000 * USDC);
-        assert!(mk
-            .check_open(MarketState::Active, &o, Side::Long, 0, 0, 140_000 * USDC, &p)
-            .is_err());
-    }
-
-    // ---- borrow ----
-
-    #[test]
-    fn borrow_grows_quadratically_with_utilization() {
-        let p = PoolParams::default();
-        let cap = 100_000 * USDC;
-        let mut low = market();
-        low.oi_long = 10_000 * USDC;
-        let mut high = market();
-        high.oi_long = 80_000 * USDC;
-        let rl = low.borrow_rate(Side::Long, cap, &p).unwrap();
-        let rh = high.borrow_rate(Side::Long, cap, &p).unwrap();
-        assert!(rh > rl * 4, "8x a utilizacao deveria mais que quadruplicar");
-    }
-
-    #[test]
-    fn crowded_side_pays_more_than_the_thin_side() {
-        let p = PoolParams::default();
-        let cap = 100_000 * USDC;
-        let mut mk = market();
-        mk.oi_long = 90_000 * USDC;
-        mk.oi_short = 10_000 * USDC;
-        let long = mk.borrow_rate(Side::Long, cap, &p).unwrap();
-        let short = mk.borrow_rate(Side::Short, cap, &p).unwrap();
-        assert!(long > short, "o lado lotado tem que pagar mais");
-    }
-
-    #[test]
-    fn borrow_index_advances_only_forward() {
-        let p = PoolParams::default();
-        let mut mk = market();
-        mk.oi_long = 50_000 * USDC;
-        let before = mk.borrow_idx_long;
-        mk.accrue(3_600, 100_000 * USDC, &p).unwrap();
-        assert!(mk.borrow_idx_long > before);
-        let after = mk.borrow_idx_long;
-        // relogio voltando nao pode reduzir o indice
-        mk.accrue(0, 100_000 * USDC, &p).unwrap();
-        assert_eq!(mk.borrow_idx_long, after);
-    }
-
-    // ---- posicao ----
-
-    #[test]
-    fn trader_profit_and_pool_loss_are_the_same_number() {
-        let pos = position(Side::Long, 1_000 * USDC, 5);
-        let up = (WAD + WAD / 5) as u64; // +20%
-        assert_eq!(pos.pnl(up).unwrap(), 200 * USDC as i128);
-    }
-
-    #[test]
-    fn liquidation_price_is_known_at_open_time() {
-        let p = PoolParams::default();
-        let long = position(Side::Long, 1_000 * USDC, 5);
-        let short = position(Side::Short, 1_000 * USDC, 5);
-        let l = long.liquidation_price(RAY, p.maintenance_margin).unwrap();
-        let s = short.liquidation_price(RAY, p.maintenance_margin).unwrap();
-        assert_eq!(l, (WAD as u64) - 137_500);
-        assert_eq!(s, (WAD as u64) + 137_500);
-    }
-
-    #[test]
-    fn not_liquidatable_before_the_threshold() {
-        let p = PoolParams::default();
-        let pos = position(Side::Long, 1_000 * USDC, 5);
-        // logo acima do preco de liquidacao
-        let just_above = pos.liquidation_price(RAY, p.maintenance_margin).unwrap() + 1_000;
-        assert!(!pos
-            .is_liquidatable(just_above, RAY, p.maintenance_margin)
-            .unwrap());
-        // logo abaixo
-        let just_below = pos.liquidation_price(RAY, p.maintenance_margin).unwrap() - 1_000;
-        assert!(pos
-            .is_liquidatable(just_below, RAY, p.maintenance_margin)
-            .unwrap());
-    }
-
-    #[test]
-    fn liquidation_pays_the_caller_then_the_pool() {
-        let p = PoolParams::default();
-        let pos = position(Side::Long, 1_000 * USDC, 5);
-        // queda de 15%: patrimonio = 200 - 150 = 50
-        let price = (WAD * 85 / 100) as u64;
-        let r = pos
-            .settle_liquidation(price, RAY, p.liquidator_fee_bps)
-            .unwrap();
-        assert_eq!(r.liquidator_fee, 10 * USDC, "1% do notional");
-        assert_eq!(r.to_pool, 40 * USDC);
-        assert_eq!(r.bad_debt, 0);
-        assert_eq!(r.liquidator_fee + r.to_pool, 50 * USDC);
-    }
-
-    #[test]
-    fn a_gap_through_the_margin_becomes_recorded_bad_debt() {
-        let p = PoolParams::default();
-        let pos = position(Side::Long, 1_000 * USDC, 5);
-        // queda de 30%: perda de 300 contra margem de 200
-        let price = (WAD * 70 / 100) as u64;
-        let r = pos
-            .settle_liquidation(price, RAY, p.liquidator_fee_bps)
-            .unwrap();
-        assert_eq!(r.bad_debt, 100 * USDC, "prejuizo tem que aparecer");
-        assert_eq!(r.liquidator_fee, 0);
-        assert_eq!(r.to_pool, 0);
-    }
-
-    #[test]
-    fn borrow_eats_margin_and_moves_liquidation_closer() {
-        let p = PoolParams::default();
-        let pos = position(Side::Long, 1_000 * USDC, 5);
-        let clean = pos.liquidation_price(RAY, p.maintenance_margin).unwrap();
-        // indice 2% acima -> 20 USDC de borrow devido
-        let with_borrow = pos
-            .liquidation_price(RAY + RAY / 50, p.maintenance_margin)
-            .unwrap();
-        assert!(with_borrow > clean, "borrow aproxima a liquidacao");
-    }
-
-    #[test]
-    fn full_hedge_scenario_from_the_spec() {
-        // carteira com ~3.200 em cards, short de 3.200, indice cai 20%
-        let pos = position(Side::Short, 3_200 * USDC, 4);
-        let after = (WAD * 80 / 100) as u64;
-        let gain = pos.pnl(after).unwrap();
-        let card_loss = -(640 * USDC as i128);
-        assert_eq!(gain, 640 * USDC as i128);
-        assert_eq!(gain + card_loss, 0);
-    }
-
-    #[test]
-    fn oi_accounting_is_symmetric() {
-        let mut mk = market();
-        mk.add_oi(Side::Long, 1_000).unwrap();
-        mk.add_oi(Side::Short, 400).unwrap();
-        assert_eq!(mk.oi_total().unwrap(), 1_400);
-        assert_eq!(mk.open_positions, 2);
-        mk.remove_oi(Side::Long, 1_000).unwrap();
-        assert_eq!(mk.oi_long, 0);
-        assert_eq!(mk.oi_total().unwrap(), 400);
-        assert_eq!(mk.open_positions, 1);
     }
 }

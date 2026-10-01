@@ -1,21 +1,21 @@
-# Contrato com o frontend
+# Frontend contract
 
-> O frontend NÃO desserializa conta na mão e NÃO deriva PDA na mão. Tudo passa
-> por `@slab/sdk`, para que uma mudança de layout quebre a compilação do SDK
-> em vez de quebrar a tela em silêncio.
+> The frontend does NOT deserialize accounts by hand and does NOT derive PDAs
+> by hand. Everything goes through `@slab/sdk`, so a layout change breaks the
+> SDK build instead of breaking the screen in silence.
 
-## O que já dá para usar hoje
+## Usable today
 
-| Recurso | Onde | Estado |
+| Resource | Where | State |
 |---|---|---|
-| Program IDs | `@slab/types` → `PROGRAM_IDS` | congelado |
-| Derivação de PDA | `@slab/types` → `find*` | congelado |
-| IDLs | `target/idl/*.json` | gerados |
-| Tipos Anchor | `target/types/*.ts` | gerados |
-| Matemática | `@slab/sdk` → `math` | com teste de paridade |
-| Derivados de tela | `@slab/sdk` → `derive*` | pronto |
+| Program IDs | `@slab/types` → `PROGRAM_IDS` | frozen |
+| PDA derivation | `@slab/types` → `find*` | frozen |
+| IDLs | `target/idl/*.json` | generated |
+| Anchor types | `target/types/*.ts` | generated |
+| Maths | `@slab/sdk` → `math` | parity-tested |
+| Screen derivations | `@slab/sdk` → `derive*` | done |
 
-## Derivação de PDA
+## PDA derivation
 
 ```ts
 import { findPool, findMarket, findPosition, findOracle } from "@slab/types";
@@ -26,47 +26,47 @@ const oracle   = findOracle(basket);
 const position = findPosition(market, wallet, 0n);
 ```
 
-Os seeds espelham `slab_interface::seeds` byte a byte. Se divergirem, o
-frontend deriva endereços que não existem.
+The seeds mirror `slab_interface::seeds` byte for byte. If they drift, the
+frontend derives addresses that do not exist.
 
-## Os derivados que a tela precisa
+## Values the screen needs
 
-Nenhum destes valores está gravado na conta. São calculados no SDK, com o
-mesmo ponto fixo do Rust.
+None of these are stored on an account. They are computed in the SDK with the
+same fixed-point arithmetic as the Rust.
 
 ```ts
 import { derivePosition, deriveCapacity, deriveBorrowRates, derivePool } from "@slab/sdk";
 
-// posição: PnL, borrow devido, patrimônio, saúde, preço de liquidação
+// position: PnL, borrow owed, equity, health, liquidation price
 const p = derivePosition(raw, market, oraclePrice, pool.params);
 
-// capacidade: os DOIS tetos e qual deles trava
+// capacity: BOTH ceilings and which one binds
 const c = deriveCapacity(pool, oracle, market);
-// c.binding === "depth" | "solvency"  ← mostre isso na tela
-// c.free                              ← quanto ainda dá para abrir
-// c.utilization                       ← em WAD
+// c.binding === "depth" | "solvency"  ← show this
+// c.free                              ← how much can still be opened
+// c.utilization                       ← in WAD
 
-// borrow por lado, já com o acréscimo do lado lotado
+// borrow per side, crowded-side surcharge included
 const r = deriveBorrowRates(pool, market, c.cap);
 
-// pool: NAV, preço do CLP, composição das mangas
+// pool: NAV, CLP price, sleeve composition
 const v = derivePool(pool);
 ```
 
-## Escalas
+## Scales
 
-| Valor | Escala | Converter com |
+| Value | Scale | Convert with |
 |---|---|---|
-| preços, razões, parâmetros | WAD = 1e6 | `fromWad` |
-| USDC e frações | 6 casas | `fromUsdc` / `toUsdc` |
-| índice de borrow | RAY = 1e12 | — |
-| taxas de configuração | bps = 1e4 | — |
+| prices, ratios, parameters | WAD = 1e6 | `fromWad` |
+| USDC and fractions | 6 decimals | `fromUsdc` / `toUsdc` |
+| borrow index | RAY = 1e12 | — |
+| configured fees | bps = 1e4 | — |
 
-**Tudo é BigInt.** Não existe `Number` em caminho de dinheiro: `Number` perde
-precisão acima de 2^53 e um saldo em USDC nativo passa disso fácil. Converta
-para `Number` só na última linha antes de exibir.
+**Everything is BigInt.** `Number` loses precision above 2^53 and a native
+USDC balance passes that easily. Convert to `Number` on the last line, for
+display only.
 
-## Habilitar e desabilitar controles
+## Enabling and disabling controls
 
 ```ts
 import { gates, oracleTradeable } from "@slab/types";
@@ -74,32 +74,32 @@ import { gates, oracleTradeable } from "@slab/types";
 const g = gates(pool.state);      // canOpen, canClose, canDeposit, canWithdraw...
 const ok = oracleTradeable(oracle.state);
 
-// botão de abrir posição:
+// open-position button:
 disabled = !g.canOpen || !ok || c.free === 0n;
 ```
 
-Espelha `MarketState::allows_*` do Rust. Se a tela habilitar um botão que o
-programa recusa, o usuário paga gas para receber erro.
+This mirrors `MarketState::allows_*` in Rust. If the screen enables a button
+the program refuses, the user pays gas to receive an error.
 
-## O que mostrar quando o mercado trava
+## What to show when the market is gated
 
-Nunca mostre só "erro". O estado diz o porquê:
+Never show a bare "error". The state says why:
 
-| Estado | Mensagem |
+| State | Message |
 |---|---|
-| `reduceOnly` + oráculo `shallowDepth` | "Liquidez do pool abaixo do mínimo. Só é possível fechar posições." |
-| `reduceOnly` + utilização alta | "Capacidade esgotada. Só é possível fechar posições." |
-| oráculo `stale` | "Preço desatualizado. Aguardando atualização." |
-| oráculo `diverged` | "Preço divergiu da referência externa. Mercado em espera." |
-| `settled` | "Mercado encerrado. Resgate final disponível." |
+| `reduceOnly` + oracle `shallowDepth` | "Pool liquidity below minimum. Closing positions only." |
+| `reduceOnly` + high utilization | "Capacity reached. Closing positions only." |
+| oracle `stale` | "Price out of date. Waiting for an update." |
+| oracle `diverged` | "Price diverged from the external reference. Market on hold." |
+| `settled` | "Market closed. Final redemption available." |
 
-## O que ainda não existe
+## What does not exist yet
 
-- instruções de `deposit` / `withdraw` / `open_position` / `close_position` /
-  `liquidate` — os esqueletos estão definidos, os handlers entram em D3–D10
-- leitura real das contas (o SDK tem as formas, falta o fetch)
-- `apps/web` está vazio
+- `deposit`, `withdraw`, `close_position` and `liquidate` instructions.
+  `open_position` is complete and can be called today.
+- real account fetching (the SDK has the shapes, the fetch is missing)
+- `apps/web` is empty
 
-O frontend pode começar por: scaffold, wallet adapter, derivação de PDA,
-telas com dados mockados nas formas de `PoolView`, `OracleView`, `MarketView`
-e `PositionView`. Quando os handlers chegarem, só o fetch muda.
+Start with: scaffold, wallet adapter, PDA derivation, screens driven by mocked
+data in the shapes of `PoolView`, `OracleView`, `MarketView` and
+`PositionView`. When the handlers land, only the fetch changes.

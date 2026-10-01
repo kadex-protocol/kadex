@@ -1,24 +1,28 @@
-//! Programa `clp-pool` — DONO: Backend B.
+//! Program `clp-pool` — OWNER: Backend B.
 //!
-//! O pool e a contraparte de todo trade. Ele carrega duas mangas com funcoes
-//! separadas, e uma NUNCA faz o trabalho da outra:
+//! The pool is the counterparty to every trade. It carries two sleeves with
+//! separate jobs, and one never does the other's work:
 //!
-//! - manga USDC (`usdc_sleeve`): paga trader vencedor, saque e liquidacao
-//! - manga de cards (`card_sleeve_value`): da o beta e o retorno do LP
+//! - USDC sleeve (`usdc_sleeve`): pays winning traders, withdrawals, liquidations
+//! - card sleeve (`card_sleeve_value`): provides the beta and the LP's return
 //!
-//! A manga de cards nunca paga trader vencedor. E por isso que o teto de OI
-//! olha para `usdc_sleeve`, e nao para o NAV total.
+//! The card sleeve never pays a winning trader. That is why the open-interest
+//! ceiling looks at `usdc_sleeve` and not at total NAV.
 //!
-//! Saque e SEMPRE proporcional nas duas mangas. Nao existe caminho de saque so
-//! em USDC: se existisse, os primeiros levariam o liquido e os ultimos
-//! ficariam com a manga iliquida inteira.
+//! Withdrawals are ALWAYS proportional across both sleeves. There is no
+//! USDC-only path: if there were, the first out would take the liquid side and
+//! the last would be left holding the whole illiquid one.
+//!
+//! Risk policy lives in `slab-risk`; pure arithmetic lives in `slab-math`.
+//! This program validates accounts, moves tokens, and stores state.
 
 use anchor_lang::prelude::*;
-use slab_interface::{m, seeds, MarketState, PoolParams};
+use slab_interface::{m, r, seeds, MarketState, PoolParams};
 use slab_math::{
-    assets_for_shares, card_weight, clp_price, nav, oi_allowed, oi_cap_depth, oi_cap_solvency,
-    proportional_share, prorata_haircut, shares_for_deposit, subtract_bps_ceil, utilization,
+    assets_for_shares, card_weight, clp_price, nav, proportional_share, prorata_haircut,
+    shares_for_deposit, subtract_bps_ceil, to_u64, utilization,
 };
+use slab_risk::{self as risk, Capacity};
 
 declare_id!("3XZkAqLeQDoNXD6Bb9YoGSEdnvqk9r7UMgrKsN5x3L9v");
 
@@ -29,7 +33,7 @@ use errors::PoolError;
 pub mod clp_pool {
     use super::*;
 
-    /// Cria o pool. Uma vez, pelo admin.
+    /// Create the pool. Once, by the admin.
     pub fn initialize_pool(ctx: Context<InitializePool>, params: PoolParams) -> Result<()> {
         validate_params(&params)?;
         let p = &mut ctx.accounts.pool;
@@ -52,35 +56,40 @@ pub mod clp_pool {
         Ok(())
     }
 
-    /// Amarra o mercado de perp que pode mexer na contabilidade do pool.
-    /// Depois disso, so esse PDA assina movimentos de risco.
+    /// Bind the perp market allowed to touch the pool's risk accounting.
+    /// After this, only that PDA may sign for it.
     pub fn set_perp_market(ctx: Context<AdminOnly>, market: Pubkey) -> Result<()> {
         ctx.accounts.pool.perp_market = market;
         Ok(())
     }
 
-    /// Troca os parametros economicos. Eles vivem SO aqui.
+    /// Change the economic parameters. They live here and nowhere else.
     pub fn set_params(ctx: Context<AdminOnly>, params: PoolParams) -> Result<()> {
         validate_params(&params)?;
         ctx.accounts.pool.params = params;
         Ok(())
     }
 
-    /// Transicao explicita de estado. Deterministica e testavel.
+    /// Explicit state transition. Deterministic and testable.
     ///
-    /// Nao permite voltar de `Settled`: uma vez encerrado, encerrado.
+    /// There is no way back from `Settled`: once over, over.
     pub fn set_state(ctx: Context<AdminOnly>, next: MarketState) -> Result<()> {
         let p = &mut ctx.accounts.pool;
         require!(p.state != MarketState::Settled, PoolError::AlreadySettled);
         p.state = next;
-        emit!(StateChanged { pool: p.key(), state: next });
+        emit!(StateChanged {
+            pool: p.key(),
+            state: next
+        });
         Ok(())
     }
-}
 
-// ---------------------------------------------------------------------------
-// logica pura — o coracao das invariantes, testavel sem validador
-// ---------------------------------------------------------------------------
+    // D3-D5 (Backend B): deposit, withdraw, settle_position.
+    //
+    // The decisions already exist and are tested below as pure methods on
+    // `Pool`. What is missing is the token movement around them, plus the
+    // CPI door that lets `perp` pay a winning trader — see Blocker #4.
+}
 
 pub fn validate_params(p: &PoolParams) -> Result<()> {
     require!(p.phi > 0, PoolError::BadParams);
@@ -93,8 +102,12 @@ pub fn validate_params(p: &PoolParams) -> Result<()> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// pool accounting
+// ---------------------------------------------------------------------------
+
 impl Pool {
-    /// NAV = U + valor_da_manga_de_cards - PnL_dos_traders - bad_debt
+    /// `NAV = U + card sleeve - trader PnL - bad debt`
     pub fn nav(&self) -> Result<u64> {
         m(nav(
             self.usdc_sleeve,
@@ -108,52 +121,32 @@ impl Pool {
         m(clp_price(self.nav()?, self.clp_supply))
     }
 
-    /// Teto de OI pela solvencia da manga liquida.
-    pub fn cap_solvency(&self) -> Result<u64> {
-        m(oi_cap_solvency(
+    /// Both open-interest ceilings and which one binds. Delegated to
+    /// `slab-risk`: the pool stores the inputs, the risk crate decides.
+    pub fn capacity(&self, oracle_depth: u64) -> Result<Capacity> {
+        r(risk::capacity(
             self.usdc_sleeve,
-            self.params.phi as u128,
-            self.params.delta_max as u128,
-        ))
-    }
-
-    /// Teto de OI pela profundidade do AMM, vinda do oraculo.
-    pub fn cap_depth(&self, oracle_depth: u64) -> Result<u64> {
-        m(oi_cap_depth(
             oracle_depth,
-            self.params.delta_liq as u128,
-            self.params.mu as u128,
+            &self.params.risk(),
         ))
     }
 
-    /// O TETO QUE VALE. Sempre o menor dos dois, nunca a media, nunca o maior.
-    pub fn oi_allowed(&self, oracle_depth: u64) -> Result<u64> {
-        Ok(oi_allowed(self.cap_solvency()?, self.cap_depth(oracle_depth)?))
-    }
-
-    /// Checa a invariante de solvencia antes de aceitar risco novo.
-    pub fn require_capacity(&self, oi_after: u64, oracle_depth: u64) -> Result<()> {
-        let cap = self.oi_allowed(oracle_depth)?;
-        require!(oi_after <= cap, PoolError::CapacityExceeded);
-        Ok(())
-    }
-
-    /// Utilizacao em WAD contra o teto vigente.
+    /// Utilization in WAD against the binding ceiling.
     pub fn utilization(&self, oi_total: u64, oracle_depth: u64) -> Result<u128> {
-        m(utilization(oi_total, self.oi_allowed(oracle_depth)?))
+        m(utilization(oi_total, self.capacity(oracle_depth)?.cap))
     }
 
-    /// Valor efetivo de um deposito de fracao depois do haircut.
+    /// Effective value of a card-fraction deposit after the haircut.
     pub fn haircut_value(&self, gross_value: u64) -> Result<u64> {
         let net = m(subtract_bps_ceil(
             gross_value as u128,
             self.params.deposit_haircut_bps as u128,
         ))?;
-        m(slab_math::to_u64(net))
+        m(to_u64(net))
     }
 
-    /// Teto de peso de um card dentro da manga. Impede o pool virar aposta
-    /// num card so.
+    /// Weight ceiling for one card inside the sleeve. Stops the pool from
+    /// becoming a bet on a single card.
     pub fn require_card_weight(&self, card_value_after: u64, sleeve_after: u64) -> Result<()> {
         let w = m(card_weight(card_value_after, sleeve_after))?;
         require!(
@@ -163,18 +156,18 @@ impl Pool {
         Ok(())
     }
 
-    /// CLP mintado por um deposito. Arredonda para baixo.
+    /// CLP minted for a deposit. Rounds down.
     pub fn shares_for(&self, value: u64) -> Result<u64> {
         m(shares_for_deposit(value, self.nav()?, self.clp_supply))
     }
 
-    /// Valor total devolvido por um resgate.
+    /// Total value returned for a redemption. Rounds down.
     pub fn assets_for(&self, shares: u64) -> Result<u64> {
         m(assets_for_shares(shares, self.nav()?, self.clp_supply))
     }
 
-    /// Fatia PROPORCIONAL de cada manga num resgate. As duas pontas saem
-    /// juntas, sempre.
+    /// PROPORTIONAL slice of each sleeve for a redemption. Both sides always
+    /// leave together.
     pub fn withdraw_split(&self, shares: u64) -> Result<(u64, u64)> {
         let usdc = m(proportional_share(self.usdc_sleeve, shares, self.clp_supply))?;
         let cards = m(proportional_share(
@@ -185,7 +178,7 @@ impl Pool {
         Ok((usdc, cards))
     }
 
-    /// Resgate final em `Settled`, com haircut pro-rata igual para todos.
+    /// Final redemption in `Settled`, with an equal pro-rata haircut.
     pub fn settlement_payout(&self, shares: u64, total_claims: u64) -> Result<u64> {
         let claim = self.assets_for(shares)?;
         m(prorata_haircut(claim, total_claims, self.usdc_sleeve))
@@ -193,7 +186,7 @@ impl Pool {
 }
 
 // ---------------------------------------------------------------------------
-// contas
+// accounts
 // ---------------------------------------------------------------------------
 
 #[account]
@@ -204,19 +197,19 @@ pub struct Pool {
     pub clp_mint: Pubkey,
     pub usdc_vault: Pubkey,
     pub oracle: Pubkey,
-    /// Mercado de perp autorizado a mexer na contabilidade de risco.
+    /// The perp market allowed to touch risk accounting.
     pub perp_market: Pubkey,
 
-    /// Manga liquida `U`, em USDC nativo. E dela que sai pagamento a trader.
+    /// Liquid sleeve `U`, in native USDC. Winners are paid from here.
     pub usdc_sleeve: u64,
-    /// Valor marcado da manga de cards, em USDC nativo.
+    /// Marked value of the card sleeve, in native USDC.
     pub card_sleeve_value: u64,
     pub clp_supply: u64,
 
-    /// PnL liquido dos traders, com sinal. Positivo = traders ganhando =
-    /// NAV caindo. Atualizado pelo programa `perp`.
+    /// Net trader PnL, signed. Positive means traders are winning and NAV is
+    /// falling. Written by the `perp` program.
     pub trader_pnl: i128,
-    /// Prejuizo ja realizado que o pool absorveu. VISIVEL de proposito.
+    /// Realised loss the pool absorbed. VISIBLE on purpose.
     pub bad_debt: u64,
 
     pub accrued_fees_lp: u64,
@@ -231,13 +224,13 @@ pub struct Pool {
 pub struct InitializePool<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
-    /// CHECK: mint de USDC, validado fora do escopo do dia 1.
+    /// CHECK: USDC mint; full validation is outside day-1 scope.
     pub usdc_mint: UncheckedAccount<'info>,
-    /// CHECK: mint do CLP, criado pelo admin.
+    /// CHECK: CLP mint, created by the admin.
     pub clp_mint: UncheckedAccount<'info>,
-    /// CHECK: conta de token que guarda a manga liquida.
+    /// CHECK: token account holding the liquid sleeve.
     pub usdc_vault: UncheckedAccount<'info>,
-    /// CHECK: conta do oraculo; validada por dono em cada leitura.
+    /// CHECK: oracle account; ownership verified on every read.
     pub oracle: UncheckedAccount<'info>,
     #[account(
         init, payer = admin, space = 8 + Pool::INIT_SPACE,
@@ -262,13 +255,14 @@ pub struct StateChanged {
 }
 
 // ---------------------------------------------------------------------------
-// testes
+// tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use slab_math::WAD;
+    use slab_risk::Binding;
 
     const USDC: u64 = 1_000_000;
 
@@ -309,52 +303,38 @@ mod tests {
     }
 
     #[test]
-    fn bad_debt_is_deducted_and_visible() {
+    fn bad_debt_is_deducted_and_stays_visible() {
         let mut p = pool();
         p.bad_debt = 1_000 * USDC;
         assert_eq!(p.nav().unwrap(), 199_000 * USDC);
     }
 
     #[test]
-    fn depth_cap_binds_far_before_solvency_cap() {
-        // Este e o achado que o simulador mostrou: com os parametros do spec,
-        // e a profundidade do AMM que define o tamanho do mercado, nao o CLP.
-        let p = pool();
-        let depth = 60_000 * USDC;
-        let solv = p.cap_solvency().unwrap();
-        let dep = p.cap_depth(depth).unwrap();
-        assert_eq!(solv / USDC, 233_333);
-        assert_eq!(dep / USDC, 17_944);
-        assert_eq!(p.oi_allowed(depth).unwrap(), dep, "o menor teto manda");
+    fn the_depth_ceiling_binds_long_before_solvency_does() {
+        // The finding the simulator surfaced: with the spec parameters it is
+        // AMM depth that sizes the market, not the CLP balance.
+        let c = pool().capacity(60_000 * USDC).unwrap();
+        assert_eq!(c.cap_solvency / USDC, 233_333);
+        assert_eq!(c.cap_depth / USDC, 17_944);
+        assert_eq!(c.cap, c.cap_depth);
+        assert_eq!(c.binding, Binding::Depth);
     }
 
     #[test]
-    fn solvency_cap_binds_when_the_amm_is_deep() {
-        let p = pool();
-        let deep = 5_000_000 * USDC;
-        assert_eq!(p.oi_allowed(deep).unwrap(), p.cap_solvency().unwrap());
+    fn solvency_binds_once_the_amm_is_deep() {
+        let c = pool().capacity(5_000_000 * USDC).unwrap();
+        assert_eq!(c.cap, c.cap_solvency);
+        assert_eq!(c.binding, Binding::Solvency);
     }
 
     #[test]
-    fn opening_beyond_the_lower_cap_is_refused() {
-        let p = pool();
-        let depth = 60_000 * USDC;
-        let cap = p.oi_allowed(depth).unwrap();
-        assert!(p.require_capacity(cap, depth).is_ok(), "no teto ainda passa");
-        assert!(
-            p.require_capacity(cap + 1, depth).is_err(),
-            "um centavo acima do teto tem que ser recusado"
-        );
-    }
-
-    #[test]
-    fn withdraw_is_proportional_and_never_usdc_only() {
+    fn withdrawals_are_proportional_and_never_usdc_only() {
         let p = pool();
         let shares = p.clp_supply / 10;
         let (usdc, cards) = p.withdraw_split(shares).unwrap();
         assert_eq!(usdc, 14_000 * USDC);
         assert_eq!(cards, 6_000 * USDC);
-        // nenhuma manga sozinha cobre o resgate: e isso que impede corrida
+        // neither sleeve alone covers the redemption: that is what stops a run
         assert!(usdc < p.assets_for(shares).unwrap());
         assert_eq!(usdc + cards, p.assets_for(shares).unwrap());
     }
@@ -372,42 +352,36 @@ mod tests {
     }
 
     #[test]
-    fn haircut_is_applied_to_card_deposits() {
-        let p = pool();
-        // 3% sobre 1000 USDC
-        assert_eq!(p.haircut_value(1_000 * USDC).unwrap(), 970 * USDC);
+    fn card_deposits_take_the_haircut() {
+        assert_eq!(pool().haircut_value(1_000 * USDC).unwrap(), 970 * USDC);
     }
 
     #[test]
     fn a_single_card_cannot_dominate_the_sleeve() {
         let p = pool();
-        // 15% exatos passam
-        assert!(p.require_card_weight(15, 100).is_ok());
-        // 16% estoura
+        assert!(p.require_card_weight(15, 100).is_ok()); // 15% exactly
         assert!(p.require_card_weight(16, 100).is_err());
     }
 
     #[test]
-    fn settlement_haircut_is_equal_for_everyone() {
+    fn the_settlement_haircut_is_equal_for_everyone() {
         let mut p = pool();
-        // pool so tem 70% do que deve
-        p.usdc_sleeve = 70_000 * USDC;
+        p.usdc_sleeve = 70_000 * USDC; // pool holds only 70% of what it owes
         p.card_sleeve_value = 0;
         let total_claims = 100_000 * USDC;
         let a = p.settlement_payout(p.clp_supply / 2, total_claims).unwrap();
         let b = p.settlement_payout(p.clp_supply / 4, total_claims).unwrap();
-        // quem tem o dobro de cotas recebe o dobro, ambos com o mesmo corte
         assert!(a > 0 && b > 0);
         assert!((a as i128 - 2 * b as i128).abs() <= 2);
     }
 
     #[test]
-    fn state_machine_gates_match_the_spec() {
+    fn state_gates_match_the_spec() {
         let mut p = pool();
         assert!(p.state.allows_open() && p.state.allows_withdraw());
         p.state = MarketState::ReduceOnly;
-        assert!(!p.state.allows_open(), "ReduceOnly nao abre risco");
-        assert!(!p.state.allows_withdraw(), "resgate trava em ReduceOnly");
+        assert!(!p.state.allows_open());
+        assert!(!p.state.allows_withdraw(), "withdrawals freeze in ReduceOnly");
         assert!(p.state.allows_close() && p.state.allows_liquidate());
         p.state = MarketState::Settled;
         assert!(!p.state.allows_close() && !p.state.allows_liquidate());

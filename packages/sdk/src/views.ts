@@ -1,14 +1,14 @@
 /**
- * Derivados que o frontend mostra e que NAO existem na conta: PnL, borrow
- * devido, patrimonio, saude e preco de liquidacao.
+ * Values the frontend displays that are NOT stored on any account: PnL,
+ * borrow owed, equity, health and liquidation price.
  *
- * Calculados aqui com o mesmo ponto fixo do Rust.
+ * Computed here with the same fixed-point arithmetic as the Rust.
  */
 
 import type { MarketView, OracleView, PoolParams, PoolView, PositionView, Side } from "@slab/types";
 import * as m from "./math.js";
 
-/** Dados crus de uma posicao, como saem da conta. */
+/** Raw position data, as it comes off the account. */
 export interface RawPosition {
   side: Side;
   notional: bigint;
@@ -17,7 +17,7 @@ export interface RawPosition {
   borrowIdxEntry: bigint;
 }
 
-/** Completa uma posicao com tudo que a tela precisa mostrar. */
+/** Complete a position with everything the screen needs to show. */
 export function derivePosition(
   raw: RawPosition,
   market: Pick<MarketView, "borrowIdxLong" | "borrowIdxShort">,
@@ -45,7 +45,7 @@ export function derivePosition(
   };
 }
 
-/** Capacidade de risco do mercado, com os DOIS tetos e qual deles trava. */
+/** Market risk capacity: BOTH ceilings and which one binds. */
 export function deriveCapacity(
   pool: Pick<PoolView, "usdcSleeve" | "params">,
   oracle: Pick<OracleView, "depthUsdc">,
@@ -67,7 +67,7 @@ export function deriveCapacity(
   };
 }
 
-/** Taxa de borrow vigente de cada lado. */
+/** Current borrow rate for each side. */
 export function deriveBorrowRates(
   pool: Pick<PoolView, "params">,
   market: Pick<MarketView, "oiLong" | "oiShort">,
@@ -82,7 +82,7 @@ export function deriveBorrowRates(
   };
 }
 
-/** NAV, preco do CLP e composicao das mangas. */
+/** NAV, CLP price and sleeve composition. */
 export function derivePool(pool: PoolView) {
   const nav = m.nav(pool.usdcSleeve, pool.cardSleeveValue, pool.traderPnl, pool.badDebt);
   const total = pool.usdcSleeve + pool.cardSleeveValue;
@@ -94,7 +94,7 @@ export function derivePool(pool: PoolView) {
   };
 }
 
-/** O que sai em cada manga num resgate. Sempre as duas. */
+/** What leaves each sleeve on a redemption. Always both. */
 export function deriveWithdraw(pool: PoolView, shares: bigint) {
   return {
     usdc: m.proportionalShare(pool.usdcSleeve, shares, pool.clpSupply),

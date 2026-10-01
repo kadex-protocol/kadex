@@ -2,26 +2,26 @@ use anchor_lang::prelude::*;
 
 #[error_code]
 pub enum VaultError {
-    #[msg("Somente o admin do registro")]
+    #[msg("Only the registry admin")]
     NotAdmin,
-    #[msg("Supply de fracoes tem que ser maior que zero")]
+    #[msg("Fraction supply must be greater than zero")]
     ZeroFractions,
-    #[msg("Peso fora do intervalo valido")]
+    #[msg("Weight outside the valid range")]
     BadWeight,
-    #[msg("Card desabilitado para novos depositos")]
+    #[msg("Card is disabled for new deposits")]
     CardDisabled,
-    #[msg("Este card ja esta travado no cofre")]
+    #[msg("This card is already locked in the vault")]
     AlreadyLocked,
-    #[msg("Nao existe NFT travado para resgatar")]
+    #[msg("There is no locked NFT to redeem")]
     NotLocked,
-    #[msg("Fracoes insuficientes: o resgate exige o supply inteiro")]
+    #[msg("Insufficient fractions: redemption requires the entire supply")]
     InsufficientFractions,
-    #[msg("Mint de NFT diferente do registrado")]
+    #[msg("NFT mint differs from the registered one")]
     WrongCard,
-    #[msg("Mint de fracao diferente do registrado")]
+    #[msg("Fraction mint differs from the registered one")]
     WrongFractionMint,
-    #[msg("A conta de token nao pertence ao signatario")]
+    #[msg("The token account does not belong to the signer")]
     NotOwner,
-    #[msg("A conta nao contem exatamente 1 unidade: nao e um NFT")]
+    #[msg("The account does not hold exactly 1 unit: not an NFT")]
     NotAnNft,
 }

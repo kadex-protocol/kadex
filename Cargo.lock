@@ -881,6 +881,7 @@ dependencies = [
  "litesvm",
  "slab-interface",
  "slab-math",
+ "slab-risk",
  "solana-keypair",
  "solana-message",
  "solana-signer",
@@ -2008,9 +2009,11 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
+ "clp-pool",
  "litesvm",
  "slab-interface",
  "slab-math",
+ "slab-risk",
  "solana-keypair",
  "solana-message",
  "solana-signer",
@@ -2496,11 +2499,19 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "slab-math",
+ "slab-risk",
 ]
 
 [[package]]
 name = "slab-math"
 version = "0.1.0"
+
+[[package]]
+name = "slab-risk"
+version = "0.1.0"
+dependencies = [
+ "slab-math",
+]
 
 [[package]]
 name = "smallvec"

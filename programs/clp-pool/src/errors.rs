@@ -2,20 +2,20 @@ use anchor_lang::prelude::*;
 
 #[error_code]
 pub enum PoolError {
-    #[msg("Somente o admin do pool")]
+    #[msg("Only the pool admin")]
     NotAdmin,
-    #[msg("Parametro economico invalido")]
+    #[msg("Invalid economic parameter")]
     BadParams,
-    #[msg("Capacidade de OI excedida: o menor dos dois tetos foi estourado")]
+    #[msg("Open-interest capacity exceeded: the lower of the two ceilings was breached")]
     CapacityExceeded,
-    #[msg("Este card passaria do peso maximo dentro da manga")]
+    #[msg("This card would exceed the maximum weight inside the sleeve")]
     CardWeightExceeded,
-    #[msg("Mercado ja encerrado")]
+    #[msg("Market is already settled")]
     AlreadySettled,
-    #[msg("Operacao nao permitida no estado atual do mercado")]
+    #[msg("Market state forbids this operation")]
     StateForbids,
-    #[msg("Manga liquida insuficiente")]
+    #[msg("Insufficient liquid sleeve")]
     InsufficientLiquidity,
-    #[msg("Somente o mercado de perp registrado")]
+    #[msg("Only the registered perp market")]
     NotPerpMarket,
 }

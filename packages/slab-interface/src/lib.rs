@@ -1,47 +1,51 @@
-//! Interfaces CONGELADAS entre os programas do SLAB.
+//! FROZEN interfaces between SLAB programs.
 //!
-//! Tudo neste crate e contrato entre times. Mudar qualquer coisa aqui quebra
-//! trabalho paralelo de outra pessoa.
+//! Everything in this crate is a contract between people. Changing anything
+//! here breaks someone else's work in flight.
 //!
-//! Antes de alterar algo neste arquivo:
+//! Before you change a line of this file:
 //!
-//! 1. explique por que a mudanca e necessaria
-//! 2. liste os modulos afetados
-//! 3. atualize `docs/frontend-contract.md` e `docs/oracle.md`
-//! 4. atualize os testes
-//! 5. avise quem esta bloqueado
+//! 1. explain why the change is necessary
+//! 2. list the affected modules
+//! 3. update `docs/frontend-contract.md` and `docs/oracle.md`
+//! 4. update the tests
+//! 5. tell whoever is blocked by it
 //!
-//! Quem produz o que:
+//! Who produces what:
 //!
-//! - [`OracleAccount`] e escrita pelo programa `oracle` (Backend A) e apenas
-//!   LIDA por `perp` e `clp-pool` (Backend B), via [`read_oracle`].
-//! - [`PoolParams`] e escrita pelo programa `clp-pool` (Backend B) e lida pelo
-//!   frontend.
-//! - Os seeds de PDA sao usados pelos tres times, inclusive pelo frontend para
-//!   derivar enderecos sem chamar o programa.
+//! - [`OracleAccount`] is written by the `oracle` program (Backend A) and only
+//!   READ by `perp` and `clp-pool` (Backend B), through [`read_oracle`].
+//! - [`PoolParams`] is written by `clp-pool` (Backend B) and read by everyone.
+//! - The PDA seeds are used by all three tracks, including the frontend, which
+//!   mirrors them in `packages/types`.
+//!
+//! This crate holds the *serializable* shapes. The decisions that use them live
+//! in `slab-risk`, which deliberately knows nothing about Anchor.
 
 use anchor_lang::prelude::*;
 use slab_math::WAD;
+use slab_risk::RiskParams;
 
-// O crate declara o ID do programa `oracle` porque [`OracleAccount`] pertence
-// a ele. E isso que faz `#[account]` gerar a checagem de dono correta: quando
-// `perp` recebe um `Account<'info, OracleAccount>`, o Anchor exige sozinho que
-// a conta seja de propriedade do programa `oracle`, e uma conta forjada por
-// outro programa e rejeitada antes de qualquer logica rodar.
+// This crate declares the `oracle` program's ID because [`OracleAccount`]
+// belongs to it. That is what makes `#[account]` generate the right owner
+// check: when `perp` takes an `Account<'info, OracleAccount>`, Anchor itself
+// requires the account to be owned by the `oracle` program, and an account
+// forged by any other program is rejected before our logic runs.
 //
-// CONGELADO: tem que bater com `programs/oracle/src/lib.rs` e com
-// `[programs.localnet].oracle` no Anchor.toml.
+// FROZEN: must match `programs/oracle/src/lib.rs` and `[programs.localnet]`
+// in Anchor.toml.
 declare_id!("5288ShBXsFxqXiGm22FZi1ZrMnmet4i1ZR3bccyAguqp");
 
-/// ID do programa `oracle`. Reexportado para quem precisa passar explicito.
+/// The `oracle` program ID, re-exported for callers that pass it explicitly.
 pub const ORACLE_PROGRAM_ID: Pubkey = ID;
 
 // ---------------------------------------------------------------------------
-// seeds de PDA — CONGELADO
+// PDA seeds — FROZEN
 // ---------------------------------------------------------------------------
 
-/// Todos os PDAs do projeto derivam com estes seeds. O frontend reproduz
-/// exatamente as mesmas derivacoes em TypeScript (`packages/types`).
+/// Every PDA in the project derives from these. The frontend reproduces the
+/// same derivations in TypeScript; if they drift, it derives addresses that do
+/// not exist.
 pub mod seeds {
     /// card-vault: `["registry"]`
     pub const REGISTRY: &[u8] = b"registry";
@@ -70,58 +74,58 @@ pub mod seeds {
 }
 
 // ---------------------------------------------------------------------------
-// estados — CONGELADO
+// states — FROZEN
 // ---------------------------------------------------------------------------
 
-/// Os tres estados do mercado. Nao existe um quarto.
+/// The three market states. There is no fourth.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 pub enum MarketState {
-    /// Abrir, fechar, liquidar, depositar, resgatar.
+    /// Open, close, liquidate, deposit, withdraw.
     Active,
-    /// Somente fechar e liquidar. Resgate de CLP tambem trava.
+    /// Close and liquidate only. CLP withdrawals are frozen too, so an LP
+    /// cannot pull out exactly when the pool most needs the buffer.
     ReduceOnly,
-    /// Mercado encerrado. Somente resgate final com haircut pro-rata.
+    /// Market is over. Final redemption with pro-rata haircut only.
     Settled,
 }
 
 impl MarketState {
-    /// Abrir posicao nova ou aumentar risco.
+    /// Open a new position, or otherwise add risk.
     pub fn allows_open(&self) -> bool {
         matches!(self, MarketState::Active)
     }
-    /// Fechar posicao.
+    /// Close a position.
     pub fn allows_close(&self) -> bool {
         matches!(self, MarketState::Active | MarketState::ReduceOnly)
     }
-    /// Liquidar. Permitido em Active e ReduceOnly: travar liquidacao seria
-    /// deixar posicao podre acumulando.
+    /// Liquidate. Allowed in ReduceOnly as well: blocking liquidation would
+    /// leave rotten positions accumulating.
     pub fn allows_liquidate(&self) -> bool {
         matches!(self, MarketState::Active | MarketState::ReduceOnly)
     }
-    /// Depositar no pool.
+    /// Deposit into the pool.
     pub fn allows_deposit(&self) -> bool {
         matches!(self, MarketState::Active)
     }
-    /// Resgate normal (proporcional). Em `Settled` o caminho e o resgate
-    /// final com haircut, que e outra instrucao.
+    /// Ordinary proportional withdrawal. In `Settled` the path is the final
+    /// redemption, which is a different instruction.
     pub fn allows_withdraw(&self) -> bool {
         matches!(self, MarketState::Active)
     }
 }
 
-/// Por que o oraculo nao esta saudavel. `Ok` e a unica condicao que libera
-/// abertura de posicao.
+/// Why the oracle is or is not healthy. `Ok` is the only state that allows a
+/// position to be opened.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 pub enum OracleState {
     Ok,
-    /// Ultima atualizacao velha demais.
+    /// Last update is too old.
     Stale,
-    /// Reserva do AMM abaixo de `min_pool_depth`: o oraculo ficou barato de
-    /// empurrar.
+    /// AMM reserve below `min_pool_depth`: the oracle has become cheap to push.
     ShallowDepth,
-    /// Preco do pool divergiu do limite de sanidade externo.
+    /// Pool price diverged from the external sanity bound.
     Diverged,
-    /// Nunca foi atualizado.
+    /// Never updated.
     Uninitialized,
 }
 
@@ -132,21 +136,21 @@ impl OracleState {
 }
 
 // ---------------------------------------------------------------------------
-// oracle — CONGELADO (produzido por Backend A, consumido por Backend B)
+// oracle — FROZEN (produced by Backend A, consumed by Backend B)
 // ---------------------------------------------------------------------------
 
-/// Parametros do oraculo. Escala WAD, exceto onde dito.
+/// Oracle configuration. WAD scale unless stated otherwise.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace)]
 pub struct OracleParams {
-    /// Janela do TWAP em segundos. Spec: 1800 (30 min).
+    /// TWAP window in seconds. Spec: 1800 (30 min).
     pub twap_window_secs: u32,
-    /// Variacao maxima aceita entre duas leituras. WAD. Spec: 0.05.
+    /// Largest move accepted between two updates. WAD. Spec: 0.05.
     pub max_tick_move: u64,
-    /// Idade maxima antes de virar `Stale`, em segundos. Spec: 900.
+    /// Age at which the oracle goes `Stale`, in seconds. Spec: 900.
     pub max_staleness_secs: u32,
-    /// Profundidade minima em USDC nativo. Spec: 25_000_000_000 ($25k).
+    /// Minimum AMM depth, in native USDC. Spec: 25_000_000_000 ($25k).
     pub min_pool_depth: u64,
-    /// Divergencia maxima contra a mediana externa. WAD. Spec: 0.15.
+    /// Largest divergence tolerated against the external median. WAD. Spec: 0.15.
     pub max_divergence: u64,
 }
 
@@ -156,67 +160,67 @@ impl Default for OracleParams {
             twap_window_secs: 1_800,
             max_tick_move: 50_000,          // 5%
             max_staleness_secs: 900,        // 15 min
-            min_pool_depth: 25_000_000_000, // $25k em USDC nativo
+            min_pool_depth: 25_000_000_000, // $25k in native USDC
             max_divergence: 150_000,        // 15%
         }
     }
 }
 
-/// Quantas observacoes o buffer circular do TWAP guarda.
+/// How many observations the TWAP ring buffer keeps.
 pub const ORACLE_OBSERVATIONS: usize = 32;
 
-/// Uma leitura do preco spot do AMM.
+/// One reading of the AMM spot price.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace)]
 pub struct Observation {
-    /// Preco spot em WAD no momento da leitura.
+    /// Spot price in WAD at the time of the reading.
     pub price: u64,
-    /// Unix timestamp da leitura.
+    /// Unix timestamp of the reading.
     pub ts: i64,
 }
 
-/// Qual AMM externo o oraculo le. `Mock` existe porque, no dia 1, o formato
-/// on-chain real do pool de fracoes ainda nao esta confirmado — ver
-/// `docs/oracle.md`, secao "Blocker #1".
+/// Which external AMM the oracle reads. `Mock` exists because, as of day 1,
+/// the on-chain layout of the real fraction pool is not confirmed — see
+/// `docs/oracle.md`, "Blocker #1".
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 pub enum AmmAdapter {
-    /// Pool constant-product local, so para devnet e testes.
+    /// Local constant-product pool, devnet and tests only.
     Mock,
     Meteora,
     Orca,
     Raydium,
 }
 
-/// Conta do oraculo. ESCRITA apenas pelo programa `oracle`.
+/// The oracle account. WRITTEN only by the `oracle` program.
 ///
-/// `perp` e `clp-pool` leem via [`read_oracle`], nunca desserializando na mao
-/// e nunca assumindo como o preco foi calculado.
+/// `perp` and `clp-pool` read it through [`read_oracle`], never deserializing
+/// by hand and never assuming how the price was computed.
 #[account]
 #[derive(InitSpace)]
 pub struct OracleAccount {
-    /// Cesta que este oraculo precifica.
+    /// The basket this oracle prices.
     pub basket: Pubkey,
-    /// Conta do pool AMM externo de onde as reservas sao lidas.
+    /// External AMM pool account the reserves are read from.
     pub amm_pool: Pubkey,
-    /// Qual adaptador sabe ler `amm_pool`.
+    /// Which adapter knows how to read `amm_pool`.
     pub adapter: AmmAdapter,
-    /// Autoridade que pode trocar parametros. Nao pode escrever preco.
+    /// Authority allowed to change parameters. Cannot write a price.
     pub admin: Pubkey,
 
-    /// PRECO OFICIAL, em WAD. Ja passou por TWAP e clamp. E este que
-    /// liquidacao e PnL usam. Nunca o spot.
+    /// THE OFFICIAL PRICE, in WAD. Already through TWAP and clamp. This is
+    /// what liquidation and PnL use. Never the spot.
     pub price: u64,
-    /// TWAP puro da janela, antes do clamp. Exposto para diagnostico.
+    /// Raw window TWAP, before the clamp. Diagnostics only.
     pub twap: u64,
-    /// Ultimo spot lido do AMM, sem suavizacao. Diagnostico apenas.
+    /// Last spot read from the AMM, unsmoothed. Diagnostics only.
     pub spot: u64,
-    /// Reserva em USDC do pool AMM. E o `R` do teto de profundidade.
+    /// AMM reserve in USDC. This is the `R` in the depth ceiling.
     pub depth_usdc: u64,
 
     pub last_update_ts: i64,
     pub last_update_slot: u64,
 
-    /// Mediana de fills externos. DEFESA SECUNDARIA: serve so como limite de
-    /// sanidade, nunca como fonte de preco.
+    /// Median of external fills. SECONDARY DEFENCE: a sanity bound only, never
+    /// a price source.
     pub external_median: u64,
     pub external_ts: i64,
 
@@ -229,33 +233,33 @@ pub struct OracleAccount {
     pub bump: u8,
 }
 
-/// Visao somente-leitura que Backend B consome. NAO expoe como o preco foi
-/// calculado: se amanha o adaptador mudar de Meteora para Orca, nada em `perp`
-/// muda.
+/// The read-only view Backend B consumes. It deliberately does not expose how
+/// the price was produced: if the adapter changes from Meteora to Orca
+/// tomorrow, nothing in `perp` moves.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OracleView {
-    /// Preco oficial em WAD (ja com TWAP e clamp).
+    /// Official price in WAD (TWAP and clamp already applied).
     pub price: u64,
-    /// TWAP bruto em WAD.
+    /// Raw TWAP in WAD.
     pub twap: u64,
-    /// Timestamp da ultima atualizacao.
+    /// Timestamp of the last update.
     pub ts: i64,
-    /// Profundidade do AMM em USDC nativo. Entra no teto de OI.
+    /// AMM depth in native USDC. Feeds the open-interest ceiling.
     pub depth: u64,
     pub state: OracleState,
 }
 
 impl OracleView {
-    /// Preco utilizavel para abrir risco. Falha se o oraculo nao esta `Ok`.
+    /// Price usable for opening risk. Fails unless the oracle is `Ok`.
     pub fn require_tradeable(&self) -> Result<u64> {
         require!(self.state.is_tradeable(), InterfaceError::OracleNotTradeable);
         require!(self.price > 0, InterfaceError::OraclePriceZero);
         Ok(self.price)
     }
 
-    /// Preco para liquidacao e marcacao. Permitido mesmo fora de `Ok`, desde
-    /// que nao esteja velho: travar liquidacao seria deixar posicao podre
-    /// acumulando. Nunca aceita preco zero.
+    /// Price for liquidation and marking. Allowed outside `Ok`, as long as it
+    /// is not stale: blocking liquidation would leave rotten positions
+    /// accumulating. Never accepts a zero price.
     pub fn require_markable(&self, now: i64, max_staleness: u32) -> Result<u64> {
         require!(self.price > 0, InterfaceError::OraclePriceZero);
         require!(
@@ -264,12 +268,20 @@ impl OracleView {
         );
         Ok(self.price)
     }
+
+    /// Shape this view takes when handed to `slab-risk`.
+    pub fn risk_input(&self) -> slab_risk::PriceInput {
+        slab_risk::PriceInput {
+            price: self.price,
+            depth: self.depth,
+        }
+    }
 }
 
-/// Le a conta do oraculo a partir de um `AccountInfo`, conferindo que ela
-/// pertence mesmo ao programa `oracle`.
+/// Read the oracle account from an `AccountInfo`, checking that it really is
+/// owned by the `oracle` program.
 ///
-/// Esta e a UNICA porta pela qual Backend B toca o oraculo.
+/// This is the only door through which Backend B touches the oracle.
 pub fn read_oracle(ai: &AccountInfo, oracle_program_id: &Pubkey) -> Result<OracleView> {
     require_keys_eq!(
         *ai.owner,
@@ -289,49 +301,70 @@ pub fn read_oracle(ai: &AccountInfo, oracle_program_id: &Pubkey) -> Result<Oracl
 }
 
 // ---------------------------------------------------------------------------
-// parametros do pool — CONGELADO
+// pool parameters — FROZEN
 // ---------------------------------------------------------------------------
 
-/// Toda a configuracao economica vive aqui, dentro da conta `Pool`.
+/// All economic configuration lives here, inside the `Pool` account.
 ///
-/// Nao espalhe estes numeros pelo codigo. Se um valor precisa mudar, muda no
-/// `Pool` e todo mundo enxerga a mesma coisa.
+/// Do not scatter these numbers through the codebase. If a value has to
+/// change, it changes on the `Pool` and everyone sees the same thing.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace)]
 pub struct PoolParams {
-    /// Alvo da manga de cards. WAD. Spec: 0.30.
+    /// Card sleeve target. WAD. Spec: 0.30.
     pub card_sleeve_target: u64,
-    /// Fracao do USDC compromissavel com traders. WAD. Spec: 0.50.
+    /// Share of the USDC sleeve committable to traders. WAD. Spec: 0.50.
     pub phi: u64,
-    /// Movimento adverso que a manga liquida aguenta. WAD. Spec: 0.30.
+    /// Adverse move the liquid sleeve must absorb. WAD. Spec: 0.30.
     pub delta_max: u64,
-    /// Fracao do OI capturavel numa cascata. WAD. Spec: 0.30.
+    /// Share of open interest captured in a cascade. WAD. Spec: 0.30.
     pub mu: u64,
-    /// Movimento que leva uma posicao alavancada a liquidacao. WAD.
-    /// Spec: 0.1875 (5x com manutencao de 6.25%).
+    /// Move that takes a max-leverage position to liquidation. WAD.
+    /// Spec: 0.1875 (5x with 6.25% maintenance).
     pub delta_liq: u64,
-    /// Alavancagem maxima base. WAD. Spec: 5.0.
+    /// Maximum leverage. WAD. Spec: 5.0.
     pub base_leverage: u64,
-    /// Margem de manutencao. WAD. Spec: 0.0625.
+    /// Maintenance margin. WAD. Spec: 0.0625.
     pub maintenance_margin: u64,
-    /// Borrow base por hora. WAD. Spec: 0.00005 (0.005%).
+    /// Base hourly borrow rate. WAD. Spec: 0.00005 (0.005%).
     pub r0: u64,
-    /// Coeficiente quadratico do borrow. WAD. Spec: 0.0005 (0.05%).
+    /// Quadratic borrow coefficient. WAD. Spec: 0.0005 (0.05%).
     pub r1: u64,
-    /// Acrescimo de borrow no lado lotado. WAD. Spec: 0.5.
+    /// Crowded-side borrow surcharge. WAD. Spec: 0.5.
     pub psi: u64,
-    /// Taxa de abertura e fechamento, em bps. Spec: 10.
+    /// Open and close fee, in basis points. Spec: 10.
     pub open_close_fee_bps: u16,
-    /// Taxa paga ao liquidador, em bps do notional. Spec: 100.
+    /// Liquidator reward, in basis points of notional. Spec: 100.
     pub liquidator_fee_bps: u16,
-    /// Haircut no deposito de fracao de card, em bps. Spec: 300.
+    /// Haircut on card-fraction deposits, in basis points. Spec: 300.
     pub deposit_haircut_bps: u16,
-    /// Teto de peso de um card dentro da manga. WAD. Spec: 0.15.
+    /// Weight ceiling for a single card inside the sleeve. WAD. Spec: 0.15.
     pub max_card_weight: u64,
-    /// Fatia da taxa que vai para os LPs, em bps. Spec: 7500 (75%).
+    /// Share of fees going to LPs, in basis points. Spec: 7500 (75%).
     pub lp_fee_share_bps: u16,
-    /// Utilizacao a partir da qual o mercado entra em `ReduceOnly`. WAD.
-    /// Spec: 0.95.
+    /// Utilization at which the market goes `ReduceOnly`. WAD. Spec: 0.95.
     pub reduce_only_utilization: u64,
+}
+
+impl PoolParams {
+    /// Project onto the plain struct `slab-risk` works with.
+    ///
+    /// This mapping is the only place the two representations meet, and
+    /// `params_projection_is_faithful` guards it.
+    pub fn risk(&self) -> RiskParams {
+        RiskParams {
+            phi: self.phi,
+            delta_max: self.delta_max,
+            mu: self.mu,
+            delta_liq: self.delta_liq,
+            base_leverage: self.base_leverage,
+            maintenance_margin: self.maintenance_margin,
+            r0: self.r0,
+            r1: self.r1,
+            psi: self.psi,
+            reduce_only_utilization: self.reduce_only_utilization,
+            liquidator_fee_bps: self.liquidator_fee_bps,
+        }
+    }
 }
 
 impl Default for PoolParams {
@@ -350,14 +383,14 @@ impl Default for PoolParams {
             open_close_fee_bps: 10,
             liquidator_fee_bps: 100,
             deposit_haircut_bps: 300,
-            max_card_weight: 150_000,   // 15%
-            lp_fee_share_bps: 7_500,    // 75%
+            max_card_weight: 150_000,         // 15%
+            lp_fee_share_bps: 7_500,          // 75%
             reduce_only_utilization: 950_000, // 95%
         }
     }
 }
 
-/// Lado da posicao. Espelha [`slab_math::Side`], mas serializavel por Anchor.
+/// Position side. Mirrors [`slab_math::Side`], but Anchor-serializable.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 pub enum Side {
     Long,
@@ -373,28 +406,68 @@ impl From<Side> for slab_math::Side {
     }
 }
 
+impl From<slab_math::Side> for Side {
+    fn from(s: slab_math::Side) -> Self {
+        match s {
+            slab_math::Side::Long => Side::Long,
+            slab_math::Side::Short => Side::Short,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
-// erros compartilhados
+// shared errors
 // ---------------------------------------------------------------------------
 
 #[error_code]
 pub enum InterfaceError {
-    #[msg("A conta de oraculo nao pertence ao programa oracle")]
+    #[msg("Oracle account is not owned by the oracle program")]
     OracleWrongOwner,
-    #[msg("Oraculo nao esta em estado negociavel")]
+    #[msg("Oracle is not in a tradeable state")]
     OracleNotTradeable,
-    #[msg("Oraculo desatualizado")]
+    #[msg("Oracle data is stale")]
     OracleStale,
-    #[msg("Preco do oraculo e zero")]
+    #[msg("Oracle price is zero")]
     OraclePriceZero,
-    #[msg("Falha de aritmetica de ponto fixo")]
+    #[msg("Fixed-point arithmetic failed")]
     MathFailure,
+    #[msg("Market state forbids opening new risk")]
+    StateForbidsOpen,
+    #[msg("Notional is zero")]
+    ZeroNotional,
+    #[msg("Margin is below the minimum for maximum leverage")]
+    InsufficientMargin,
+    #[msg("Open-interest capacity exceeded: the lower of the two ceilings was breached")]
+    CapacityExceeded,
+    #[msg("Utilization too high to open new risk")]
+    UtilizationTooHigh,
+    #[msg("Position is not liquidatable yet")]
+    NotLiquidatable,
 }
 
-/// Converte um [`slab_math::MathError`] em erro Anchor. Toda aritmetica nos
-/// programas passa por aqui, entao nenhum overflow vira numero errado.
+/// Convert a [`slab_math::MathError`] into an Anchor error. All program
+/// arithmetic goes through here, so no overflow becomes a wrong number.
 pub fn m<T>(r: core::result::Result<T, slab_math::MathError>) -> Result<T> {
     r.map_err(|_| error!(InterfaceError::MathFailure))
+}
+
+/// Convert a [`slab_risk::RiskError`] into an Anchor error.
+///
+/// This is the whole adapter between the pure risk crate and the programs:
+/// `slab-risk` never constructs an Anchor error, and the programs never
+/// reimplement a rule.
+pub fn r<T>(res: core::result::Result<T, slab_risk::RiskError>) -> Result<T> {
+    use slab_risk::RiskError as E;
+    res.map_err(|e| match e {
+        E::StateForbidsOpen => error!(InterfaceError::StateForbidsOpen),
+        E::OracleNotTradeable => error!(InterfaceError::OracleNotTradeable),
+        E::ZeroNotional => error!(InterfaceError::ZeroNotional),
+        E::InsufficientMargin => error!(InterfaceError::InsufficientMargin),
+        E::CapacityExceeded => error!(InterfaceError::CapacityExceeded),
+        E::UtilizationTooHigh => error!(InterfaceError::UtilizationTooHigh),
+        E::NotLiquidatable => error!(InterfaceError::NotLiquidatable),
+        E::Math => error!(InterfaceError::MathFailure),
+    })
 }
 
 #[cfg(test)]
@@ -405,19 +478,19 @@ mod tests {
     fn state_machine_permissions_match_the_spec() {
         use MarketState::*;
         assert!(Active.allows_open() && Active.allows_close() && Active.allows_deposit());
-        assert!(!ReduceOnly.allows_open(), "ReduceOnly nao abre risco novo");
+        assert!(!ReduceOnly.allows_open(), "ReduceOnly must not add risk");
         assert!(ReduceOnly.allows_close() && ReduceOnly.allows_liquidate());
-        assert!(!ReduceOnly.allows_withdraw(), "resgate trava em ReduceOnly");
+        assert!(!ReduceOnly.allows_withdraw(), "withdrawals freeze in ReduceOnly");
         assert!(!Settled.allows_open() && !Settled.allows_close());
         assert!(!Settled.allows_liquidate());
     }
 
     #[test]
-    fn only_ok_oracle_is_tradeable() {
+    fn only_an_ok_oracle_is_tradeable() {
         use OracleState::*;
         assert!(Ok.is_tradeable());
         for s in [Stale, ShallowDepth, Diverged, Uninitialized] {
-            assert!(!s.is_tradeable(), "{s:?} nao deveria liberar abertura");
+            assert!(!s.is_tradeable(), "{s:?} must not allow opening");
         }
     }
 
@@ -434,5 +507,57 @@ mod tests {
         assert_eq!(o.twap_window_secs, 1_800);
         assert_eq!(o.max_tick_move, 50_000);
         assert_eq!(o.min_pool_depth, 25_000_000_000);
+    }
+
+    #[test]
+    fn params_projection_is_faithful() {
+        // Guards the one place the serializable params and the pure params
+        // meet. If someone adds a field to one and forgets the other, the
+        // risk engine silently runs on a default — this catches that.
+        let p = PoolParams::default();
+        let r = p.risk();
+        assert_eq!(r.phi, p.phi);
+        assert_eq!(r.delta_max, p.delta_max);
+        assert_eq!(r.mu, p.mu);
+        assert_eq!(r.delta_liq, p.delta_liq);
+        assert_eq!(r.base_leverage, p.base_leverage);
+        assert_eq!(r.maintenance_margin, p.maintenance_margin);
+        assert_eq!(r.r0, p.r0);
+        assert_eq!(r.r1, p.r1);
+        assert_eq!(r.psi, p.psi);
+        assert_eq!(r.reduce_only_utilization, p.reduce_only_utilization);
+        assert_eq!(r.liquidator_fee_bps, p.liquidator_fee_bps);
+    }
+
+    #[test]
+    fn every_risk_error_maps_to_a_distinct_anchor_error() {
+        use slab_risk::RiskError as E;
+        let all = [
+            E::StateForbidsOpen,
+            E::OracleNotTradeable,
+            E::ZeroNotional,
+            E::InsufficientMargin,
+            E::CapacityExceeded,
+            E::UtilizationTooHigh,
+            E::NotLiquidatable,
+            E::Math,
+        ];
+        let codes: Vec<String> = all
+            .iter()
+            .map(|e| format!("{:?}", r::<()>(Err(*e)).unwrap_err()))
+            .collect();
+        for (i, a) in codes.iter().enumerate() {
+            for b in codes.iter().skip(i + 1) {
+                assert_ne!(a, b, "two risk errors collapsed onto the same code");
+            }
+        }
+    }
+
+    #[test]
+    fn side_round_trips_between_representations() {
+        for s in [Side::Long, Side::Short] {
+            let back: Side = slab_math::Side::from(s).into();
+            assert_eq!(back, s);
+        }
     }
 }

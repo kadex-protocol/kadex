@@ -1,22 +1,23 @@
 /**
- * @slab/oracle — adaptadores de leitura de AMM, off-chain.
+ * @slab/oracle — off-chain AMM reserve adapters.
  *
  * # Blocker #1
  *
- * O formato on-chain do pool real de fracoes/USDC ainda NAO foi confirmado.
- * O adaptador `mock` existe para o time trabalhar desde o dia 1 sem ninguem
- * escrever codigo que finge integracao pronta. Os adaptadores reais lancam
- * ate alguem confirmar o layout.
+ * The on-chain layout of the real fraction/USDC pool is NOT yet confirmed.
+ * The `mock` adapter exists so the team can work from day 1 without anyone
+ * writing code that fakes a finished integration. The real adapters throw
+ * until someone confirms the layout.
  *
- * Quando confirmar, so este arquivo e `programs/oracle/src/adapter.rs` mudam.
+ * When that happens, only this file and `programs/oracle/src/adapter.rs`
+ * change.
  */
 
 import type { Connection, PublicKey } from "@solana/web3.js";
 
 export interface Reserves {
-  /** Reserva em USDC nativo. E o `R` do teto de profundidade. */
+  /** Reserve in native USDC. This is the `R` in the depth ceiling. */
   usdc: bigint;
-  /** Reserva em fracoes de card. */
+  /** Card-fraction reserve. */
   fraction: bigint;
 }
 
@@ -25,13 +26,13 @@ export interface AmmAdapter {
   readReserves(conn: Connection, pool: PublicKey): Promise<Reserves>;
 }
 
-/** Layout do pool mock: 8 bytes de discriminador + dois u64 LE. */
+/** Mock pool layout: 8 discriminator bytes + two little-endian u64. */
 export const mockAdapter: AmmAdapter = {
   kind: "mock",
   async readReserves(conn, pool) {
     const info = await conn.getAccountInfo(pool);
-    if (!info) throw new Error(`pool ${pool.toBase58()} nao existe`);
-    if (info.data.length < 24) throw new Error("layout de pool mock inesperado");
+    if (!info) throw new Error(`pool ${pool.toBase58()} does not exist`);
+    if (info.data.length < 24) throw new Error("unexpected mock pool layout");
     return {
       usdc: info.data.readBigUInt64LE(8),
       fraction: info.data.readBigUInt64LE(16),
@@ -42,10 +43,10 @@ export const mockAdapter: AmmAdapter = {
 const unsupported = (kind: AmmAdapter["kind"]): AmmAdapter => ({
   kind,
   async readReserves() {
-    // Falha alto de proposito. Retornar zero ou um numero plausivel seria
-    // pior: o mercado abriria com preco inventado.
+    // Fails loudly on purpose. Returning zero, or a plausible number, would
+    // be worse: the market would open on an invented price.
     throw new Error(
-      `adaptador ${kind} nao implementado — layout on-chain nao confirmado (Blocker #1)`,
+      `adapter ${kind} not implemented — on-chain layout unconfirmed (Blocker #1)`,
     );
   },
 });
@@ -57,8 +58,8 @@ export const adapters: Record<AmmAdapter["kind"], AmmAdapter> = {
   raydium: unsupported("raydium"),
 };
 
-/** `preco = reserva_usdc / reserva_fracao`, em WAD. */
+/** `price = usdc_reserve / fraction_reserve`, in WAD. */
 export function spotPrice(r: Reserves): bigint {
-  if (r.fraction === 0n) throw new Error("pool sem reserva de fracao");
+  if (r.fraction === 0n) throw new Error("pool has no fraction reserve");
   return (r.usdc * 1_000_000n) / r.fraction;
 }

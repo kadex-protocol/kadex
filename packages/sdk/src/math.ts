@@ -1,15 +1,15 @@
 /**
- * Espelho em TypeScript de `packages/slab-math`.
+ * TypeScript mirror of `packages/slab-math`.
  *
- * O frontend precisa mostrar PnL, saude e preco de liquidacao ANTES de mandar
- * a transacao. Se estes calculos divergirem do Rust, a tela mente para o
- * usuario — ele ve um preco de liquidacao e o programa usa outro.
+ * The frontend has to show PnL, health and liquidation price BEFORE the
+ * transaction is sent. If these calculations drift from the Rust, the screen
+ * lies: the user sees one liquidation price and the program uses another.
  *
- * `npm run test:parity` roda os mesmos vetores dos testes Rust contra estas
- * funcoes. Qualquer divergencia falha ali, nao em producao.
+ * `npm run test:parity` runs the same vectors as the Rust tests against these
+ * functions. Any divergence fails there, not in production.
  *
- * Tudo aqui e BigInt. Nao existe Number em caminho de dinheiro: Number perde
- * precisao acima de 2^53 e um saldo em USDC nativo passa disso facil.
+ * Everything here is BigInt. No Number anywhere near money: Number loses
+ * precision above 2^53, and a native USDC balance passes that easily.
  */
 
 export const WAD = 1_000_000n;
@@ -20,13 +20,13 @@ export type Side = "long" | "short";
 
 const abs = (x: bigint) => (x < 0n ? -x : x);
 
-/** `a * b / c` para baixo. */
+/** `a * b / c`, rounding down. */
 export function mulDivFloor(a: bigint, b: bigint, c: bigint): bigint {
   if (c === 0n) throw new Error("div by zero");
   return (a * b) / c;
 }
 
-/** `a * b / c` para cima. Usado onde o arredondamento favorece o pool. */
+/** `a * b / c`, rounding up. Used where rounding favours the pool. */
 export function mulDivCeil(a: bigint, b: bigint, c: bigint): bigint {
   if (c === 0n) throw new Error("div by zero");
   const p = a * b;
@@ -37,7 +37,7 @@ export const mulWadFloor = (x: bigint, f: bigint) => mulDivFloor(x, f, WAD);
 export const mulWadCeil = (x: bigint, f: bigint) => mulDivCeil(x, f, WAD);
 export const divWadFloor = (x: bigint, d: bigint) => mulDivFloor(x, WAD, d);
 
-/** Raiz inteira por Newton, igual ao Rust. */
+/** Integer square root by Newton's method, same as the Rust. */
 export function isqrt(x: bigint): bigint {
   if (x < 2n) return x;
   let r = 1n << (BigInt(x.toString(2).length + 1) / 2n);
@@ -48,35 +48,35 @@ export function isqrt(x: bigint): bigint {
   }
 }
 
-/** `sqrt(x)` com x e resultado em WAD. */
+/** `sqrt(x)` with x and result in WAD. */
 export const sqrtWad = (xWad: bigint) => isqrt(xWad * WAD);
 
-/** `u = OI / capacidade`, saturando em 1.0. */
+/** `u = OI / capacity`, saturating at 1.0. */
 export function utilization(oiTotal: bigint, capacity: bigint): bigint {
   if (capacity === 0n) return oiTotal === 0n ? 0n : WAD;
   const u = divWadFloor(oiTotal, capacity);
   return u > WAD ? WAD : u;
 }
 
-/** `r = r0 + r1 * u^2`, por hora, em WAD. */
+/** `r = r0 + r1 * u^2`, hourly, in WAD. */
 export const borrowRateHourly = (r0: bigint, r1: bigint, u: bigint) =>
   r0 + mulWadFloor(r1, mulWadFloor(u, u));
 
-/** `1 + psi * max(0, (lado - oposto)/total)`. */
+/** `1 + psi * max(0, (side - opposite)/total)`. */
 export function sideMultiplier(oiSide: bigint, oiOpposite: bigint, psi: bigint): bigint {
   const total = oiSide + oiOpposite;
   if (total === 0n || oiSide <= oiOpposite) return WAD;
   return WAD + mulWadFloor(psi, divWadFloor(oiSide - oiOpposite, total));
 }
 
-/** Borrow devido entre dois indices. Para cima. */
+/** Borrow owed between two indices. Rounds up. */
 export function borrowOwed(notional: bigint, idxEntry: bigint, idxNow: bigint): bigint {
   if (idxEntry === 0n) throw new Error("bad index");
   if (idxNow < idxEntry) throw new Error("index regressed");
   return mulDivCeil(notional, idxNow - idxEntry, idxEntry);
 }
 
-/** PnL com sinal, para baixo em modulo. */
+/** Signed PnL, rounding down in magnitude. */
 export function pnl(side: Side, entry: bigint, price: bigint, notional: bigint): bigint {
   if (entry === 0n) throw new Error("div by zero");
   const up = price >= entry;
@@ -93,7 +93,7 @@ export function healthWad(equitySigned: bigint, notional: bigint): bigint {
   return (equitySigned * WAD) / notional;
 }
 
-/** Preco de liquidacao. Tem que bater com o Rust ate a ultima unidade. */
+/** Liquidation price. Must match the Rust down to the last unit. */
 export function liquidationPrice(
   side: Side,
   entry: bigint,
@@ -111,7 +111,7 @@ export function liquidationPrice(
   return side === "long" ? (entry > delta ? entry - delta : 0n) : entry + delta;
 }
 
-/** Margem minima para a alavancagem maxima. Para cima. */
+/** Minimum margin for maximum leverage. Rounds up. */
 export const minMargin = (notional: bigint, maxLeverage: bigint) =>
   mulDivCeil(notional, WAD, maxLeverage);
 
@@ -126,16 +126,16 @@ export function oiCapDepth(depth: bigint, deltaLiq: bigint, mu: bigint): bigint 
   return mulDivFloor(mulWadFloor(depth, factor), WAD, mu);
 }
 
-/** O teto que vale e sempre o menor. */
+/** The ceiling that counts is always the lower one. */
 export const oiAllowed = (a: bigint, b: bigint) => (a < b ? a : b);
 
-/** Custo de mover o preco de um constant-product por `(1+delta)`. */
+/** Cost of moving a constant-product price by `(1+delta)`. */
 export function costToMovePrice(depth: bigint, delta: bigint): bigint {
   const root = sqrtWad(WAD + delta);
   return mulWadFloor(depth, root > WAD ? root - WAD : 0n);
 }
 
-/** `U + cards - pnl - badDebt`, com piso em zero. */
+/** `U + cards - pnl - badDebt`, floored at zero. */
 export function nav(usdc: bigint, cards: bigint, traderPnl: bigint, badDebt: bigint): bigint {
   const v = usdc + cards - traderPnl - badDebt;
   return v > 0n ? v : 0n;
@@ -152,14 +152,14 @@ export const assetsForShares = (shares: bigint, navValue: bigint, supply: bigint
   return mulDivFloor(shares, navValue, supply);
 };
 
-/** Fatia proporcional de uma manga. Saque nunca sai so de uma. */
+/** Proportional slice of one sleeve. A withdrawal never comes from just one. */
 export function proportionalShare(sleeve: bigint, shares: bigint, supply: bigint): bigint {
   if (supply === 0n) throw new Error("div by zero");
   if (shares > supply) throw new Error("shares > supply");
   return mulDivFloor(sleeve, shares, supply);
 }
 
-/** Haircut pro-rata do encerramento. Igual para todos. */
+/** Pro-rata settlement haircut. Equal for everyone. */
 export function prorataHaircut(claim: bigint, totalClaims: bigint, available: bigint): bigint {
   if (totalClaims === 0n) return 0n;
   if (available >= totalClaims) return claim;

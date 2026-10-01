@@ -1,17 +1,17 @@
 /**
- * @slab/types — CONTRATO COM O FRONTEND.
+ * @slab/types — THE FRONTEND CONTRACT.
  *
- * Espelha em TypeScript exatamente o que `packages/slab-interface` congela em
- * Rust: seeds de PDA, escalas, parametros e estados.
+ * Mirrors in TypeScript exactly what `packages/slab-interface` freezes in
+ * Rust: PDA seeds, scales, parameters and states.
  *
- * Se algo aqui divergir do Rust, o frontend deriva enderecos errados e nada
- * funciona. Os testes em `index.test.ts` existem para pegar essa divergencia.
+ * If anything here drifts from the Rust, the frontend derives addresses that
+ * do not exist. `tests/parity.test.mjs` exists to catch that drift.
  */
 
 import { PublicKey } from "@solana/web3.js";
 
 // ---------------------------------------------------------------------------
-// program ids — CONGELADO (batem com Anchor.toml e keys/)
+// program ids — FROZEN (must match Anchor.toml and keys/)
 // ---------------------------------------------------------------------------
 
 export const PROGRAM_IDS = {
@@ -22,27 +22,27 @@ export const PROGRAM_IDS = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// escalas — tem que bater com packages/slab-math/src/lib.rs
+// scales — must match packages/slab-math/src/lib.rs
 // ---------------------------------------------------------------------------
 
-/** Razoes, precos e parametros. 1.0 === WAD. */
+/** Ratios, prices and parameters. 1.0 === WAD. */
 export const WAD = 1_000_000n;
 /** Basis points. 100% === BPS. */
 export const BPS = 10_000n;
-/** Indice de borrow acumulado. */
+/** Accumulated borrow index. */
 export const RAY = 1_000_000_000_000n;
-/** USDC e as fracoes de card usam 6 casas. */
+/** USDC and card fractions both use 6 decimals. */
 export const TOKEN_DECIMALS = 6;
 
-/** Converte um valor em WAD para numero legivel. So para exibicao. */
+/** Convert a WAD value to a readable number. Display only. */
 export const fromWad = (x: bigint): number => Number(x) / Number(WAD);
-/** Converte USDC nativo para dolares. So para exibicao. */
+/** Convert native USDC to dollars. Display only. */
 export const fromUsdc = (x: bigint): number => Number(x) / 10 ** TOKEN_DECIMALS;
-/** Dolares para USDC nativo. Trunca, nunca arredonda para cima. */
+/** Dollars to native USDC. Truncates, never rounds up. */
 export const toUsdc = (x: number): bigint => BigInt(Math.trunc(x * 10 ** TOKEN_DECIMALS));
 
 // ---------------------------------------------------------------------------
-// seeds — tem que bater com slab_interface::seeds
+// seeds — must match slab_interface::seeds
 // ---------------------------------------------------------------------------
 
 const enc = (s: string) => Buffer.from(s, "utf8");
@@ -63,8 +63,8 @@ export const SEEDS = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// derivacao de PDA — o frontend nao precisa chamar o programa para saber
-// onde as contas estao
+// PDA derivation — the frontend never has to call a program to learn where
+// an account lives
 // ---------------------------------------------------------------------------
 
 const pda = (seeds: Buffer[], programId: PublicKey): PublicKey =>
@@ -100,7 +100,7 @@ export const findPosition = (market: PublicKey, owner: PublicKey, nonce: bigint)
 };
 
 // ---------------------------------------------------------------------------
-// estados e enums — tem que bater com o Rust
+// states and enums — must match the Rust
 // ---------------------------------------------------------------------------
 
 export type MarketState = "active" | "reduceOnly" | "settled";
@@ -108,7 +108,7 @@ export type OracleState = "ok" | "stale" | "shallowDepth" | "diverged" | "uninit
 export type Side = "long" | "short";
 export type AmmAdapterKind = "mock" | "meteora" | "orca" | "raydium";
 
-/** Espelha `MarketState::allows_*` do Rust. Usado para habilitar botoes. */
+/** Mirrors `MarketState::allows_*` from Rust. Used to enable controls. */
 export const gates = (s: MarketState) => ({
   canOpen: s === "active",
   canClose: s === "active" || s === "reduceOnly",
@@ -117,11 +117,11 @@ export const gates = (s: MarketState) => ({
   canWithdraw: s === "active",
 });
 
-/** So `ok` libera abertura de posicao. */
+/** Only `ok` allows a position to be opened. */
 export const oracleTradeable = (s: OracleState) => s === "ok";
 
 // ---------------------------------------------------------------------------
-// formas de conta que o frontend le — CONGELADO
+// account shapes the frontend reads — FROZEN
 // ---------------------------------------------------------------------------
 
 export interface PoolParams {
@@ -186,7 +186,7 @@ export interface PositionView {
   entryPrice: bigint;
   borrowIdxEntry: bigint;
   openedTs: bigint;
-  /** Derivados, calculados pelo SDK — nao vem da conta. */
+  /** Derived by the SDK — these are not stored on the account. */
   pnl: bigint;
   borrowOwed: bigint;
   equity: bigint;

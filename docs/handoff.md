@@ -1,227 +1,248 @@
-# Handoff — comece por aqui
+# Handoff — start here
 
-> Leia este arquivo inteiro antes do primeiro commit. São 10 minutos e evitam
-> uma semana de retrabalho.
+> Read this file before your first commit. Ten minutes, and it saves a week of
+> rework.
 
-Prazo de submissão: **12/10/2026**. Hoje é 01/10. Restam 11 dias.
+Submission deadline: **12 Oct 2026**. Today is 1 Oct. Eleven days left.
 
-## 1. Rodando em 5 minutos
+## 1. Running it in five minutes
 
 ```sh
 git clone https://github.com/Ooffset/slab.git
 cd slab
 npm install
-npm run sync-keys        # keys/ -> target/deploy/ — program IDs fixos, não pule
-anchor build             # 4 programas + IDLs + tipos TS
-cargo test --workspace   # 78 testes, menos de 1 segundo
-node --test tests/parity.test.mjs   # 19 testes de paridade Rust <-> TS
+npm run sync-keys        # keys/ -> target/deploy/ — fixed program IDs, don't skip
+anchor build             # 4 programs + IDLs + TS types
+cargo test --workspace   # 88 tests, under a second
+node --test tests/parity.test.mjs   # 19 Rust <-> TS parity tests
 ```
 
-Precisa de: Rust 1.89 (o `rust-toolchain.toml` cuida disso), Solana CLI 3.1.10,
+You need Rust 1.89 (`rust-toolchain.toml` handles it), Solana CLI 3.1.10,
 Anchor CLI 1.2.0, Node 22+.
 
-Se `cargo test` passar e `anchor build` gerar quatro `.so` em `target/deploy/`,
-seu ambiente está certo.
+If `cargo test` passes and `anchor build` produces four `.so` files in
+`target/deploy/`, your environment is correct.
 
-## 2. O que já existe
+## 2. What already exists
 
-97 testes passando. 3.373 linhas de Rust. Nenhum handler de risco implementado
-ainda — e isso é proposital: o dia 1 foi para as fronteiras ficarem certas
-antes de alguém escrever lógica em cima delas.
+107 tests passing. No risk handler is implemented yet except
+`open_position` — deliberately. Day 1 was about getting the boundaries right
+before anyone builds on top of them.
 
-| Peça | Estado |
+| Piece | State |
 |---|---|
-| `packages/slab-math` | **pronto** — ponto fixo, 32 testes |
-| `packages/slab-interface` | **congelado** — contrato entre times |
-| `programs/oracle` | contas + as 4 defesas, 11 testes. Falta: litesvm |
-| `programs/card-vault` | ciclo completo NFT↔frações, 2 testes. Falta: litesvm |
-| `programs/clp-pool` | contas + invariantes, 13 testes. Falta: handlers |
-| `programs/perp` | `check_open` validando os 2 tetos, 17 testes. Falta: handlers |
-| `packages/types` `packages/sdk` | PDAs e matemática prontos para o frontend |
-| `apps/web` `apps/keeper` `apps/liquidator` | vazios |
+| `packages/slab-math` | **done** — fixed point, 32 tests |
+| `packages/slab-risk` | **done** — every risk rule, 23 tests |
+| `packages/slab-interface` | **frozen** — the contract between tracks |
+| `programs/oracle` | accounts + all four defences, 11 tests. Missing: litesvm |
+| `programs/card-vault` | full NFT↔fraction cycle, 2 tests. Missing: litesvm |
+| `programs/clp-pool` | accounting + invariants, 12 tests. Missing: handlers |
+| `programs/perp` | **`open_position` complete** — the reference shape |
+| `packages/types` `packages/sdk` | PDAs and maths ready for the frontend |
+| `apps/web` `apps/keeper` `apps/liquidator` | empty |
 
-## 3. As quatro decisões que você precisa conhecer
+## 3. The pattern — copy this shape
 
-### 3.1 São quatro programas, não três
+Open `programs/perp/src/lib.rs` and read `open_position`. Every instruction in
+this codebase follows it:
 
-O spec descreve três. O oráculo virou programa próprio.
+1. Anchor validates the accounts, in the `#[derive(Accounts)]` constraints
+2. the handler reads what it needs and calls **one** function in `slab-risk`
+3. the handler moves tokens and writes state
+4. the handler emits an event
 
-Motivo: propriedade de conta em Solana é por programa. Com `OracleAccount`
-dentro do `clp-pool`, quem escreve preço e quem escreve risco editariam o mesmo
-crate todo dia — exatamente o que esta estrutura existe para evitar.
+**The handler decides nothing.** Every rule — both ceilings, the margin
+requirement, the utilization gate — lives in `slab-risk`.
 
-Custo: zero CPI. `perp` recebe a conta e desserializa; o Anchor confere o dono
-sozinho, porque `slab-interface` declara o ID do programa `oracle`. Conta
-forjada por outro programa é rejeitada antes de qualquer lógica rodar.
+This is not a style preference. It is why 88 tests run in under a second with
+no validator. If rules move into handlers, that goes away and everyone pays
+for it in iteration speed for the remaining ten days.
 
-### 3.2 Não existe chave de oráculo
+Two tests enforce it, and they fail in the `cargo test` of whoever broke them:
 
-`refresh_price` é permissionless e recalcula tudo de estado on-chain. Não há
-assinatura off-chain para roubar, e se o keeper cair qualquer pessoa mantém o
-preço vivo.
+- `handlers_stay_thin` — a handler over 45 lines fails the build
+- `risk_crate_cannot_reach_solana` — `slab-risk` must never depend on
+  `anchor-lang` or `solana-program`
 
-### 3.3 Toda decisão de risco é função pura
+That second one is the real guarantee. `slab-risk` has no `AccountInfo`, no
+`Context`, no `Signer` reachable from it. You *cannot* write account handling
+inside a risk rule, because the types do not exist there.
 
-`Market::check_open`, `Position::health`, `evaluate_state` — nenhuma delas toca
-`AccountInfo`. Recebem structs, devolvem resultado.
+## 4. The four architecture decisions you need to know
 
-É por isso que 78 testes rodam em menos de um segundo, sem compilar SBF e sem
-subir validador. **Mantenha esse padrão.** Se você escrever lógica dentro do
-handler, ela vira intestável e todo mundo paga.
+### 4.1 Four programs, not three
 
-### 3.4 Adaptador não implementado falha alto
+The spec describes three. The oracle became its own program.
 
-`Meteora`, `Orca` e `Raydium` retornam erro, em Rust e em TS. Retornar zero ou
-um número plausível abriria o mercado com preço inventado. Não "resolva" isso
-devolvendo um valor.
+Account ownership in Solana is per program. With `OracleAccount` inside
+`clp-pool`, whoever writes prices and whoever writes risk would be editing the
+same crate every day — exactly what this structure exists to prevent.
 
-## 4. O que está CONGELADO
+Cost: zero CPI. `perp` takes the account and deserializes it; Anchor checks
+the owner itself, because `slab-interface` declares the oracle program's ID.
+An account forged by another program is rejected before our logic runs.
 
-Mudar qualquer item desta lista quebra o trabalho de outra pessoa.
+### 4.2 There is no oracle key
 
-1. `slab_interface::seeds` — todos os PDAs
-2. `OracleAccount` e `OracleView` — a interface A↔B
-3. `PoolParams` — configuração econômica
-4. `MarketState` e `OracleState`
-5. Escalas: WAD = 1e6, BPS = 1e4, RAY = 1e12
-6. `FRACTION_DECIMALS = 6` — mudar quebra o oráculo em silêncio
-7. Os quatro program IDs em `keys/`
+`refresh_price` is permissionless and recomputes everything from on-chain
+state. There is no off-chain signature to steal, and if our keeper dies anyone
+can keep the price alive.
 
-**Precisa mudar mesmo assim?** Processo no topo de
-`packages/slab-interface/src/lib.rs`: explique o porquê, liste os módulos
-afetados, atualize os docs, atualize os testes, avise quem travou. Nessa ordem.
+### 4.3 Unimplemented adapters fail loudly
 
-## 5. Regras de código
+`Meteora`, `Orca` and `Raydium` return errors in both Rust and TypeScript.
+Returning zero, or a plausible number, would open the market on an invented
+price. Do not "fix" this by returning a value.
 
-**Sem float em nada que toque dinheiro.** Intermediários em `u128`/`i128`,
-volta para `u64` só via `to_u64`, que erra em vez de truncar.
+### 4.4 Rounding always favours the pool
 
-**Arredondamento sempre a favor do pool.** Depósito e saque para baixo; taxa,
-borrow e margem exigida para cima. Está documentado em
-`packages/slab-math/src/lib.rs` e testado.
+Deposits and withdrawals round down; fees, borrow and required margin round
+up. Documented in `packages/slab-math/src/lib.rs` and tested.
 
-**No TypeScript, tudo é BigInt.** `Number` perde precisão acima de 2^53 e um
-saldo em USDC nativo passa disso fácil. Converta para `Number` só na última
-linha, para exibir.
+## 5. What is FROZEN
 
-**Teste junto com o código, não depois.** E escreva os negativos: eles valem
-mais que os positivos na avaliação.
+Changing any of these breaks someone else's work in flight.
 
-**Commits pequenos e isolados.** Não misture oráculo, risco e frontend no mesmo
-commit.
+1. `slab_interface::seeds` — every PDA
+2. `OracleAccount` and `OracleView` — the A↔B interface
+3. `PoolParams` — economic configuration
+4. `MarketState` and `OracleState`
+5. Scales: WAD = 1e6, BPS = 1e4, RAY = 1e12
+6. `FRACTION_DECIMALS = 6` — changing it breaks the oracle silently
+7. The four program IDs in `keys/`
 
-## 6. Quem faz o quê
+**Still need to change one?** The process is at the top of
+`packages/slab-interface/src/lib.rs`: say why, list what it affects, update the
+docs, update the tests, tell whoever is blocked. In that order.
 
-### Backend A — ativo e oráculo
+## 6. Code rules
+
+**No floating point anywhere near money.** Intermediates in `u128`/`i128`,
+back to `u64` only through `to_u64`, which errors instead of truncating.
+
+**In TypeScript, everything is BigInt.** `Number` loses precision above 2^53
+and a native USDC balance passes that easily. Convert to `Number` on the last
+line, for display only.
+
+**Write tests alongside the code, not after.** And write the negative ones:
+they carry more weight in judging than the positive ones.
+
+**Small, isolated commits.** Never mix oracle, risk and frontend in one.
+
+## 7. Who does what
+
+### Backend A — asset and oracle
 
 Branch: `backend/card-vault-oracle`
 
-| Dia | Tarefa |
+| Day | Task |
 |---|---|
-| ✅ D1 | decimais das frações travados em 6 |
-| D2 | testes litesvm de `fractionalize` e `redeem_card` |
-| D3 | pool AMM mock on-chain + primeiro depósito de liquidez |
-| D4 | leitor de reservas + TWAP + clamp isolados e testados |
-| D5–D6 | `refresh_price` on-chain + piso de profundidade |
-| **D7** | **congela a função de preço e entrega para B** |
-| D8–D11 | negativos do oráculo: clamp, divergência, profundidade mínima |
+| ✅ D1 | fraction decimals fixed at 6 |
+| D2 | litesvm tests for `fractionalize` and `redeem_card` |
+| D3 | mock AMM pool on-chain + first liquidity deposit |
+| D4 | reserve reader + TWAP + clamp, isolated and tested |
+| D5–D6 | `refresh_price` on-chain + minimum depth |
+| **D7** | **freeze the price function and hand it to B** |
+| D8–D11 | oracle negatives: clamp, divergence, minimum depth |
 
-Negativos do D2 que importam: mint fora da whitelist, resgate com frações
-insuficientes, resgate por quem não tem todas as frações, card desabilitado.
+The D2 negatives that matter: mint outside the whitelist, redemption with
+insufficient fractions, redemption by someone who does not hold all the
+fractions, disabled card.
 
-### Backend B — motor de risco
+### Backend B — risk engine
 
 Branch: `backend/risk-engine`
 
-| Dia | Tarefa |
+| Day | Task |
 |---|---|
-| ✅ D1–D2 | contas + ponto fixo + testes de overflow |
-| D3–D5 | `deposit`, `withdraw` proporcional, NAV, CPI de token |
-| D6–D8 | `open_position`, `close_position`, borrow por utilização |
-| **D9** | **os dois tetos de OI e a invariante de solvência** |
-| D10 | `liquidate` + bot liquidador de referência |
-| D11 | `ReduceOnly`, `Settled`, haircut pro-rata |
+| ✅ D1–D2 | accounts + fixed point + overflow tests |
+| D3–D5 | `deposit`, proportional `withdraw`, NAV, token CPI |
+| D6–D8 | `close_position`, `liquidate` |
+| **D9** | **integration: both ceilings enforced end to end** |
+| D10 | reference liquidator bot |
+| D11 | `ReduceOnly`, `Settled`, pro-rata haircut |
 
-O D9 está no meio de propósito. Deixar o coração do mecanismo para o fim é
-como esses projetos morrem.
+The decisions already exist and are tested: `risk::settle_close`,
+`risk::settle_liquidation`, `risk::capacity`. What is missing is the token
+movement around them, plus the CPI door that lets `perp` pay a winning
+trader — Blocker #4.
 
-A matemática já está pronta e testada — falta a movimentação de token.
-**Não implemente caminho de saque só em USDC**, nem como atalho temporário.
+**Do not implement a USDC-only withdrawal path**, not even as a shortcut.
 
 ### Frontend
 
 Branch: `frontend/web`
 
-Pode começar agora, sem esperar ninguém. Já existem: `target/idl/*.json`,
-`target/types/*.ts`, PDAs em `@slab/types`, e `derivePosition`,
-`deriveCapacity`, `deriveBorrowRates`, `derivePool` em `@slab/sdk`.
+You can start now without waiting for anyone. Already available:
+`target/idl/*.json`, `target/types/*.ts`, PDAs in `@slab/types`, and
+`derivePosition`, `deriveCapacity`, `deriveBorrowRates`, `derivePool` in
+`@slab/sdk`.
 
-| Dia | Tarefa |
+| Day | Task |
 |---|---|
-| D1–D2 | scaffold Next.js, wallet adapter, leitura de contas |
-| D3–D4 | tela de depósito no pool: mangas, NAV, preço do CLP |
-| D5–D7 | tela de trade: preço, borrow, PnL, preço de liquidação |
-| D8–D9 | botão proteger coleção, lendo os cards da carteira |
-| D10 | painel com **os dois lados na mesma tela** — PnL do trader e NAV do pool |
-| D11–D12 | roteiro, vídeo, texto da submissão |
+| D1–D2 | Next.js scaffold, wallet adapter, account reads |
+| D3–D4 | pool deposit screen: sleeves, NAV, CLP price |
+| D5–D7 | trade screen: price, borrow, PnL, liquidation price |
+| D8–D9 | protect-collection button, reading the wallet's cards |
+| D10 | panel showing **both sides on one screen** — trader PnL and pool NAV |
+| D11–D12 | script, video, submission text |
 
-Leia `docs/frontend-contract.md`. Comece com dados mockados nas formas de
-`PoolView`, `OracleView`, `MarketView` e `PositionView` — quando os handlers
-chegarem, só o fetch muda.
+Read `docs/frontend-contract.md`. Start with mocked data in the shapes of
+`PoolView`, `OracleView`, `MarketView` and `PositionView` — when the handlers
+land, only the fetch changes.
 
-### Todos
+### Everyone
 
-- D12: integração completa em devnet, os três juntos
-- D13: congelar código, ensaiar a demo duas vezes
-- D14: submeter com folga
+- D12: full devnet integration, the three of you together
+- D13: freeze the code, rehearse the demo twice
+- D14: submit with room to spare
 
-## 7. O único ponto onde um trava o outro
+## 8. The one place where one of you blocks another
 
-**D7.** Backend A congela a função de preço e entrega para B. Depois disso a
-interface não muda mais.
+**D7.** Backend A freezes the price function and hands it to B. After that the
+interface does not move.
 
-Fora isso, as trilhas são independentes. B não espera A porque consome
-`OracleView` e os testes constroem essa struct na mão. Frontend não espera
-ninguém porque os PDAs e os tipos já existem.
+Everything else is independent. B does not wait for A because it consumes
+`OracleView`, and the tests build that struct by hand. The frontend waits for
+nobody because the PDAs and types already exist.
 
-## 8. Bloqueadores conhecidos
+## 9. Known blockers
 
-| # | O quê | Grau | Dono |
+| # | What | Severity | Owner |
 |---|---|---|---|
-| 1 | Layout on-chain do AMM real não confirmado | Alto | A |
-| 2 | Quem é o primeiro LP do pool de frações | Alto | A + produto |
-| 3 | Circularidade do NAV: o mesmo pool precifica perp e colateral | Alto | B |
-| 4 | CPI de risco entre `perp` e `clp-pool` | Médio | B |
-| 5 | Espaço no fim do nome da pasta local | Baixo | qualquer um |
+| 1 | Real AMM on-chain layout unconfirmed | High | A |
+| 2 | Who provides the first liquidity to the fraction pool | High | A + product |
+| 3 | NAV circularity: one pool prices both the perp and the collateral | High | B |
+| 4 | Risk CPI between `perp` and `clp-pool` | Medium | B |
 
-Sobre o **#2**, que é o mais fácil de subestimar: sem depósito inicial no AMM
-não existe reserva, não existe preço, e nada mais funciona. E o tamanho desse
-depósito define o teto de OI do mercado inteiro.
+**#2** is the easiest to underestimate: with no initial deposit there is no
+reserve, no price, and nothing else works. And the size of that deposit sets
+the open-interest ceiling for the entire market.
 
-Sobre o **#3**: a manga líquida mitiga, não elimina. Vai declarado na
-submissão — dizer que reduzimos a circularidade é honesto; dizer que
-resolvemos, não.
+**#3**: the liquid sleeve mitigates it; it does not eliminate it. This goes in
+the submission as written. Saying we reduced the circularity is honest; saying
+we solved it is not.
 
-## 9. O achado que muda o planejamento
+## 10. The finding that changes the plan
 
-O teste `depth_cap_binds_far_before_solvency_cap` confirma:
+The test `the_depth_ceiling_binds_long_before_solvency_does` confirms:
 
 ```
-teto de solvência do CLP   $233.333
-teto de profundidade AMM    $17.944   ← trava
+CLP solvency ceiling    $233,333
+AMM depth ceiling        $17,944   ← binds
 ```
 
-**A profundidade do AMM trava 13 vezes antes da solvência.** O teto que o spec
-mais detalha praticamente nunca vai morder. Quem define o tamanho do mercado é
-a liquidez do pool de frações, não o saldo do CLP.
+**AMM depth binds 13x before solvency does.** The ceiling the spec details
+most will almost never bite. What sizes the market is the liquidity in the
+fraction pool, not the CLP balance.
 
-Vale o time discutir se `phi` e `delta_max` estão conservadores demais para uma
-restrição que quase nunca morde.
+Worth the team discussing whether `phi` and `delta_max` are too conservative
+for a constraint that barely ever binds.
 
-## 10. Leitura obrigatória
+## 11. Required reading
 
-1. `docs/invariants.md` — as 12 regras que não se negociam
-2. `docs/architecture.md` — fronteiras de programa e camadas
-3. `docs/oracle.md` — as 4 defesas e o Blocker #1
-4. `docs/frontend-contract.md` — só o frontend
-5. `packages/slab-interface/src/lib.rs` — o que está congelado
+1. `docs/invariants.md` — the 12 rules that are not negotiable
+2. `docs/architecture.md` — program boundaries and layers
+3. `docs/oracle.md` — the four defences and Blocker #1
+4. `docs/frontend-contract.md` — frontend only
+5. `packages/slab-interface/src/lib.rs` — what is frozen

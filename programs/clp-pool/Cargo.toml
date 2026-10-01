@@ -23,6 +23,7 @@ custom-panic = []
 anchor-lang = { workspace = true, features = ["init-if-needed"] }
 anchor-spl = { workspace = true }
 slab-math = { workspace = true }
+slab-risk = { workspace = true }
 slab-interface = { workspace = true }
 
 [dev-dependencies]

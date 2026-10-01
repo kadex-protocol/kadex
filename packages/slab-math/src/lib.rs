@@ -1,58 +1,58 @@
-//! Aritmetica de ponto fixo do SLAB.
+//! Fixed-point arithmetic for SLAB.
 //!
-//! REGRA ZERO: nao existe ponto flutuante em nenhum caminho que toque dinheiro.
-//! Todo calculo aqui e inteiro, com escala explicita e direcao de arredondamento
-//! declarada por funcao.
+//! RULE ZERO: no floating point anywhere near money. Everything here is
+//! integer arithmetic with an explicit scale and a rounding direction stated
+//! per function.
 //!
-//! # Escalas
+//! # Scales
 //!
-//! | constante | valor | usada para |
+//! | constant | value | used for |
 //! |---|---|---|
-//! | [`WAD`]  | 1e6  | razoes, precos, parametros (phi, delta, mu, psi) |
-//! | [`BPS`]  | 1e4  | taxas e haircuts vindos de configuracao |
-//! | [`RAY`]  | 1e12 | indice de borrow acumulado (precisa de mais casas) |
+//! | [`WAD`]  | 1e6  | ratios, prices, parameters (phi, delta, mu, psi) |
+//! | [`BPS`]  | 1e4  | fees and haircuts coming from configuration |
+//! | [`RAY`]  | 1e12 | accumulated borrow index (needs more places) |
 //!
-//! Quantias de token sao `u64` em unidades nativas. USDC tem 6 casas, entao
-//! 1 USDC = 1_000_000 = 1 WAD. Essa coincidencia e proposital: preco em WAD
-//! multiplicado por quantidade em unidades nativas cai direto em USDC nativo.
+//! Token amounts are `u64` in native units. USDC has 6 decimals, so
+//! 1 USDC = 1_000_000 = 1 WAD. That coincidence is deliberate: a WAD price
+//! times a native quantity lands directly in native USDC.
 //!
-//! # Politica de arredondamento
+//! # Rounding policy
 //!
-//! Sempre a favor do pool, nunca do usuario. Em caso de duvida o pool fica
-//! com o centavo. Concretamente:
+//! Always in the pool's favour, never the user's. When in doubt the pool
+//! keeps the cent. Concretely:
 //!
-//! - deposito -> CLP mintado arredonda PARA BAIXO ([`shares_for_deposit`])
-//! - saque -> ativo devolvido arredonda PARA BAIXO ([`assets_for_shares`])
-//! - taxa, borrow e margem exigida arredondam PARA CIMA
-//! - PnL do trader arredonda PARA BAIXO em modulo
+//! - deposit -> CLP minted rounds DOWN ([`shares_for_deposit`])
+//! - withdrawal -> assets returned round DOWN ([`assets_for_shares`])
+//! - fees, borrow owed and required margin round UP
+//! - trader PnL rounds DOWN in magnitude
 //!
-//! Toda funcao abaixo diz no nome ou no doc qual direcao usa.
+//! Every function below states its direction in its name or its doc.
 //!
 //! # Overflow
 //!
-//! Intermediarios sao `u128`/`i128`. Nada usa `as` para estreitar sem checar.
-//! Toda conversao de volta para `u64` passa por [`to_u64`], que retorna
-//! [`MathError::Overflow`] em vez de truncar silenciosamente.
+//! Intermediates are `u128`/`i128`. Nothing narrows with `as` unchecked.
+//! Every conversion back to `u64` goes through [`to_u64`], which returns
+//! [`MathError::Overflow`] instead of truncating silently.
 
 #![allow(clippy::result_large_err)]
 
-/// Escala de razoes, precos e parametros. 1.0 == `WAD`.
+/// Scale for ratios, prices and parameters. 1.0 == `WAD`.
 pub const WAD: u128 = 1_000_000;
-/// Escala de basis points vindos de configuracao. 100% == `BPS`.
+/// Scale for configured basis points. 100% == `BPS`.
 pub const BPS: u128 = 10_000;
-/// Escala do indice de borrow acumulado.
+/// Scale of the accumulated borrow index.
 pub const RAY: u128 = 1_000_000_000_000;
 
-/// Segundos em uma hora. O borrow do spec e por hora.
+/// Seconds in an hour. The spec's borrow rate is hourly.
 pub const SECONDS_PER_HOUR: i64 = 3_600;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MathError {
-    /// O resultado nao cabe no tipo de destino.
+    /// The result does not fit the destination type.
     Overflow,
-    /// Divisao por zero.
+    /// Division by zero.
     DivByZero,
-    /// Um argumento violou uma pre-condicao documentada.
+    /// An argument violated a documented precondition.
     BadInput,
 }
 
@@ -69,16 +69,16 @@ impl core::fmt::Display for MathError {
 pub type MResult<T> = core::result::Result<T, MathError>;
 
 // ---------------------------------------------------------------------------
-// primitivas
+// primitives
 // ---------------------------------------------------------------------------
 
-/// Estreita `u128` para `u64` falhando em vez de truncar.
+/// Narrow `u128` to `u64`, failing instead of truncating.
 #[inline]
 pub fn to_u64(x: u128) -> MResult<u64> {
     u64::try_from(x).map_err(|_| MathError::Overflow)
 }
 
-/// `a * b / c` arredondando PARA BAIXO.
+/// `a * b / c`, rounding DOWN.
 #[inline]
 pub fn mul_div_floor(a: u128, b: u128, c: u128) -> MResult<u128> {
     if c == 0 {
@@ -89,10 +89,10 @@ pub fn mul_div_floor(a: u128, b: u128, c: u128) -> MResult<u128> {
         .map(|prod| prod / c)
 }
 
-/// `a * b / c` arredondando PARA CIMA.
+/// `a * b / c`, rounding UP.
 ///
-/// Usada onde o arredondamento tem que favorecer o pool: taxa, borrow devido,
-/// margem minima exigida.
+/// Used where rounding must favour the pool: fees, borrow owed, minimum
+/// required margin.
 #[inline]
 pub fn mul_div_ceil(a: u128, b: u128, c: u128) -> MResult<u128> {
     if c == 0 {
@@ -102,33 +102,33 @@ pub fn mul_div_ceil(a: u128, b: u128, c: u128) -> MResult<u128> {
     Ok(prod.div_ceil(c))
 }
 
-/// `x * f / WAD`, para baixo. `f` e uma razao em WAD.
+/// `x * f / WAD`, rounding down. `f` is a WAD ratio.
 #[inline]
 pub fn mul_wad_floor(x: u128, f: u128) -> MResult<u128> {
     mul_div_floor(x, f, WAD)
 }
 
-/// `x * f / WAD`, para cima.
+/// `x * f / WAD`, rounding up.
 #[inline]
 pub fn mul_wad_ceil(x: u128, f: u128) -> MResult<u128> {
     mul_div_ceil(x, f, WAD)
 }
 
-/// `x * WAD / d`, para baixo. Resultado e uma razao em WAD.
+/// `x * WAD / d`, rounding down. The result is a WAD ratio.
 #[inline]
 pub fn div_wad_floor(x: u128, d: u128) -> MResult<u128> {
     mul_div_floor(x, WAD, d)
 }
 
-/// `x * bps / BPS`, para cima. Usada para taxas e haircuts.
+/// `x * bps / BPS`, rounding up. Used for fees and haircuts.
 #[inline]
 pub fn apply_bps_ceil(x: u128, bps: u128) -> MResult<u128> {
     mul_div_ceil(x, bps, BPS)
 }
 
-/// `x - x*bps/BPS`, com o desconto arredondado PARA CIMA (pool fica com a sobra).
+/// `x - x*bps/BPS`, with the deduction rounded UP (the pool keeps the rest).
 ///
-/// Usada no haircut de deposito de fracao de card.
+/// Used for the card-fraction deposit haircut.
 #[inline]
 pub fn subtract_bps_ceil(x: u128, bps: u128) -> MResult<u128> {
     if bps > BPS {
@@ -138,12 +138,12 @@ pub fn subtract_bps_ceil(x: u128, bps: u128) -> MResult<u128> {
     Ok(x.saturating_sub(cut))
 }
 
-/// Raiz quadrada inteira por Newton. `isqrt(x)` = maior `r` com `r*r <= x`.
+/// Integer square root by Newton's method. `isqrt(x)` = largest `r` with `r*r <= x`.
 pub fn isqrt(x: u128) -> u128 {
     if x < 2 {
         return x;
     }
-    // chute inicial baseado no bit mais alto
+    // initial guess from the highest set bit
     let mut r = 1u128 << ((128 - x.leading_zeros()).div_ceil(2));
     loop {
         let next = (r + x / r) / 2;
@@ -154,7 +154,7 @@ pub fn isqrt(x: u128) -> u128 {
     }
 }
 
-/// `sqrt(x)` onde `x` esta em WAD e o resultado tambem. Arredonda PARA BAIXO.
+/// `sqrt(x)` with `x` and the result both in WAD. Rounds DOWN.
 ///
 /// `sqrt_wad(WAD) == WAD`, `sqrt_wad(4*WAD) == 2*WAD`.
 pub fn sqrt_wad(x_wad: u128) -> MResult<u128> {
@@ -163,13 +163,13 @@ pub fn sqrt_wad(x_wad: u128) -> MResult<u128> {
 }
 
 // ---------------------------------------------------------------------------
-// utilizacao e borrow
+// utilization and borrow
 // ---------------------------------------------------------------------------
 
-/// `u = OI_total / capacidade`, em WAD. Satura em `WAD` (100%).
+/// `u = OI_total / capacity`, in WAD. Saturates at `WAD` (100%).
 ///
-/// Capacidade zero com OI zero e 0; capacidade zero com OI positivo e 100%,
-/// porque nao ha espaco nenhum.
+/// Zero capacity with zero OI is 0; zero capacity with positive OI is 100%,
+/// because there is no room at all.
 pub fn utilization(oi_total: u64, capacity: u64) -> MResult<u128> {
     if capacity == 0 {
         return Ok(if oi_total == 0 { 0 } else { WAD });
@@ -178,19 +178,19 @@ pub fn utilization(oi_total: u64, capacity: u64) -> MResult<u128> {
     Ok(u.min(WAD))
 }
 
-/// `r_hora = r0 + r1 * u^2`, em WAD por hora.
+/// `r_hourly = r0 + r1 * u^2`, in WAD per hour.
 ///
-/// O termo quadratico e o que faz a taxa subir devagar enquanto sobra
-/// capacidade e disparar perto do teto.
+/// The quadratic term is what makes the rate climb slowly while capacity
+/// remains and spike near the ceiling.
 pub fn borrow_rate_hourly(r0_wad: u128, r1_wad: u128, u_wad: u128) -> MResult<u128> {
     let u2 = mul_wad_floor(u_wad, u_wad)?;
     let quad = mul_wad_floor(r1_wad, u2)?;
     r0_wad.checked_add(quad).ok_or(MathError::Overflow)
 }
 
-/// Multiplicador de borrow do lado lotado: `1 + psi * max(0, (lado - oposto)/total)`.
+/// Crowded-side borrow multiplier: `1 + psi * max(0, (side - opposite)/total)`.
 ///
-/// Retorna WAD (== 1.0) quando o lado nao esta lotado.
+/// Returns WAD (== 1.0) when the side is not crowded.
 pub fn side_multiplier(oi_side: u64, oi_opposite: u64, psi_wad: u128) -> MResult<u128> {
     let total = (oi_side as u128)
         .checked_add(oi_opposite as u128)
@@ -204,9 +204,9 @@ pub fn side_multiplier(oi_side: u64, oi_opposite: u64, psi_wad: u128) -> MResult
     WAD.checked_add(bump).ok_or(MathError::Overflow)
 }
 
-/// Avanca o indice de borrow (escala [`RAY`]) por `elapsed` segundos.
+/// Advance the borrow index ([`RAY`] scale) by `elapsed` seconds.
 ///
-/// Arredonda PARA CIMA: o trader paga o centavo, nunca o pool.
+/// Rounds UP: the trader pays the cent, never the pool.
 pub fn accrue_borrow_index(
     index_ray: u128,
     rate_hourly_wad: u128,
@@ -218,7 +218,7 @@ pub fn accrue_borrow_index(
     if elapsed_secs == 0 || rate_hourly_wad == 0 {
         return Ok(index_ray);
     }
-    // fator = rate * elapsed / 3600, em WAD
+    // factor = rate * elapsed / 3600, in WAD
     let factor = mul_div_ceil(
         rate_hourly_wad,
         elapsed_secs as u128,
@@ -228,9 +228,9 @@ pub fn accrue_borrow_index(
     index_ray.checked_add(growth).ok_or(MathError::Overflow)
 }
 
-/// Borrow devido por uma posicao entre o indice de entrada e o atual.
+/// Borrow owed by a position between its entry index and the current one.
 ///
-/// Arredonda PARA CIMA.
+/// Rounds UP.
 pub fn borrow_owed(notional: u64, index_entry_ray: u128, index_now_ray: u128) -> MResult<u64> {
     if index_now_ray < index_entry_ray {
         return Err(MathError::BadInput);
@@ -244,7 +244,7 @@ pub fn borrow_owed(notional: u64, index_entry_ray: u128, index_now_ray: u128) ->
 }
 
 // ---------------------------------------------------------------------------
-// posicao
+// position
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -253,13 +253,13 @@ pub enum Side {
     Short,
 }
 
-/// PnL da posicao em unidades nativas de USDC, com sinal.
+/// Position PnL in native USDC, signed.
 ///
-/// `long  = (preco - entrada)/entrada * notional`
-/// `short = (entrada - preco)/entrada * notional`
+/// `long  = (price - entry)/entry * notional`
+/// `short = (entry - price)/entry * notional`
 ///
-/// Arredonda PARA BAIXO em modulo: ganho do trader trunca para baixo, perda
-/// tambem. O pool nunca paga o centavo de arredondamento.
+/// Rounds DOWN in magnitude: a trader's gain truncates down, and so does a
+/// loss. The pool never pays the rounding cent.
 pub fn pnl(side: Side, entry_price: u64, price: u64, notional: u64) -> MResult<i128> {
     if entry_price == 0 {
         return Err(MathError::DivByZero);
@@ -277,8 +277,8 @@ pub fn pnl(side: Side, entry_price: u64, price: u64, notional: u64) -> MResult<i
     Ok(if positive { m } else { -m })
 }
 
-/// Patrimonio da posicao: `margem + pnl - borrow_devido`. Pode ser negativo
-/// (isso e bad debt e o chamador tem que tratar explicitamente).
+/// Position equity: `margin + pnl - borrow_owed`. May be negative — that is
+/// bad debt, and the caller must handle it explicitly.
 pub fn equity(margin: u64, pnl_signed: i128, borrow_owed: u64) -> MResult<i128> {
     let m = margin as i128;
     let b = borrow_owed as i128;
@@ -287,8 +287,8 @@ pub fn equity(margin: u64, pnl_signed: i128, borrow_owed: u64) -> MResult<i128> 
         .ok_or(MathError::Overflow)
 }
 
-/// Saude = `patrimonio / notional`, em WAD com sinal. Liquidavel quando
-/// abaixo da margem de manutencao.
+/// Health = `equity / notional`, signed, in WAD. Liquidatable when below
+/// maintenance margin.
 pub fn health_wad(equity_signed: i128, notional: u64) -> MResult<i128> {
     if notional == 0 {
         return Err(MathError::DivByZero);
@@ -299,12 +299,12 @@ pub fn health_wad(equity_signed: i128, notional: u64) -> MResult<i128> {
     Ok(scaled / notional as i128)
 }
 
-/// Preco em que a posicao atinge a margem de manutencao. Deterministico e
-/// calculavel no momento da abertura, como o spec exige.
+/// Price at which the position reaches maintenance margin. Deterministic and
+/// computable the moment it opens, as the spec requires.
 ///
-/// Movimento tolerado = `(margem - borrow)/notional - manutencao`.
-/// Se a posicao ja esta abaixo da manutencao, retorna o proprio preco de
-/// entrada para o lado que perde (ou seja, ja liquidavel).
+/// Tolerated move = `(margin - borrow)/notional - maintenance`.
+/// If the position is already below maintenance, returns the entry price
+/// itself — meaning already liquidatable.
 pub fn liquidation_price(
     side: Side,
     entry_price: u64,
@@ -335,8 +335,8 @@ pub fn liquidation_price(
     to_u64(p)
 }
 
-/// Margem minima exigida para abrir `notional` com alavancagem maxima
-/// `max_leverage_wad`. Arredonda PARA CIMA.
+/// Minimum margin required to open `notional` at maximum leverage
+/// `max_leverage_wad`. Rounds UP.
 pub fn min_margin(notional: u64, max_leverage_wad: u128) -> MResult<u64> {
     if max_leverage_wad == 0 {
         return Err(MathError::DivByZero);
@@ -346,15 +346,15 @@ pub fn min_margin(notional: u64, max_leverage_wad: u128) -> MResult<u64> {
 }
 
 // ---------------------------------------------------------------------------
-// tetos de risco
+// risk ceilings
 // ---------------------------------------------------------------------------
 
-/// Teto de OI pela solvencia da manga liquida.
+/// Open-interest ceiling from the liquid sleeve's solvency.
 ///
 /// `OI_max = U * phi / delta_max`
 ///
-/// Vem da invariante `OI * delta_max <= U * phi`: o pagamento a trader
-/// vencedor sempre sai de ativo liquido.
+/// Comes from the invariant `OI * delta_max <= U * phi`: a winning trader is
+/// always paid out of liquid assets.
 pub fn oi_cap_solvency(usdc_sleeve: u64, phi_wad: u128, delta_max_wad: u128) -> MResult<u64> {
     if delta_max_wad == 0 {
         return Err(MathError::DivByZero);
@@ -364,13 +364,13 @@ pub fn oi_cap_solvency(usdc_sleeve: u64, phi_wad: u128, delta_max_wad: u128) -> 
     to_u64(cap)
 }
 
-/// Teto de OI pela profundidade do AMM, que e a defesa anti-manipulacao.
+/// Open-interest ceiling from AMM depth — the anti-manipulation defence.
 ///
 /// `OI_max = R * (sqrt(1 + delta_liq) - 1) / mu`
 ///
-/// O numerador e o custo de empurrar o preco do pool constant-product ate o
-/// ponto de liquidacao; `mu` e a fracao do OI que um atacante captura na
-/// cascata. Mover o preco tem que custar mais do que rende.
+/// The numerator is the cost of pushing a constant-product pool's price to
+/// the liquidation point; `mu` is the share of open interest an attacker
+/// captures in the cascade. Moving the price must cost more than it pays.
 pub fn oi_cap_depth(depth_usdc: u64, delta_liq_wad: u128, mu_wad: u128) -> MResult<u64> {
     if mu_wad == 0 {
         return Err(MathError::DivByZero);
@@ -383,13 +383,13 @@ pub fn oi_cap_depth(depth_usdc: u64, delta_liq_wad: u128, mu_wad: u128) -> MResu
     to_u64(cap)
 }
 
-/// O teto que vale e o MENOR dos dois. Nunca o maior, nunca a media.
+/// The ceiling that counts is the LOWER of the two. Never the higher, never the average.
 pub fn oi_allowed(cap_solvency: u64, cap_depth: u64) -> u64 {
     cap_solvency.min(cap_depth)
 }
 
-/// Custo aproximado de mover o preco de um pool constant-product por um fator
-/// `(1 + delta)`. Exposto para a UI e para os testes de ataque.
+/// Approximate cost of moving a constant-product pool's price by a factor of
+/// `(1 + delta)`. Exposed for the UI and the attack tests.
 pub fn cost_to_move_price(depth_usdc: u64, delta_wad: u128) -> MResult<u64> {
     let one_plus = WAD.checked_add(delta_wad).ok_or(MathError::Overflow)?;
     let root = sqrt_wad(one_plus)?;
@@ -401,11 +401,11 @@ pub fn cost_to_move_price(depth_usdc: u64, delta_wad: u128) -> MResult<u64> {
 // pool
 // ---------------------------------------------------------------------------
 
-/// NAV do pool: `U + valor_da_manga_de_cards - PnL_dos_traders - bad_debt`.
+/// Pool NAV: `U + card_sleeve_value - trader_pnl - bad_debt`.
 ///
-/// PnL positivo dos traders SAI do pool. Bad debt ja realizado tambem.
-/// Satura em zero: um NAV negativo significa insolvencia e vira `Settled`,
-/// nao um numero negativo circulando pelo resto do programa.
+/// Positive trader PnL LEAVES the pool, and so does realised bad debt.
+/// Saturates at zero: a negative NAV means insolvency and becomes `Settled`,
+/// not a negative number circulating through the rest of the program.
 pub fn nav(usdc_sleeve: u64, card_sleeve_value: u64, trader_pnl: i128, bad_debt: u64) -> MResult<u64> {
     let assets = (usdc_sleeve as i128)
         .checked_add(card_sleeve_value as i128)
@@ -420,7 +420,7 @@ pub fn nav(usdc_sleeve: u64, card_sleeve_value: u64, trader_pnl: i128, bad_debt:
     to_u64(after_pnl as u128)
 }
 
-/// Preco do CLP em WAD. Pool vazio vale 1.0 por convencao (primeiro deposito).
+/// CLP price in WAD. An empty pool is worth 1.0 by convention (first deposit).
 pub fn clp_price(nav: u64, clp_supply: u64) -> MResult<u128> {
     if clp_supply == 0 {
         return Ok(WAD);
@@ -428,16 +428,16 @@ pub fn clp_price(nav: u64, clp_supply: u64) -> MResult<u128> {
     div_wad_floor(nav as u128, clp_supply as u128)
 }
 
-/// CLP mintado por um deposito de `value` (ja com haircut aplicado).
-/// Arredonda PARA BAIXO: quem entra nunca recebe cota a mais.
+/// CLP minted for a deposit of `value` (haircut already applied).
+/// Rounds DOWN: whoever enters never receives an extra share.
 pub fn shares_for_deposit(value: u64, nav: u64, clp_supply: u64) -> MResult<u64> {
     if clp_supply == 0 || nav == 0 {
-        return Ok(value); // bootstrap: 1 CLP por unidade de valor
+        return Ok(value); // bootstrap: 1 CLP per unit of value
     }
     to_u64(mul_div_floor(value as u128, clp_supply as u128, nav as u128)?)
 }
 
-/// Valor devolvido por queimar `shares`. Arredonda PARA BAIXO.
+/// Value returned for burning `shares`. Rounds DOWN.
 pub fn assets_for_shares(shares: u64, nav: u64, clp_supply: u64) -> MResult<u64> {
     if clp_supply == 0 {
         return Err(MathError::DivByZero);
@@ -445,11 +445,11 @@ pub fn assets_for_shares(shares: u64, nav: u64, clp_supply: u64) -> MResult<u64>
     to_u64(mul_div_floor(shares as u128, nav as u128, clp_supply as u128)?)
 }
 
-/// Fatia proporcional de uma manga para um resgate de `shares`.
+/// Proportional slice of one sleeve for a redemption of `shares`.
 ///
-/// O saque e SEMPRE proporcional nas duas mangas. Nao existe caminho de saque
-/// so em USDC: se existisse, os primeiros levariam o liquido e os ultimos
-/// ficariam com a manga ilíquida inteira.
+/// Withdrawals are ALWAYS proportional across both sleeves. There is no
+/// USDC-only path: if there were, the first out would take the liquid side
+/// and the last would be left holding the whole illiquid one.
 pub fn proportional_share(sleeve_amount: u64, shares: u64, clp_supply: u64) -> MResult<u64> {
     if clp_supply == 0 {
         return Err(MathError::DivByZero);
@@ -464,8 +464,8 @@ pub fn proportional_share(sleeve_amount: u64, shares: u64, clp_supply: u64) -> M
     )?)
 }
 
-/// Haircut pro-rata na liquidacao graciosa: quanto cada um recebe quando o
-/// pool nao cobre o total devido. Igual para todos, por construcao.
+/// Pro-rata haircut at graceful settlement: what each holder receives when
+/// the pool does not cover the total owed. Equal for everyone, by construction.
 pub fn prorata_haircut(claim: u64, total_claims: u64, available: u64) -> MResult<u64> {
     if total_claims == 0 {
         return Ok(0);
@@ -480,8 +480,8 @@ pub fn prorata_haircut(claim: u64, total_claims: u64, available: u64) -> MResult
     )?)
 }
 
-/// Peso de um card dentro da manga de cards, em WAD. Usado contra
-/// `max_card_weight` para o pool nao virar aposta num card so.
+/// Weight of one card inside the card sleeve, in WAD. Checked against
+/// `max_card_weight` so the pool never becomes a bet on a single card.
 pub fn card_weight(card_value: u64, card_sleeve_value: u64) -> MResult<u128> {
     if card_sleeve_value == 0 {
         return Ok(0);
@@ -490,7 +490,7 @@ pub fn card_weight(card_value: u64, card_sleeve_value: u64) -> MResult<u128> {
 }
 
 // ---------------------------------------------------------------------------
-// testes
+// tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -499,13 +499,13 @@ mod tests {
 
     const USDC: u64 = 1_000_000;
 
-    // ---- primitivas ----
+    // ---- primitives ----
 
     #[test]
     fn mul_div_rounds_in_the_declared_direction() {
         assert_eq!(mul_div_floor(10, 1, 3).unwrap(), 3);
         assert_eq!(mul_div_ceil(10, 1, 3).unwrap(), 4);
-        // exato nao muda com a direcao
+        // exact division is unaffected by direction
         assert_eq!(mul_div_floor(9, 1, 3).unwrap(), 3);
         assert_eq!(mul_div_ceil(9, 1, 3).unwrap(), 3);
     }
@@ -514,7 +514,7 @@ mod tests {
     fn div_by_zero_is_an_error_not_a_panic() {
         assert_eq!(mul_div_floor(1, 1, 0), Err(MathError::DivByZero));
         assert_eq!(mul_div_ceil(1, 1, 0), Err(MathError::DivByZero));
-        assert_eq!(clp_price(1, 0).unwrap(), WAD); // caso definido, nao erro
+        assert_eq!(clp_price(1, 0).unwrap(), WAD); // defined case, not an error
         assert_eq!(assets_for_shares(1, 1, 0), Err(MathError::DivByZero));
         assert_eq!(health_wad(1, 0), Err(MathError::DivByZero));
         assert_eq!(pnl(Side::Long, 0, 1, 1), Err(MathError::DivByZero));
@@ -524,7 +524,7 @@ mod tests {
     fn overflow_is_caught_not_truncated() {
         assert_eq!(mul_div_floor(u128::MAX, 2, 1), Err(MathError::Overflow));
         assert_eq!(to_u64(u64::MAX as u128 + 1), Err(MathError::Overflow));
-        // resultado grande demais para u64 vira erro, nao numero errado
+        // a result too large for u64 becomes an error, not a wrong number
         assert_eq!(
             oi_cap_solvency(u64::MAX, WAD, 1),
             Err(MathError::Overflow)
@@ -548,8 +548,8 @@ mod tests {
         assert_eq!(isqrt(1_000_000), 1_000);
         for n in 1u128..2_000 {
             let r = isqrt(n);
-            assert!(r * r <= n, "isqrt({n}) alto demais");
-            assert!((r + 1) * (r + 1) > n, "isqrt({n}) baixo demais");
+            assert!(r * r <= n, "isqrt({n}) too high");
+            assert!((r + 1) * (r + 1) > n, "isqrt({n}) too low");
         }
     }
 
@@ -564,45 +564,45 @@ mod tests {
 
     #[test]
     fn subtract_bps_keeps_the_remainder_for_the_pool() {
-        // 3% de haircut sobre 1000 -> 970
+        // a 3% haircut on 1000 -> 970
         assert_eq!(subtract_bps_ceil(1_000, 300).unwrap(), 970);
-        // arredondamento do corte e para cima: 3% de 101 = 3.03 -> 4
+        // the deduction rounds up: 3% of 101 = 3.03 -> 4
         assert_eq!(subtract_bps_ceil(101, 300).unwrap(), 97);
         assert_eq!(subtract_bps_ceil(100, 20_000), Err(MathError::BadInput));
     }
 
-    // ---- utilizacao e borrow ----
+    // ---- utilization and borrow ----
 
     #[test]
     fn utilization_saturates_and_handles_empty_capacity() {
         assert_eq!(utilization(0, 0).unwrap(), 0);
         assert_eq!(utilization(1, 0).unwrap(), WAD);
         assert_eq!(utilization(50, 100).unwrap(), WAD / 2);
-        assert_eq!(utilization(200, 100).unwrap(), WAD); // satura
+        assert_eq!(utilization(200, 100).unwrap(), WAD); // saturates
     }
 
     #[test]
     fn borrow_rate_is_quadratic_in_utilization() {
-        let r0 = 50; // 0.005% em WAD
-        let r1 = 500; // 0.05% em WAD
+        let r0 = 50; // 0.005% in WAD
+        let r1 = 500; // 0.05% in WAD
         let at = |u: u128| borrow_rate_hourly(r0, r1, u).unwrap();
 
         assert_eq!(at(0), r0);
         assert_eq!(at(WAD), r0 + r1);
 
-        // dobrar a utilizacao quadruplica o termo, a menos do arredondamento
-        // para baixo: em u=0.25 o termo exato e 31.25 e vira 31, entao
-        // 31*4 = 124 contra 125 medidos. A perda e sempre <= 1 unidade e
-        // sempre a favor do pool.
+        // doubling utilization quadruples the term, up to rounding down:
+        // at u=0.25 the exact term is 31.25 and becomes 31, so 31*4 = 124
+        // against 125 measured. The loss is always <= 1 unit and always in
+        // the pool's favour.
         let a = at(WAD / 4) - r0;
         let b = at(WAD / 2) - r0;
         assert!(
             b >= a * 4 && b - a * 4 <= 1,
-            "esperado ~{} pelo escalonamento quadratico, medido {b}",
+            "expected ~{} from quadratic scaling, measured {b}",
             a * 4
         );
 
-        // com parametros que dividem exato, a relacao e exata
+        // with parameters that divide exactly, the relation is exact
         let at2 = |u: u128| borrow_rate_hourly(0, WAD, u).unwrap();
         assert_eq!(at2(WAD / 2), WAD / 4);
         assert_eq!(at2(WAD / 4), WAD / 16);
@@ -612,15 +612,15 @@ mod tests {
     #[test]
     fn crowded_side_pays_more_and_thin_side_does_not() {
         let psi = WAD / 2; // 0.5
-        // equilibrado
+        // balanced
         assert_eq!(side_multiplier(100, 100, psi).unwrap(), WAD);
-        // lado fino nunca paga premio
+        // the thin side never pays a premium
         assert_eq!(side_multiplier(10, 90, psi).unwrap(), WAD);
-        // livro vazio
+        // empty book
         assert_eq!(side_multiplier(0, 0, psi).unwrap(), WAD);
-        // 90/10 -> skew 0.8 -> multiplicador 1.4
+        // 90/10 -> skew 0.8 -> multiplier 1.4
         assert_eq!(side_multiplier(90, 10, psi).unwrap(), WAD + 400_000);
-        // 100/0 -> skew 1.0 -> multiplicador 1.5
+        // 100/0 -> skew 1.0 -> multiplier 1.5
         assert_eq!(side_multiplier(100, 0, psi).unwrap(), WAD + 500_000);
     }
 
@@ -630,14 +630,14 @@ mod tests {
         let rate = 1_000; // 0.1%/h em WAD
         let after = accrue_borrow_index(start, rate, SECONDS_PER_HOUR).unwrap();
         assert!(after > start);
-        // uma hora a 0.1% -> +0.1%
+        // one hour at 0.1% -> +0.1%
         assert_eq!(after, start + RAY / 1_000);
 
-        // tempo zero nao move
+        // zero elapsed does not move it
         assert_eq!(accrue_borrow_index(start, rate, 0).unwrap(), start);
-        // taxa zero nao move
+        // a zero rate does not move it
         assert_eq!(accrue_borrow_index(start, 0, 7_200).unwrap(), start);
-        // tempo negativo e entrada invalida, nao um decremento silencioso
+        // negative elapsed is invalid input, not a silent decrement
         assert_eq!(
             accrue_borrow_index(start, rate, -1),
             Err(MathError::BadInput)
@@ -649,11 +649,11 @@ mod tests {
         assert_eq!(borrow_owed(1_000, RAY, RAY - 1), Err(MathError::BadInput));
         assert_eq!(borrow_owed(1_000, 0, RAY), Err(MathError::BadInput));
         assert_eq!(borrow_owed(1_000, RAY, RAY).unwrap(), 0);
-        // indice subiu 1% -> devedor paga 1% do notional, para cima
+        // index rose 1% -> the borrower pays 1% of notional, rounded up
         assert_eq!(borrow_owed(1_000, RAY, RAY + RAY / 100).unwrap(), 10);
     }
 
-    // ---- posicao ----
+    // ---- position ----
 
     #[test]
     fn pnl_is_symmetric_between_sides() {
@@ -665,7 +665,7 @@ mod tests {
         let short = pnl(Side::Short, entry, up, n).unwrap();
         assert_eq!(long, 200 * USDC as i128);
         assert_eq!(short, -(200 * USDC as i128));
-        assert_eq!(long + short, 0, "soma zero entre os lados");
+        assert_eq!(long + short, 0, "zero sum across the two sides");
     }
 
     #[test]
@@ -679,10 +679,10 @@ mod tests {
     fn health_and_equity_track_losses_into_bad_debt() {
         let margin = 200 * USDC;
         let notional = 1_000 * USDC;
-        // perda de 250 > margem de 200 -> patrimonio negativo
+        // a 250 loss against 200 margin -> negative equity
         let p = -(250 * USDC as i128);
         let eq = equity(margin, p, 0).unwrap();
-        assert!(eq < 0, "deveria ser bad debt");
+        assert!(eq < 0, "should be bad debt");
         assert!(health_wad(eq, notional).unwrap() < 0);
     }
 
@@ -691,7 +691,7 @@ mod tests {
         let entry = WAD as u64;
         let notional = 1_000 * USDC;
         let margin = notional / 5; // 5x
-        let maint = 62_500; // 6.25% em WAD
+        let maint = 62_500; // 6.25% in WAD
 
         let l = liquidation_price(Side::Long, entry, margin, notional, 0, maint).unwrap();
         let s = liquidation_price(Side::Short, entry, margin, notional, 0, maint).unwrap();
@@ -707,21 +707,21 @@ mod tests {
         let entry = WAD as u64;
         let notional = 1_000 * USDC;
         let maint = 62_500;
-        // margem ja consumida pelo borrow
+        // margin already eaten by borrow
         let p = liquidation_price(Side::Long, entry, 10, notional, 10_000, maint).unwrap();
-        assert_eq!(p, entry, "posicao ja liquidavel");
+        assert_eq!(p, entry, "already liquidatable");
     }
 
     #[test]
     fn min_margin_rounds_up() {
-        // 5x sobre 1000 -> 200 exato
+        // 5x on 1000 -> exactly 200
         assert_eq!(min_margin(1_000, 5 * WAD).unwrap(), 200);
-        // 3x sobre 1000 -> 333.33 -> 334, o trader poe o centavo
+        // 3x on 1000 -> 333.33 -> 334; the trader puts in the cent
         assert_eq!(min_margin(1_000, 3 * WAD).unwrap(), 334);
         assert_eq!(min_margin(1_000, 0), Err(MathError::DivByZero));
     }
 
-    // ---- tetos ----
+    // ---- ceilings ----
 
     #[test]
     fn solvency_cap_matches_the_spec_formula() {
@@ -742,8 +742,8 @@ mod tests {
     fn the_lower_cap_always_wins() {
         let solv = oi_cap_solvency(140_000 * USDC, WAD / 2, 300_000).unwrap();
         let depth = oi_cap_depth(60_000 * USDC, 187_500, 300_000).unwrap();
-        assert_eq!(oi_allowed(solv, depth), depth, "profundidade deveria travar");
-        // e com um AMM fundo, a solvencia passa a travar
+        assert_eq!(oi_allowed(solv, depth), depth, "depth should bind");
+        // and with a deep AMM, solvency starts to bind
         let deep = oi_cap_depth(5_000_000 * USDC, 187_500, 300_000).unwrap();
         assert_eq!(oi_allowed(solv, deep), solv);
     }
@@ -754,7 +754,7 @@ mod tests {
         let b = oi_cap_depth(50_000 * USDC, 187_500, 300_000).unwrap();
         let c = oi_cap_depth(100_000 * USDC, 187_500, 300_000).unwrap();
         assert!(a < b && b < c);
-        // dobrar a profundidade dobra o teto (a formula e linear em R)
+        // doubling depth doubles the ceiling (the formula is linear in R)
         assert_eq!(b / a, 2);
     }
 
@@ -766,14 +766,14 @@ mod tests {
         let cap = oi_cap_depth(depth, delta_liq, mu).unwrap();
         let cost = cost_to_move_price(depth, delta_liq).unwrap();
 
-        // com o OI exatamente no teto, custo == lucro maximo (fronteira)
+        // with OI exactly at the ceiling, cost == maximum gain (the boundary)
         let gain_at_cap = mul_wad_floor(cap as u128, mu).unwrap() as u64;
         assert!(
             cost >= gain_at_cap,
-            "custo {cost} deveria cobrir o lucro {gain_at_cap}"
+            "cost {cost} should cover the gain {gain_at_cap}"
         );
 
-        // abaixo do teto, atacar da prejuizo
+        // below the ceiling, attacking loses money
         let gain_below = mul_wad_floor((cap / 2) as u128, mu).unwrap() as u64;
         assert!(cost > gain_below);
     }
@@ -784,10 +784,10 @@ mod tests {
     fn nav_subtracts_trader_profit_one_for_one() {
         let base = nav(140_000 * USDC, 60_000 * USDC, 0, 0).unwrap();
         assert_eq!(base, 200_000 * USDC);
-        // trader ganha 640 -> NAV cai exatamente 640
+        // trader gains 640 -> NAV falls by exactly 640
         let after = nav(140_000 * USDC, 60_000 * USDC, 640 * USDC as i128, 0).unwrap();
         assert_eq!(base - after, 640 * USDC);
-        // trader perde 640 -> NAV sobe exatamente 640
+        // trader loses 640 -> NAV rises by exactly 640
         let worse = nav(140_000 * USDC, 60_000 * USDC, -(640 * USDC as i128), 0).unwrap();
         assert_eq!(worse - base, 640 * USDC);
     }
@@ -817,8 +817,8 @@ mod tests {
         let supply1 = supply0 + shares;
         let back = assets_for_shares(shares, nav1, supply1).unwrap();
 
-        assert!(back <= dep, "saiu {back} depois de entrar {dep}");
-        assert!(dep - back <= 1, "perda de arredondamento maior que 1 unidade");
+        assert!(back <= dep, "got {back} back after putting in {dep}");
+        assert!(dep - back <= 1, "rounding loss greater than 1 unit");
     }
 
     #[test]
@@ -833,7 +833,7 @@ mod tests {
 
         assert_eq!(u, 14_000 * USDC);
         assert_eq!(c, 6_000 * USDC);
-        // nenhuma manga sozinha cobre o resgate: e essa a defesa contra corrida
+        // neither sleeve alone covers the redemption: that is the run defence
         assert!(u < shares);
     }
 
@@ -851,8 +851,8 @@ mod tests {
         let b = prorata_haircut(400, total, available).unwrap();
         assert_eq!(a, 420);
         assert_eq!(b, 280);
-        assert!(a + b <= available, "nunca paga mais do que existe");
-        // sem escassez ninguem sofre haircut
+        assert!(a + b <= available, "never pays out more than exists");
+        // with no shortfall nobody takes a haircut
         assert_eq!(prorata_haircut(600, total, 1_000).unwrap(), 600);
     }
 
@@ -861,14 +861,14 @@ mod tests {
         assert_eq!(card_weight(0, 0).unwrap(), 0);
         assert_eq!(card_weight(15, 100).unwrap(), 150_000); // 15%
         let max = 150_000u128; // max_card_weight = 15%
-        assert!(card_weight(16, 100).unwrap() > max, "deveria estourar o teto");
+        assert!(card_weight(16, 100).unwrap() > max, "should breach the ceiling");
     }
 
-    // ---- cenario fim a fim do spec ----
+    // ---- end-to-end scenario from the spec ----
 
     #[test]
     fn full_hedge_leaves_combined_pnl_near_zero() {
-        // carteira com ~3200 em cards, short de 3200, indice cai 20%
+        // wallet holding ~3200 in cards, 3200 short, index falls 20%
         let entry = WAD as u64;
         let notional = 3_200 * USDC;
         let after = (WAD * 80 / 100) as u64;
@@ -877,6 +877,6 @@ mod tests {
         let short_gain = pnl(Side::Short, entry, after, notional).unwrap();
 
         assert_eq!(short_gain, 640 * USDC as i128);
-        assert_eq!(card_loss + short_gain, 0, "hedge deveria zerar");
+        assert_eq!(card_loss + short_gain, 0, "the hedge should net to zero");
     }
 }

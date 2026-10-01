@@ -1,124 +1,124 @@
-# Invariantes econômicas
+# Economic invariants
 
-Cada uma é um teste. Se um teste desta lista ficar vermelho, o protocolo está
-errado — não o teste.
+Each one is a test. If a test on this list goes red, the protocol is wrong —
+not the test.
 
-## 1. Solvência
+## 1. Solvency
 
 ```
 OI_total × δ_max  ≤  U × φ
 ```
 
-Pagamento a trader vencedor sempre sai da manga líquida. Abertura que violaria
-isso é **recusada na mesma transação**, não corrigida depois.
+A winning trader is always paid out of the liquid sleeve. An opening that
+would breach this is **refused in the same transaction**, not corrected later.
 
-- Rust: `Pool::require_capacity`, `Market::check_open`
-- Teste: `clp_pool::tests::opening_beyond_the_lower_cap_is_refused`
+- Rust: `slab_risk::check_open`
+- Test: `slab_risk::tests::opening_past_the_solvency_ceiling_is_refused`
 
-## 2. Os dois tetos, e o menor manda
-
-```
-OI_permitido = min( U × φ / δ_max ,  R × (√(1+δ_liq) − 1) / μ )
-```
-
-Nunca a média, nunca o maior. Com os parâmetros do spec, **o teto de
-profundidade trava 13x antes do de solvência** — é a liquidez do AMM que
-define o tamanho do mercado, não o saldo do CLP.
-
-- Rust: `slab_math::oi_allowed`
-- Teste: `clp_pool::tests::depth_cap_binds_far_before_solvency_cap`
-
-## 3. Utilização e borrow
+## 2. Two ceilings, and the lower one wins
 
 ```
-u = OI_total / OI_permitido
-r_hora = r0 + r1 × u²
+OI_allowed = min( U × φ / δ_max ,  R × (√(1+δ_liq) − 1) / μ )
 ```
 
-O termo quadrático faz a taxa subir devagar enquanto sobra capacidade e
-disparar perto do teto. O pool fica caro antes de ser tomado de surpresa.
+Never the average, never the higher. With the spec parameters **the depth
+ceiling binds 13x before solvency does** — it is AMM liquidity that sizes the
+market, not the CLP balance.
 
-- Teste: `perp::tests::borrow_grows_quadratically_with_utilization`
+- Rust: `slab_risk::capacity`
+- Test: `slab_risk::tests::depth_ceiling_binds_long_before_solvency_does`
 
-## 4. Lado lotado paga mais
+## 3. Utilization and borrow
 
 ```
-r_lado = r_hora × (1 + ψ × max(0, (OI_lado − OI_oposto) / OI_total))
+u = OI_total / OI_allowed
+r_hourly = r0 + r1 × u²
 ```
 
-O lado fino nunca paga prêmio. Multiplicador é exatamente 1.0 para ele.
+The quadratic term makes the rate climb slowly while capacity remains and
+spike near the ceiling. The pool becomes expensive before it is cornered.
 
-- Teste: `perp::tests::crowded_side_pays_more_than_the_thin_side`
+- Test: `slab_risk::tests::borrow_grows_quadratically_with_utilization`
+
+## 4. The crowded side pays more
+
+```
+r_side = r_hourly × (1 + ψ × max(0, (OI_side − OI_opposite) / OI_total))
+```
+
+The thin side never pays a premium — its multiplier is exactly 1.0.
+
+- Test: `slab_risk::tests::the_crowded_side_pays_more`
 
 ## 5. NAV
 
 ```
-NAV = U + Σ(qᵢ × pᵢ) − PnL_traders − bad_debt
+NAV = U + Σ(qᵢ × pᵢ) − trader_PnL − bad_debt
 ```
 
-Lucro do trader sai do pool, um por um. Não existe arredondamento que crie
-valor.
+Trader profit leaves the pool one for one. No rounding creates value.
 
-- Teste: `clp_pool::tests::trader_profit_reduces_nav_one_for_one`
+- Test: `clp_pool::tests::trader_profit_reduces_nav_one_for_one`
 
-## 6. Preço do CLP
+## 6. CLP price
 
 ```
 CLP_price = NAV / CLP_supply
 ```
 
-Pool vazio vale 1.0 por convenção (primeiro depósito).
+An empty pool is worth 1.0 by convention (first deposit).
 
-## 7. Saque proporcional
+## 7. Proportional withdrawal
 
-Resgate sai proporcional **nas duas mangas**, sempre. Não existe caminho de
-saque só em USDC. Se existisse, os primeiros levariam o líquido e os últimos
-ficariam com a manga ilíquida inteira.
+Redemptions leave **both sleeves** proportionally, always. There is no
+USDC-only path. If there were, the first out would take the liquid side and
+the last would be left holding the whole illiquid one.
 
-- Teste: `clp_pool::tests::withdraw_is_proportional_and_never_usdc_only`
+- Test: `clp_pool::tests::withdrawals_are_proportional_and_never_usdc_only`
 
-## 8. A manga de cards nunca paga trader vencedor
+## 8. The card sleeve never pays a winning trader
 
-É por isso que o teto de OI olha para `usdc_sleeve`, e não para o NAV total.
+Which is why the open-interest ceiling looks at `usdc_sleeve` and not at total
+NAV.
 
-## 9. Liquidação usa o preço do oráculo
+## 9. Liquidation uses the oracle price
 
-Nunca um preço interno. Se usasse um preço interno, alguém empurraria esse
-preço para caçar liquidação alheia.
+Never an internal price. With an internal price, someone would push it to hunt
+other people's liquidations.
 
-- Rust: `Position::is_liquidatable` recebe o preço do oráculo, sempre
+- Rust: `slab_risk::is_liquidatable` takes the oracle price, always
 
-## 10. Bad debt é explícito
+## 10. Bad debt is explicit
 
-Prejuízo que passou da margem é gravado em `Pool.bad_debt` e descontado do
-NAV. Nunca some, nunca é escondido. Bad debt invisível foi o que permitiu o
-nftperp operar insolvente por meses.
+A loss past the margin is written to `Pool.bad_debt` and deducted from NAV. It
+never disappears and is never hidden. Invisible bad debt is what let nftperp
+trade insolvent for months.
 
-- Teste: `perp::tests::a_gap_through_the_margin_becomes_recorded_bad_debt`
+- Test: `slab_risk::tests::a_gap_through_the_margin_is_recorded_as_bad_debt`
 
-## 11. ReduceOnly não abre risco novo
+## 11. ReduceOnly adds no new risk
 
-E também trava resgate de CLP — para o LP não sacar exatamente quando o pool
-mais precisa de colchão.
+It also freezes CLP withdrawals — so an LP cannot pull out exactly when the
+pool most needs the buffer.
 
-- Teste: `clp_pool::tests::state_machine_gates_match_the_spec`
+- Test: `clp_pool::tests::state_gates_match_the_spec`
 
-## 12. Settled aplica haircut pro-rata igual
+## 12. Settled applies an equal pro-rata haircut
 
-Todo mundo sofre o mesmo corte. Nenhuma fila, nenhum privilégio.
+Everyone takes the same cut. No queue, no privilege.
 
-- Teste: `clp_pool::tests::settlement_haircut_is_equal_for_everyone`
+- Test: `clp_pool::tests::the_settlement_haircut_is_equal_for_everyone`
 
-## Política de arredondamento
+## Rounding policy
 
-Sempre a favor do pool, nunca do usuário.
+Always in the pool's favour, never the user's.
 
-| Operação | Direção | Por quê |
+| Operation | Direction | Why |
 |---|---|---|
-| CLP mintado no depósito | para baixo | quem entra nunca recebe cota a mais |
-| ativo devolvido no saque | para baixo | quem sai nunca leva a mais |
-| taxa, borrow, margem exigida | para cima | o usuário paga o centavo |
-| PnL do trader | para baixo em módulo | o pool nunca paga arredondamento |
+| CLP minted on deposit | down | nobody entering receives an extra share |
+| assets returned on withdrawal | down | nobody leaving takes extra |
+| fees, borrow, required margin | up | the user pays the cent |
+| trader PnL | down in magnitude | the pool never pays the rounding cent |
 
-Documentada em `packages/slab-math/src/lib.rs` e verificada em
+Documented in `packages/slab-math/src/lib.rs` and verified by
 `slab_math::tests::deposit_then_withdraw_never_creates_value`.

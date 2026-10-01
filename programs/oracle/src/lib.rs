@@ -1,19 +1,18 @@
-//! Programa `oracle` — DONO: Backend A.
+//! Program `oracle` — OWNER: Backend A.
 //!
-//! Le as reservas de um pool AMM externo de fracoes/USDC, calcula TWAP,
-//! aplica clamp por tick, confere profundidade e divergencia, e publica um
-//! preco unico que o resto do protocolo consome.
+//! Reads the reserves of an external fraction/USDC AMM pool, computes a TWAP,
+//! applies a per-tick clamp, checks depth and divergence, and publishes a
+//! single price the rest of the protocol consumes.
 //!
-//! O que este programa NAO faz, de proposito:
+//! What this program deliberately does NOT do:
 //!
-//! - nao assina nada com chave off-chain: `refresh_price` e permissionless e
-//!   recalcula a partir de estado on-chain, entao nao existe "chave do
-//!   oraculo" para ser roubada
-//! - nao usa fills externos como fonte de preco: eles entram so como limite
-//!   de sanidade (`external_median`), conforme o spec
+//! - it signs nothing with an off-chain key: `refresh_price` is permissionless
+//!   and recomputes from on-chain state, so there is no "oracle key" to steal
+//! - it does not use external fills as a price source: they enter only as a
+//!   sanity bound (`external_median`), as the spec requires
 //!
-//! A conta publicada (`slab_interface::OracleAccount`) e a INTERFACE
-//! CONGELADA com o Backend B.
+//! The account it publishes (`slab_interface::OracleAccount`) is the FROZEN
+//! INTERFACE with Backend B.
 
 use anchor_lang::prelude::*;
 use slab_interface::{
@@ -33,7 +32,7 @@ use errors::OracleError;
 pub mod oracle {
     use super::*;
 
-    /// Cria o oraculo de uma cesta. So o admin chama, uma vez.
+    /// Create a basket's oracle. Admin only, once.
     pub fn initialize(
         ctx: Context<Initialize>,
         adapter: AmmAdapter,
@@ -61,16 +60,16 @@ pub mod oracle {
         Ok(())
     }
 
-    /// Le o AMM e republica o preco. PERMISSIONLESS: qualquer um pode chamar,
-    /// e e por isso que nao existe uma chave privilegiada de oraculo aqui.
+    /// Read the AMM and republish the price. PERMISSIONLESS: anyone may call
+    /// it, which is exactly why there is no privileged oracle key here.
     ///
-    /// Ordem das defesas (cada uma barra um ataque diferente):
+    /// Order of defences (each blocks a different attack):
     ///
-    /// 1. le reservas -> spot
-    /// 2. grava observacao -> TWAP da janela
-    /// 3. clamp por tick sobre o preco anterior -> barra salto de bloco unico
-    /// 4. profundidade minima -> barra sacar liquidez pra deixar o oraculo barato
-    /// 5. divergencia contra mediana externa -> barra manipulacao sustentada
+    /// 1. read reserves -> spot
+    /// 2. record observation -> window TWAP
+    /// 3. per-tick clamp against the previous price -> blocks a single-block jump
+    /// 4. minimum depth -> blocks pulling liquidity to make the oracle cheap
+    /// 5. divergence against the external median -> blocks sustained manipulation
     pub fn refresh_price(ctx: Context<RefreshPrice>) -> Result<()> {
         let clock = Clock::get()?;
         let now = clock.unix_timestamp;
@@ -90,18 +89,18 @@ pub mod oracle {
         o.spot = spot;
         o.depth_usdc = reserves.usdc;
 
-        // ---- observacao + TWAP ----
+        // ---- observation + TWAP ----
         push_observation(o, spot, now);
         let twap = compute_twap(o, now)?;
         o.twap = twap;
 
         // ---- clamp por tick ----
-        // O preco oficial nunca anda mais que `max_tick_move` por atualizacao.
-        // Isso nao impede manipulacao lenta; encarece e mata a versao
-        // instantanea e lucrativa dela.
+        // The official price never moves more than `max_tick_move` per update.
+        // This does not prevent slow manipulation; it makes it expensive and
+        // kills the instantaneous, profitable version of it.
         let previous = o.price;
         o.price = if previous == 0 {
-            twap // primeira publicacao: nada de que se defender ainda
+            twap // first publication: nothing to defend against yet
         } else {
             clamp_move(previous, twap, o.params.max_tick_move)?
         };
@@ -122,10 +121,10 @@ pub mod oracle {
         Ok(())
     }
 
-    /// Publica a mediana de fills externos, que e apenas o limite de sanidade.
+    /// Publish the median of external fills, which is only the sanity bound.
     ///
-    /// Se esta alimentacao falhar, o mercado perde UMA defesa e continua
-    /// funcionando com preco do AMM. Ela nunca vira fonte de preco.
+    /// If this feed fails, the market loses ONE defence and keeps working off
+    /// the AMM price. It never becomes a price source.
     pub fn set_external_median(ctx: Context<SetExternal>, median: u64) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let o = &mut ctx.accounts.oracle;
@@ -135,7 +134,7 @@ pub mod oracle {
         Ok(())
     }
 
-    /// Troca parametros de risco do oraculo. So o admin.
+    /// Change the oracle's risk parameters. Admin only.
     pub fn set_params(ctx: Context<SetParams>, params: OracleParams) -> Result<()> {
         require!(params.twap_window_secs > 0, OracleError::BadParams);
         require!(params.max_tick_move > 0, OracleError::BadParams);
@@ -146,10 +145,10 @@ pub mod oracle {
 }
 
 // ---------------------------------------------------------------------------
-// logica pura — testavel sem validador
+// pure logic — testable without a validator
 // ---------------------------------------------------------------------------
 
-/// Guarda a leitura no buffer circular.
+/// Store the reading in the ring buffer.
 pub fn push_observation(o: &mut OracleAccount, price: u64, ts: i64) {
     let head = o.obs_head as usize % ORACLE_OBSERVATIONS;
     o.observations[head] = Observation { price, ts };
@@ -159,8 +158,8 @@ pub fn push_observation(o: &mut OracleAccount, price: u64, ts: i64) {
     }
 }
 
-/// Media das observacoes dentro da janela. Se nenhuma observacao estiver na
-/// janela, cai para a mais recente — nunca retorna zero com dados presentes.
+/// Mean of the observations inside the window. If none fall inside it, falls
+/// back to the most recent one — never returns zero when data is present.
 pub fn compute_twap(o: &OracleAccount, now: i64) -> Result<u64> {
     let window = o.params.twap_window_secs as i64;
     let mut sum: u128 = 0;
@@ -188,7 +187,7 @@ pub fn compute_twap(o: &OracleAccount, now: i64) -> Result<u64> {
     u64::try_from(sum / count).map_err(|_| error!(OracleError::PriceOverflow))
 }
 
-/// Limita o movimento do preco publicado a `max_move_wad` por atualizacao.
+/// Limit the published price's movement to `max_move_wad` per update.
 pub fn clamp_move(previous: u64, target: u64, max_move_wad: u64) -> Result<u64> {
     let delta = m(mul_wad_floor(previous as u128, max_move_wad as u128))?;
     let hi = (previous as u128).saturating_add(delta);
@@ -197,7 +196,7 @@ pub fn clamp_move(previous: u64, target: u64, max_move_wad: u64) -> Result<u64> 
     u64::try_from(clamped).map_err(|_| error!(OracleError::PriceOverflow))
 }
 
-/// Decide o estado do oraculo a partir das tres defesas.
+/// Decide the oracle's state from the three defences.
 pub fn evaluate_state(o: &OracleAccount, now: i64) -> Result<OracleState> {
     if o.price == 0 || o.last_update_ts == 0 {
         return Ok(OracleState::Uninitialized);
@@ -208,8 +207,8 @@ pub fn evaluate_state(o: &OracleAccount, now: i64) -> Result<OracleState> {
     if o.depth_usdc < o.params.min_pool_depth {
         return Ok(OracleState::ShallowDepth);
     }
-    // Divergencia so vale se existe uma mediana externa recente. Sem ela, o
-    // mercado segue com uma defesa a menos, nao parado.
+    // Divergence only applies when a recent external median exists. Without
+    // one the market runs with one defence fewer, not halted.
     if o.external_median > 0
         && now.saturating_sub(o.external_ts) <= o.params.max_staleness_secs as i64
     {
@@ -227,16 +226,16 @@ pub fn evaluate_state(o: &OracleAccount, now: i64) -> Result<OracleState> {
 }
 
 // ---------------------------------------------------------------------------
-// contas
+// accounts
 // ---------------------------------------------------------------------------
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
-    /// CHECK: identificador da cesta; serve so como seed e rotulo.
+    /// CHECK: basket identifier; used only as a seed and a label.
     pub basket: UncheckedAccount<'info>,
-    /// CHECK: pool AMM externo. Validado pelo adaptador em `refresh_price`.
+    /// CHECK: external AMM pool. Validated by the adapter in `refresh_price`.
     pub amm_pool: UncheckedAccount<'info>,
     #[account(
         init,
@@ -251,8 +250,8 @@ pub struct Initialize<'info> {
 
 #[derive(Accounts)]
 pub struct RefreshPrice<'info> {
-    /// Permissionless de proposito: qualquer keeper serve, e se o nosso cair
-    /// outra pessoa mantem o preco vivo.
+    /// Permissionless by design: any keeper will do, and if ours goes down
+    /// someone else keeps the price alive.
     pub caller: Signer<'info>,
     #[account(
         mut,
@@ -261,7 +260,7 @@ pub struct RefreshPrice<'info> {
         has_one = amm_pool @ OracleError::WrongAmmPool,
     )]
     pub oracle: Account<'info, OracleAccount>,
-    /// CHECK: desserializado pelo adaptador conforme `oracle.adapter`.
+    /// CHECK: deserialized by the adapter selected by `oracle.adapter`.
     pub amm_pool: UncheckedAccount<'info>,
 }
 
@@ -301,7 +300,7 @@ pub struct PriceRefreshed {
 }
 
 // ---------------------------------------------------------------------------
-// testes de logica pura (sem validador, rodam em `cargo test`)
+// pure-logic tests (no validator, run under `cargo test`)
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -335,17 +334,17 @@ mod tests {
     #[test]
     fn clamp_blocks_a_single_block_jump() {
         let prev = WAD as u64;
-        // alvo 50% acima, clamp de 5% -> so anda 5%
+        // target 50% higher, 5% clamp -> it moves only 5%
         assert_eq!(clamp_move(prev, prev * 3 / 2, 50_000).unwrap(), 1_050_000);
-        // para baixo tambem
+        // downwards too
         assert_eq!(clamp_move(prev, prev / 2, 50_000).unwrap(), 950_000);
-        // movimento pequeno passa inteiro
+        // a small move passes through intact
         assert_eq!(clamp_move(prev, 1_010_000, 50_000).unwrap(), 1_010_000);
     }
 
     #[test]
     fn clamp_reaches_the_target_over_repeated_updates() {
-        // manipulacao nao fica impossivel, fica cara: sao varias atualizacoes
+        // manipulation does not become impossible, it becomes expensive
         let mut p = WAD as u64;
         let target = (WAD as u64) * 3 / 2;
         let mut steps = 0;
@@ -353,7 +352,7 @@ mod tests {
             p = clamp_move(p, target, 50_000).unwrap();
             steps += 1;
         }
-        assert!(steps >= 8, "deveria exigir varias atualizacoes, foram {steps}");
+        assert!(steps >= 8, "should need several updates, took {steps}");
         assert!(p >= target - 1);
     }
 
@@ -363,7 +362,7 @@ mod tests {
         let now = 10_000i64;
         push_observation(&mut o, 1_000_000, now - 100);
         push_observation(&mut o, 1_200_000, now - 200);
-        // fora da janela de 1800s: nao entra na media
+        // outside the 1800s window: must not enter the mean
         push_observation(&mut o, 9_000_000, now - 5_000);
         assert_eq!(compute_twap(&o, now).unwrap(), 1_100_000);
     }
@@ -413,11 +412,11 @@ mod tests {
         o.last_update_ts = 1_000;
         o.external_ts = 1_000;
 
-        // 10% de diferenca: dentro do limite de 15%
+        // 10% apart: inside the 15% bound
         o.external_median = 909_091;
         assert_eq!(evaluate_state(&o, 1_010).unwrap(), OracleState::Ok);
 
-        // 25% de diferenca: estoura
+        // 25% apart: breaches it
         o.external_median = 800_000;
         assert_eq!(evaluate_state(&o, 1_010).unwrap(), OracleState::Diverged);
     }
@@ -427,11 +426,11 @@ mod tests {
         let mut o = fresh();
         o.price = WAD as u64;
         o.last_update_ts = 1_000;
-        o.external_median = 0; // nunca alimentado
+        o.external_median = 0; // never fed
         assert_eq!(
             evaluate_state(&o, 1_010).unwrap(),
             OracleState::Ok,
-            "sem feed externo o mercado perde uma defesa, nao para"
+            "with no external feed the market loses a defence, not its pulse"
         );
     }
 

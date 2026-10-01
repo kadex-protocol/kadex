@@ -2,24 +2,30 @@ use anchor_lang::prelude::*;
 
 #[error_code]
 pub enum PerpError {
-    #[msg("Estado do mercado nao permite abrir posicao")]
+    #[msg("Market state does not allow opening a position")]
     StateForbidsOpen,
-    #[msg("Estado do mercado nao permite fechar posicao")]
+    #[msg("Market state does not allow closing a position")]
     StateForbidsClose,
-    #[msg("Notional zero")]
+    #[msg("Notional is zero")]
     ZeroNotional,
-    #[msg("Margem abaixo do minimo exigido pela alavancagem maxima")]
+    #[msg("Margin below the minimum required by maximum leverage")]
     InsufficientMargin,
-    #[msg("Capacidade de OI excedida: o menor dos dois tetos foi estourado")]
+    #[msg("Open-interest capacity exceeded: the lower of the two ceilings was breached")]
     CapacityExceeded,
-    #[msg("Utilizacao alta demais para abrir risco novo")]
+    #[msg("Utilization too high to open new risk")]
     UtilizationTooHigh,
-    #[msg("Posicao ainda nao esta liquidavel")]
+    #[msg("Position is not liquidatable yet")]
     NotLiquidatable,
-    #[msg("Falha de aritmetica de ponto fixo")]
+    #[msg("Fixed-point arithmetic failed")]
     MathFailure,
-    #[msg("Somente o dono da posicao")]
+    #[msg("Only the position owner")]
     NotOwner,
-    #[msg("Oraculo diferente do registrado no mercado")]
+    #[msg("Oracle account differs from the one registered on the market")]
     WrongOracle,
+    #[msg("Pool account differs from the one registered on the market")]
+    WrongPool,
+    #[msg("Token account uses the wrong mint")]
+    WrongMint,
+    #[msg("Not the pool's registered USDC vault")]
+    WrongVault,
 }

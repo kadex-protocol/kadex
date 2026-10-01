@@ -1,6 +1,6 @@
-# Arquitetura
+# Architecture
 
-## Fronteiras de programa
+## Program boundaries
 
 ```
 ┌─ Backend A ─────────────────┐   ┌─ Backend B ──────────────────┐
@@ -8,72 +8,80 @@
 │  card-vault                 │   │  clp-pool                    │
 │   • fractionalize           │   │   • deposit / withdraw       │
 │   • redeem_card             │   │   • NAV, CLP mint/burn       │
-│   • whitelist, peso máximo  │   │   • params, estado, bad debt │
+│   • whitelist, max weight   │   │   • params, state, bad debt  │
 │                             │   │                              │
 │  oracle                     │   │  perp                        │
 │   • refresh_price           │   │   • open / close / liquidate │
 │   • TWAP, clamp, depth      │   │   • borrow index, OI         │
-│   • adaptadores de AMM      │   │                              │
+│   • AMM adapters            │   │                              │
 │         │                   │   │         ▲                    │
 └─────────┼───────────────────┘   └─────────┼────────────────────┘
           │                                 │
           └────── OracleAccount ────────────┘
-                (conta lida, sem CPI)
+                 (an account read, no CPI)
 ```
 
-A **única** coisa que cruza a fronteira é a conta do oráculo. Não há CPI entre
-A e B, o que significa que os dois podem trabalhar sem sincronizar builds.
+The **only** thing crossing the boundary is the oracle account. There is no
+CPI between A and B, which means neither has to synchronise builds with the
+other.
 
-Dentro de B, `perp` faz CPI em `clp-pool` para mover USDC — os dois são do
-mesmo dono, então esse acoplamento não bloqueia ninguém.
+Inside B, `perp` does CPI into `clp-pool` to move USDC. Both belong to the
+same owner, so that coupling blocks nobody.
 
-## Por que o oráculo é um programa e não um módulo
+## Why the oracle is a program and not a module
 
-Propriedade de conta em Solana é por programa. Se `OracleAccount` vivesse
-dentro do `clp-pool`, quem escreve preço e quem escreve risco editariam o
-mesmo crate todo dia.
+Account ownership in Solana is per program. With `OracleAccount` inside
+`clp-pool`, whoever writes prices and whoever writes risk would be editing the
+same crate every day.
 
-Com programa separado, `#[account]` em `slab-interface` declara o ID do
-programa `oracle`, e o Anchor passa a exigir sozinho que qualquer
-`Account<'info, OracleAccount>` pertença a ele. Uma conta forjada por outro
-programa é rejeitada antes de qualquer lógica rodar — a checagem é do
-framework, não nossa.
+As a separate program, `#[account]` in `slab-interface` declares the oracle
+program's ID, and Anchor then requires on its own that any
+`Account<'info, OracleAccount>` belongs to it. An account forged by another
+program is rejected before any of our logic runs — the check belongs to the
+framework, not to us.
 
-## Camadas de código
+## Code layers
 
 ```
-programs/*        ← validação de conta, CPI, movimento de token
-      │             (fino: só orquestra)
+programs/*        ← account validation, CPI, token movement
+      │             (thin: it only orchestrates)
       ▼
-funções puras     ← Market::check_open, Position::health, evaluate_state
-      │             (grosso: aqui mora a decisão, e é testável sem validador)
+slab-risk         ← every decision. No anchor-lang, no solana-program:
+      │             a rule here physically cannot read an account
       ▼
-slab-math         ← aritmética de ponto fixo, sem I/O, sem Anchor
+slab-math         ← fixed-point arithmetic. No I/O, no Anchor
 ```
 
-Toda decisão de risco é escrita como função pura sobre structs. Por isso 78
-testes rodam em menos de um segundo, sem compilar SBF e sem subir validador.
+This is enforced, not agreed:
 
-## Movimento de token
+- `perp::tests::risk_crate_cannot_reach_solana` fails if `slab-risk` ever
+  gains an Anchor or Solana dependency
+- `perp::tests::handlers_stay_thin` fails if a handler grows past 45 lines,
+  which is almost always a rule that leaked out of `slab-risk`
 
-| O quê | Quem custodia | Autoridade |
+That is why 88 tests run in under a second with no SBF build and no validator.
+
+## Token custody
+
+| What | Held by | Authority |
 |---|---|---|
-| NFT do card | `nft_escrow` PDA | `VaultedCard` PDA |
-| mint das frações | — | `VaultedCard` PDA |
-| manga USDC | `usdc_vault` | `Pool` PDA |
-| mint do CLP | — | `Pool` PDA |
-| margem das posições | manga USDC | `Pool` PDA, via `perp_market` |
+| card NFT | `nft_escrow` PDA | `VaultedCard` PDA |
+| fraction mint | — | `VaultedCard` PDA |
+| USDC sleeve | `usdc_vault` | `Pool` PDA |
+| CLP mint | — | `Pool` PDA |
+| position margin | USDC sleeve | `Pool` PDA, via `perp_market` |
 
-`Pool.perp_market` guarda o único PDA autorizado a mexer na contabilidade de
-risco. Sem isso, qualquer programa poderia pedir ao pool para pagar.
+`Pool.perp_market` stores the single PDA allowed to touch risk accounting.
+Without it, any program could ask the pool to pay out.
 
-## Aritmética
+## Arithmetic
 
-Sem ponto flutuante em nenhum caminho que toque dinheiro. Intermediários em
-`u128`/`i128`, conversão de volta só via `to_u64`, que erra em vez de truncar.
+No floating point anywhere near money. Intermediates in `u128`/`i128`, back to
+`u64` only through `to_u64`, which errors instead of truncating.
 
-Escalas: WAD 1e6 (razões e preços), BPS 1e4 (taxas de config), RAY 1e12
-(índice de borrow, precisa de mais casas porque acumula muitas vezes).
+Scales: WAD 1e6 (ratios and prices), BPS 1e4 (configured fees), RAY 1e12
+(borrow index — it needs more places because it compounds many times).
 
-USDC tem 6 casas e as frações também — a coincidência é proposital: preço em
-WAD vezes quantidade nativa cai direto em USDC nativo, sem conversão.
+USDC has 6 decimals and so do the fractions. The coincidence is deliberate: a
+WAD price times a native quantity lands directly in native USDC, with no
+conversion step to get wrong.

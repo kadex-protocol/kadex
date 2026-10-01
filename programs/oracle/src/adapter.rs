@@ -1,40 +1,39 @@
-//! Adaptadores de leitura de reservas de AMM.
+//! Adapters that read AMM reserves.
 //!
 //! # Blocker #1 (ver docs/oracle.md)
 //!
-//! O formato on-chain do pool real de fracoes/USDC AINDA NAO FOI CONFIRMADO.
-//! Em vez de fingir que foi, existe um adaptador `Mock` com layout proprio e
-//! os adaptadores reais retornam `AdapterUnsupported`.
+//! The on-chain layout of the real fraction/USDC pool is NOT YET CONFIRMED.
+//! Rather than pretend otherwise, there is a `Mock` adapter with its own
+//! layout, and the real adapters return `AdapterUnsupported`.
 //!
-//! Isso deixa Backend B e o frontend trabalharem desde o dia 1 contra a mesma
-//! interface, sem ninguem escrever codigo que finge integracao pronta.
+//! That lets Backend B and the frontend work from day 1 against the same
+//! interface, with nobody writing code that fakes a finished integration.
 //!
-//! Quando o formato real for confirmado, a UNICA coisa que muda e a funcao
-//! correspondente aqui. Nada em `perp` nem em `clp-pool` e tocado.
+//! When the real layout is confirmed, the ONLY thing that changes is the
+//! corresponding function here. Nothing in `perp` or `clp-pool` is touched.
 
 use anchor_lang::prelude::*;
 use slab_interface::AmmAdapter;
 
 use crate::errors::OracleError;
 
-/// Reservas de um pool fracao/USDC, em unidades nativas.
+/// Reserves of a fraction/USDC pool, in native units.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Reserves {
-    /// Reserva em USDC. E o `R` da invariante de profundidade.
+    /// USDC reserve. This is the `R` in the depth invariant.
     pub usdc: u64,
-    /// Reserva em fracoes de card.
+    /// Card-fraction reserve.
     pub fraction: u64,
 }
 
-/// Layout da conta do pool mock. Constant-product simples, so devnet e testes.
-///
-/// 8 bytes de discriminador + dois u64 little-endian.
+/// Layout of the mock pool account. Plain constant-product, devnet and tests
+/// only. 8 discriminator bytes + two little-endian u64.
 pub const MOCK_POOL_LEN: usize = 8 + 8 + 8;
 
 pub fn read_reserves(adapter: AmmAdapter, ai: &AccountInfo) -> Result<Reserves> {
     match adapter {
         AmmAdapter::Mock => read_mock(ai),
-        // Nao implementado de proposito: ver Blocker #1 acima.
+        // Deliberately unimplemented: see Blocker #1 above.
         AmmAdapter::Meteora | AmmAdapter::Orca | AmmAdapter::Raydium => {
             err!(OracleError::AdapterUnsupported)
         }
@@ -63,8 +62,8 @@ mod tests {
 
     #[test]
     fn real_adapters_fail_loudly_instead_of_returning_fake_data() {
-        // Um adaptador nao implementado tem que ERRAR. Retornar zero ou um
-        // numero plausivel seria pior: o mercado abriria com preco inventado.
+        // An unimplemented adapter must ERROR. Returning zero, or a plausible
+        // number, would be worse: the market would open on an invented price.
         for a in [AmmAdapter::Meteora, AmmAdapter::Orca, AmmAdapter::Raydium] {
             let lamports = &mut 0u64;
             let data = &mut [0u8; MOCK_POOL_LEN][..];
@@ -73,7 +72,7 @@ mod tests {
             let ai = AccountInfo::new(
                 &key, false, false, lamports, data, &owner, false,
             );
-            assert!(read_reserves(a, &ai).is_err(), "{a:?} deveria falhar");
+            assert!(read_reserves(a, &ai).is_err(), "{a:?} should fail");
         }
     }
 }
