@@ -28,6 +28,7 @@ node --test tests/parity.test.mjs   # 19 testes de paridade Rust <-> TS
 
 ## Leia antes de programar
 
+0. `docs/handoff.md` — **comece por aqui**
 1. `docs/implementation-plan.md` — quem faz o quê e o que está bloqueado
 2. `docs/invariants.md` — as 12 regras que não se negociam
 3. `packages/slab-interface/src/lib.rs` — o que está congelado e como mudar
