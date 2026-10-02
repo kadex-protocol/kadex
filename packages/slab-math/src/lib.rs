@@ -401,18 +401,23 @@ pub fn cost_to_move_price(depth_usdc: u64, delta_wad: u128) -> MResult<u64> {
 // pool
 // ---------------------------------------------------------------------------
 
-/// Pool NAV: `U + card_sleeve_value - trader_pnl - bad_debt`.
+/// Pool NAV: `U + card_sleeve_value - trader_pnl - liabilities`.
 ///
-/// Positive trader PnL LEAVES the pool, and so does realised bad debt.
+/// `liabilities` is everything the pool owes that is not trader PnL: realised
+/// bad debt, plus margin it is holding on behalf of open positions. Margin
+/// sits in the same vault as the LPs' money but is not the LPs' money, and a
+/// NAV that counts it lets an early withdrawer take value from whoever stays.
+///
+/// Positive trader PnL LEAVES the pool, and so do liabilities.
 /// Saturates at zero: a negative NAV means insolvency and becomes `Settled`,
 /// not a negative number circulating through the rest of the program.
-pub fn nav(usdc_sleeve: u64, card_sleeve_value: u64, trader_pnl: i128, bad_debt: u64) -> MResult<u64> {
+pub fn nav(usdc_sleeve: u64, card_sleeve_value: u64, trader_pnl: i128, liabilities: u64) -> MResult<u64> {
     let assets = (usdc_sleeve as i128)
         .checked_add(card_sleeve_value as i128)
         .ok_or(MathError::Overflow)?;
     let after_pnl = assets
         .checked_sub(trader_pnl)
-        .and_then(|v| v.checked_sub(bad_debt as i128))
+        .and_then(|v| v.checked_sub(liabilities as i128))
         .ok_or(MathError::Overflow)?;
     if after_pnl <= 0 {
         return Ok(0);

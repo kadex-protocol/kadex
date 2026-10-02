@@ -61,7 +61,7 @@ describe("oracle defences", () => {
     await refresh(ctx, env);
     const before = BigInt((await read(env.oracle)).price.toString());
 
-    await swapUsdcIn(ctx, env.pool, 40_000n * USDC); // roughly +78% spot
+    await swapUsdcIn(ctx, env.ammPool, 40_000n * USDC); // roughly +78% spot
     await refresh(ctx, env);
     const o = await read(env.oracle);
 
@@ -82,7 +82,7 @@ describe("oracle defences", () => {
     const before = BigInt((await read(env.oracle)).price.toString());
     const target = (before * 3n) / 2n;
 
-    await swapUsdcIn(ctx, env.pool, 40_000n * USDC);
+    await swapUsdcIn(ctx, env.ammPool, 40_000n * USDC);
 
     let updates = 0;
     while (updates < 40) {
@@ -100,7 +100,7 @@ describe("oracle defences", () => {
     await refresh(ctx, env);
     assert.equal(stateName((await read(env.oracle)).state), "ok");
 
-    await removeLiquidity(ctx, env.pool, 40_000n * USDC); // leaves $20k, floor is $25k
+    await removeLiquidity(ctx, env.ammPool, 40_000n * USDC); // leaves $20k, floor is $25k
     await refresh(ctx, env);
 
     const o = await read(env.oracle);
@@ -198,7 +198,7 @@ describe("oracle defences", () => {
     const stranger = await funded(ctx.conn);
     await ctx.p.oracle.methods
       .refreshPrice()
-      .accounts({ caller: stranger.publicKey, oracle: env.oracle, ammPool: env.pool })
+      .accounts({ caller: stranger.publicKey, oracle: env.oracle, ammPool: env.ammPool })
       .signers([stranger])
       .rpc();
 

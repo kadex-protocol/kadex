@@ -59,6 +59,7 @@ pub mod clp_pool {
         p.clp_supply = 0;
         p.trader_pnl = 0;
         p.bad_debt = 0;
+        p.margin_held = 0;
         p.accrued_fees_lp = 0;
         p.accrued_fees_protocol = 0;
         p.params = params;
@@ -162,6 +163,26 @@ pub mod clp_pool {
         Ok(())
     }
 
+    /// Record a position opening. CPI ONLY, from the registered perp market.
+    ///
+    /// The margin has already landed in `usdc_vault`; this is what stops the
+    /// pool from mistaking it for its own. Without it, `usdc_sleeve` and the
+    /// vault balance drift apart and NAV counts collateral as equity.
+    pub fn record_open(ctx: Context<RecordOpen>, margin: u64, fee: u64) -> Result<()> {
+        let pool = &mut ctx.accounts.pool;
+        pool.usdc_sleeve = pool
+            .usdc_sleeve
+            .checked_add(margin)
+            .and_then(|v| v.checked_add(fee))
+            .ok_or(PoolError::Overflow)?;
+        pool.margin_held = pool
+            .margin_held
+            .checked_add(margin)
+            .ok_or(PoolError::Overflow)?;
+        pool.split_fee_from_sleeve(fee)?;
+        Ok(())
+    }
+
     /// Settle one position's outcome against the pool. CPI ONLY, from the
     /// registered perp market.
     ///
@@ -173,6 +194,7 @@ pub mod clp_pool {
         fee: u64,
         bad_debt: u64,
         trader_pnl_now: i128,
+        margin_released: u64,
     ) -> Result<()> {
         require!(
             ctx.accounts.pool.state.allows_close(),
@@ -189,13 +211,16 @@ pub mod clp_pool {
 
         let pool = &mut ctx.accounts.pool;
         pool.usdc_sleeve = pool.usdc_sleeve.saturating_sub(to_trader);
+        pool.margin_held = pool.margin_held.saturating_sub(margin_released);
         pool.bad_debt = pool.bad_debt.checked_add(bad_debt).ok_or(PoolError::Overflow)?;
         // A SNAPSHOT, not an increment. `perp` recomputes the whole book's
         // unrealized PnL in O(1) and pushes it, so NAV reflects open positions
         // too. An increment would only ever capture realised PnL and would
         // leave NAV wrong for every position still open.
         pool.trader_pnl = trader_pnl_now;
-        pool.split_fee(fee)?;
+        // The payout already had the fee deducted, so it never left the
+        // sleeve. Adding it again here would credit the LPs twice.
+        pool.split_fee_from_sleeve(fee)?;
 
         emit!(PositionSettled {
             pool: pool.key(),
@@ -260,13 +285,17 @@ impl Pool {
         self.fraction_value(self.fraction_balance, price)
     }
 
-    /// `NAV = U + card sleeve - trader PnL - bad debt`
+    /// `NAV = U + card sleeve - trader PnL - bad debt - margin held`
     pub fn nav(&self, price: u64) -> Result<u64> {
+        let liabilities = self
+            .bad_debt
+            .checked_add(self.margin_held)
+            .ok_or(PoolError::Overflow)?;
         m(nav(
             self.usdc_sleeve,
             self.card_sleeve_value(price)?,
             self.trader_pnl,
-            self.bad_debt,
+            liabilities,
         ))
     }
 
@@ -342,7 +371,28 @@ impl Pool {
         m(prorata_haircut(claim, total_claims, self.usdc_sleeve))
     }
 
-    /// Split a fee between LPs and the protocol. LPs' share stays in the
+    /// Book a fee that is ALREADY in the sleeve: records the split without
+    /// adding to `usdc_sleeve` again. The protocol's share is tracked as owed,
+    /// not swept, so it stays claimable without a second transfer.
+    pub fn split_fee_from_sleeve(&mut self, fee: u64) -> Result<()> {
+        if fee == 0 {
+            return Ok(());
+        }
+        let lp = m(slab_math::mul_div_floor(
+            fee as u128,
+            self.params.lp_fee_share_bps as u128,
+            10_000,
+        ))
+        .and_then(|v| m(to_u64(v)))?;
+        self.accrued_fees_lp = self.accrued_fees_lp.checked_add(lp).ok_or(PoolError::Overflow)?;
+        self.accrued_fees_protocol = self
+            .accrued_fees_protocol
+            .checked_add(fee.saturating_sub(lp))
+            .ok_or(PoolError::Overflow)?;
+        Ok(())
+    }
+
+    /// Split a fee arriving from outside the sleeve. LPs' share grows the
     /// sleeve, which is what makes CLP appreciate.
     pub fn split_fee(&mut self, fee: u64) -> Result<()> {
         if fee == 0 {
@@ -398,6 +448,11 @@ pub struct Pool {
     pub trader_pnl: i128,
     /// Realised loss the pool absorbed. VISIBLE on purpose.
     pub bad_debt: u64,
+    /// Trader margin sitting in `usdc_vault`. It shares the vault with the
+    /// LPs' money but is not the LPs' money, so NAV subtracts it. Without
+    /// this, an LP withdrawing while positions are open takes value from the
+    /// LPs who stay.
+    pub margin_held: u64,
 
     pub accrued_fees_lp: u64,
     pub accrued_fees_protocol: u64,
@@ -677,6 +732,17 @@ impl<'info> Withdraw<'info> {
 }
 
 #[derive(Accounts)]
+pub struct RecordOpen<'info> {
+    /// The perp market PDA, signing through CPI.
+    #[account(address = pool.perp_market @ PoolError::NotPerpMarket)]
+    pub market: Signer<'info>,
+    #[account(
+        mut, seeds = [seeds::POOL, pool.usdc_mint.as_ref()], bump = pool.bump,
+    )]
+    pub pool: Account<'info, Pool>,
+}
+
+#[derive(Accounts)]
 pub struct SettlePosition<'info> {
     /// The perp market PDA, signing through CPI. This single constraint is
     /// what stops any other program from asking the pool to pay out.
@@ -775,6 +841,7 @@ mod tests {
             clp_supply: 200_000 * USDC,
             trader_pnl: 0,
             bad_debt: 0,
+            margin_held: 0,
             accrued_fees_lp: 0,
             accrued_fees_protocol: 0,
             params: PoolParams::default(),
@@ -806,6 +873,28 @@ mod tests {
         let before = p.nav(PAR).unwrap();
         p.trader_pnl = 640 * USDC as i128;
         assert_eq!(before - p.nav(PAR).unwrap(), 640 * USDC);
+    }
+
+    #[test]
+    fn margin_held_is_a_liability_not_pool_equity() {
+        // Trader margin sits in the same vault as the LPs' money. Counting it
+        // as NAV would let an LP withdrawing while positions are open take
+        // value from the LPs who stay.
+        let mut p = pool();
+        let before = p.nav(PAR).unwrap();
+        p.usdc_sleeve += 5_000 * USDC; // margin arrives in the vault
+        p.margin_held += 5_000 * USDC; // and is immediately owed back
+        assert_eq!(p.nav(PAR).unwrap(), before, "margin must not move NAV");
+    }
+
+    #[test]
+    fn a_fee_already_in_the_sleeve_is_booked_without_double_counting() {
+        let mut p = pool();
+        let before = p.usdc_sleeve;
+        p.split_fee_from_sleeve(1_000).unwrap();
+        assert_eq!(p.usdc_sleeve, before, "the fee was already there");
+        assert_eq!(p.accrued_fees_lp, 750);
+        assert_eq!(p.accrued_fees_protocol, 250);
     }
 
     #[test]

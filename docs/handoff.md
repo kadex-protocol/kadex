@@ -15,7 +15,7 @@ npm run sync-keys        # keys/ -> target/deploy/ — fixed program IDs, don't 
 npm run build:programs   # NOT `anchor build` — see docs/deploying.md
 cargo test --workspace   # 102 tests, under a second
 npm run test:parity      # 19 Rust <-> TS parity tests
-npm run test:integration # 10 on-chain tests, ~60s, boots a validator
+npm run test:integration # 19 on-chain tests, ~7min, boots a validator
 ```
 
 You need Rust 1.89 (`rust-toolchain.toml` handles it), Solana CLI 3.1.10,
@@ -30,7 +30,7 @@ devnet. `docs/deploying.md` explains it; Blocker #7 tracks it.
 
 ## 2. What already exists
 
-131 tests passing. No risk handler is implemented yet except
+142 tests passing. No risk handler is implemented yet except
 `open_position` — deliberately. Day 1 was about getting the boundaries right
 before anyone builds on top of them.
 

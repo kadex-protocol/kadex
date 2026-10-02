@@ -81,6 +81,7 @@ pub mod perp {
         ))
         .and_then(|v| m(slab_math::to_u64(v)))?;
         ctx.accounts.collect(margin + fee)?;
+        ctx.accounts.record_open(margin, fee)?;
 
         let mk = &mut ctx.accounts.market;
         let mut state = mk.risk();
@@ -139,7 +140,8 @@ pub mod perp {
         let fee = ctx.accounts.close_fee(pos.notional)?;
         let snapshot = ctx.accounts.unwind(pos, price)?;
 
-        ctx.accounts.settle(outcome.to_trader.saturating_sub(fee), fee, outcome.bad_debt, snapshot)?;
+        ctx.accounts
+            .settle(outcome.to_trader.saturating_sub(fee), fee, outcome.bad_debt, snapshot, pos.margin)?;
 
         emit!(PositionClosed {
             position: ctx.accounts.position.key(),
@@ -170,7 +172,8 @@ pub mod perp {
 
         let outcome = r(risk::settle_liquidation(&pos, price, idx, &params))?;
         let snapshot = ctx.accounts.unwind(pos, price)?;
-        ctx.accounts.settle(outcome.liquidator_fee, 0, outcome.bad_debt, snapshot)?;
+        ctx.accounts
+            .settle(outcome.liquidator_fee, 0, outcome.bad_debt, snapshot, pos.margin)?;
 
         emit!(PositionLiquidated {
             position: ctx.accounts.position.key(),
@@ -299,8 +302,9 @@ pub struct OpenPosition<'info> {
     )]
     pub market: Account<'info, Market>,
 
-    /// Read-only here: the pool supplies the parameters and the liquid sleeve
-    /// that the capacity ceiling is computed from.
+    /// Writable: `record_open` books the arriving margin and fee so the
+    /// sleeve and the vault balance do not drift apart.
+    #[account(mut)]
     pub pool: Account<'info, Pool>,
 
     /// CHECK: deserialized through `read_oracle`, which verifies the owner is
@@ -324,11 +328,30 @@ pub struct OpenPosition<'info> {
     #[account(mut, address = pool.usdc_vault @ PerpError::WrongVault)]
     pub usdc_vault: Account<'info, TokenAccount>,
 
+    pub clp_pool_program: Program<'info, clp_pool::program::ClpPool>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
 
 impl<'info> OpenPosition<'info> {
+    /// Tell the pool that margin and fee landed in its vault.
+    pub fn record_open(&self, margin: u64, fee: u64) -> Result<()> {
+        let pool_key = self.pool.key();
+        let seeds = self.market.signer_seeds(&pool_key);
+        clp_pool::cpi::record_open(
+            CpiContext::new_with_signer(
+                self.clp_pool_program.key(),
+                clp_pool::cpi::accounts::RecordOpen {
+                    market: self.market.to_account_info(),
+                    pool: self.pool.to_account_info(),
+                },
+                &[&seeds],
+            ),
+            margin,
+            fee,
+        )
+    }
+
     /// The only door to the oracle.
     pub fn oracle_view(&self) -> Result<OracleView> {
         read_oracle(&self.oracle.to_account_info(), &ORACLE_PROGRAM_ID)
@@ -523,6 +546,7 @@ macro_rules! settler {
                 fee: u64,
                 bad_debt: u64,
                 trader_pnl_now: i128,
+                margin_released: u64,
             ) -> Result<()> {
                 let pool_key = self.pool.key();
                 let seeds = self.market.signer_seeds(&pool_key);
@@ -542,6 +566,7 @@ macro_rules! settler {
                     fee,
                     bad_debt,
                     trader_pnl_now,
+                    margin_released,
                 )
             }
         }

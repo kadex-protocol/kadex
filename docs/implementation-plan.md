@@ -27,7 +27,7 @@ three apps.
 | `apps/liquidator` | TS | Backend B | scanner done, decode pending |
 | `apps/web` | Next.js | Frontend | empty |
 
-131 tests: 102 Rust, 19 Rust↔TS parity, 10 on-chain integration.
+142 tests: 104 Rust, 19 Rust↔TS parity, 19 on-chain integration.
 
 ## 2. Declared deviations from the spec
 

@@ -53,12 +53,29 @@ The thin side never pays a premium — its multiplier is exactly 1.0.
 ## 5. NAV
 
 ```
-NAV = U + Σ(qᵢ × pᵢ) − trader_PnL − bad_debt
+NAV = U + Σ(qᵢ × pᵢ) − trader_PnL − bad_debt − margin_held
 ```
 
 Trader profit leaves the pool one for one. No rounding creates value.
 
+`margin_held` is there because trader collateral sits in the same vault as the
+LPs' money without being the LPs' money. Counting it would let an LP who
+withdraws while positions are open take value from the LPs who stay. The pool
+learns about arriving margin through `clp_pool::record_open`, which `perp`
+calls by CPI when a position opens — without that call the sleeve and the
+actual vault balance drift apart.
+
 - Test: `clp_pool::tests::trader_profit_reduces_nav_one_for_one`
+- Test: `clp_pool::tests::margin_held_is_a_liability_not_pool_equity`
+- Test: `lifecycle: what the trader gains, the pool loses, to the unit`
+
+### The lifecycle is zero-sum
+
+Over a full open-to-close cycle, the trader's change in USDC and the pool's
+change in NAV sum to exactly zero. Every unit the trader walks away with came
+out of the pool's equity; every unit the pool kept — fees and borrow — came out
+of the trader's. That single equality is the economic claim the project rests
+on, and it is asserted end to end on a live validator.
 
 ## 6. CLP price
 
