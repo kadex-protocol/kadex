@@ -53,7 +53,11 @@ export function deriveCapacity(
 ) {
   const p = pool.params;
   const capSolvency = m.oiCapSolvency(pool.usdcSleeve, p.phi, p.deltaMax);
-  const capDepth = m.oiCapDepth(oracle.depthUsdc, p.deltaLiq, p.mu);
+  // The program folds `attack_safety` into mu before taking the ceiling
+  // (slab-risk). Leaving it out here made the screen report DOUBLE the
+  // capacity the chain would allow.
+  const muEffective = m.mulWadCeil(p.mu, p.attackSafety);
+  const capDepth = m.oiCapDepth(oracle.depthUsdc, p.deltaLiq, muEffective);
   const cap = m.oiAllowed(capSolvency, capDepth);
   const oiTotal = market.oiLong + market.oiShort;
   return {

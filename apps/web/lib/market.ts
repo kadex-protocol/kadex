@@ -81,6 +81,7 @@ const SAMPLE_POOL: PoolView = {
     maxCardWeight: 150_000n,
     lpFeeShareBps: 7500,
     reduceOnlyUtilization: 950_000n,
+    attackSafety: 2_000_000n, // 2x
   },
 };
 

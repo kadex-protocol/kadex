@@ -11,6 +11,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as m from "../packages/sdk/src/math.ts";
+// Built artifact on purpose: this is what apps/web actually consumes.
+// `npm run test:parity` runs `tsc -b` first so it is never stale.
+import { deriveCapacity } from "../packages/sdk/dist/views.js";
 import { gates } from "../packages/types/src/index.ts";
 import { readFile } from "node:fs/promises";
 
@@ -211,4 +214,47 @@ test("the gates mirror matches the Rust", async () => {
       );
     }
   }
+});
+
+/**
+ * The depth ceiling the SCREEN shows must be the one the CHAIN enforces.
+ *
+ * This drifted: `attack_safety` was added to the Rust risk params and folded
+ * into mu before taking the ceiling, and the TypeScript derivation kept using
+ * raw mu. The frontend reported 17,945 of capacity where the program allowed
+ * 8,972 — double. A user would size a position the UI called fine and have it
+ * rejected on chain.
+ *
+ * The expected value is the one asserted in packages/slab-risk.
+ */
+test("the capacity the UI shows matches the chain", () => {
+  const params = {
+    phi: 500_000n,
+    deltaMax: 300_000n,
+    deltaLiq: 187_500n,
+    mu: 300_000n,
+    attackSafety: 2_000_000n, // 2x
+  };
+
+  const c = deriveCapacity(
+    { usdcSleeve: 140_000n * USDC, params },
+    { depthUsdc: 60_000n * USDC },
+    { oiLong: 0n, oiShort: 0n },
+  );
+
+  // Mirrors the Rust assertion exactly, including its integer division:
+  //   assert_eq!(c.cap_depth / USDC, 8_972, "halved by the 2x attack safety")
+  assert.equal(c.capDepth / USDC, 8_972n);
+  assert.equal(c.binding, "depth");
+
+  // And the safety factor must actually bind: without it the ceiling doubles.
+  const unsafe = deriveCapacity(
+    { usdcSleeve: 140_000n * USDC, params: { ...params, attackSafety: 1_000_000n } },
+    { depthUsdc: 60_000n * USDC },
+    { oiLong: 0n, oiShort: 0n },
+  );
+  assert.ok(
+    unsafe.capDepth > c.capDepth * 19n / 10n,
+    "a 2x safety factor must roughly halve the ceiling",
+  );
 });

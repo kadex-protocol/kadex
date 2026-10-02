@@ -17,7 +17,7 @@
     "test:programs": "anchor test",
     "typecheck": "tsc -b packages/types packages/sdk packages/oracle",
     "test:integration": "node scripts/with-validator.mjs node --test tests/integration/*.test.mjs",
-    "test:parity": "node --test tests/parity.test.mjs",
+    "test:parity": "tsc -b packages/types packages/sdk && node --test tests/parity.test.mjs",
     "web": "npm run dev --workspace apps/web",
     "web:build": "npm run build --workspace apps/web"
   },

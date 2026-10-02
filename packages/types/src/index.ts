@@ -150,6 +150,13 @@ export interface PoolParams {
   maxCardWeight: bigint;
   lpFeeShareBps: number;
   reduceOnlyUtilization: bigint;
+  /**
+   * How many times attacking must cost what it pays, at the depth ceiling. WAD.
+   *
+   * Without it `cap = cost / mu` means `cap * mu == cost` exactly, so an attack
+   * breaks even at the ceiling and rounding decides whether it pays. Default 2.0.
+   */
+  attackSafety: bigint;
 }
 
 export interface PoolView {
