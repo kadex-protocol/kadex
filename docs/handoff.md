@@ -30,7 +30,7 @@ devnet. `docs/deploying.md` explains it; Blocker #7 tracks it.
 
 ## 2. What already exists
 
-142 tests passing. No risk handler is implemented yet except
+149 tests passing. No risk handler is implemented yet except
 `open_position` — deliberately. Day 1 was about getting the boundaries right
 before anyone builds on top of them.
 
@@ -174,7 +174,7 @@ Branch: `backend/risk-engine`
 | ✅ D6–D8 | `close_position`, `liquidate`, and the `settle_position` CPI door |
 | ✅ D10 | liquidator scanner, decoder verified against the IDL |
 | D9 | end-to-end integration — blocked with A on Blocker #6 |
-| D11 | `Settled` final redemption path |
+| ✅ D11 | `Settled` unwind + redemption with an equal haircut |
 
 **B's remaining work is unblocked.** The validator harness exists and works;
 `tests/integration/` is where D9's end-to-end case goes. The decisions are

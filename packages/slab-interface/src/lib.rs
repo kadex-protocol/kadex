@@ -85,7 +85,8 @@ pub enum MarketState {
     /// Close and liquidate only. CLP withdrawals are frozen too, so an LP
     /// cannot pull out exactly when the pool most needs the buffer.
     ReduceOnly,
-    /// Market is over. Final redemption with pro-rata haircut only.
+    /// Market is over. It still UNWINDS — positions close, liquidations
+    /// clear, LPs redeem — but nothing new is opened and no money comes in.
     Settled,
 }
 
@@ -94,14 +95,20 @@ impl MarketState {
     pub fn allows_open(&self) -> bool {
         matches!(self, MarketState::Active)
     }
-    /// Close a position.
+    /// Close a position. Allowed in `Settled` too.
+    ///
+    /// CHANGED 2 Oct: `Settled` used to forbid this, which stranded every
+    /// open position's margin permanently — and because `margin_held` is a
+    /// pool liability, it also haircut the LPs forever for money nobody could
+    /// ever collect. A settled market has to be able to unwind.
     pub fn allows_close(&self) -> bool {
-        matches!(self, MarketState::Active | MarketState::ReduceOnly)
+        true
     }
-    /// Liquidate. Allowed in ReduceOnly as well: blocking liquidation would
-    /// leave rotten positions accumulating.
+    /// Liquidate. Allowed outside `Active` as well: blocking liquidation
+    /// would leave rotten positions accumulating, and in `Settled` it is the
+    /// only way to clear a position whose owner never comes back.
     pub fn allows_liquidate(&self) -> bool {
-        matches!(self, MarketState::Active | MarketState::ReduceOnly)
+        true
     }
     /// Deposit into the pool.
     pub fn allows_deposit(&self) -> bool {
@@ -481,8 +488,11 @@ mod tests {
         assert!(!ReduceOnly.allows_open(), "ReduceOnly must not add risk");
         assert!(ReduceOnly.allows_close() && ReduceOnly.allows_liquidate());
         assert!(!ReduceOnly.allows_withdraw(), "withdrawals freeze in ReduceOnly");
-        assert!(!Settled.allows_open() && !Settled.allows_close());
-        assert!(!Settled.allows_liquidate());
+        // Settled unwinds, it does not trade: closing and liquidating stay
+        // open so margin can come home and stale positions can be cleared.
+        assert!(!Settled.allows_open());
+        assert!(!Settled.allows_deposit() && !Settled.allows_withdraw());
+        assert!(Settled.allows_close() && Settled.allows_liquidate());
     }
 
     #[test]

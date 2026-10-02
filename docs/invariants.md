@@ -113,6 +113,19 @@ trade insolvent for months.
 
 - Test: `slab_risk::tests::a_gap_through_the_margin_is_recorded_as_bad_debt`
 
+## 11b. Settled unwinds, it does not trade
+
+`Settled` forbids opening, depositing and the normal withdrawal. It still
+allows **closing and liquidating**.
+
+This was changed on 2 Oct. `Settled` originally barred both, which stranded
+every open position's margin permanently — and since `margin_held` is a pool
+liability, it also haircut the LPs forever for money nobody could ever
+collect. A settled market has to be able to unwind.
+
+- Test: `clp_pool::tests::state_gates_match_the_spec`
+- Test: `lifecycle: a settled market unwinds and redeems with an equal haircut`
+
 ## 11. ReduceOnly adds no new risk
 
 It also freezes CLP withdrawals — so an LP cannot pull out exactly when the
@@ -122,9 +135,18 @@ pool most needs the buffer.
 
 ## 12. Settled applies an equal pro-rata haircut
 
-Everyone takes the same cut. No queue, no privilege.
+`redeem_settled` pays a proportional slice of both sleeves, scaled by
+`NAV / total_assets`. Assets are what is physically in the vaults; NAV is what
+belongs to the LPs after bad debt and after margin still owed to open
+positions. When those liabilities exist, the raw split would hand LPs money
+that is not theirs, so every holder is scaled by the same factor.
+
+Equal is the point. The alternative — first come, first served — is what a
+bank run is, and it is settled by who is awake rather than by who is owed.
 
 - Test: `clp_pool::tests::the_settlement_haircut_is_equal_for_everyone`
+- Test: `clp_pool::tests::open_positions_hold_back_their_margin_at_settlement`
+- Test: `lifecycle: a settled market unwinds and redeems with an equal haircut`
 
 ## Rounding policy
 

@@ -301,4 +301,101 @@ describe("lifecycle", () => {
     const mk = await marketState(e.market);
     assert.equal(BigInt(mk.oiLong.toString()), 0n);
   });
+
+  test("a settled market unwinds and redeems with an equal haircut", async () => {
+    // D11. Its own protocol: settling is permanent.
+    const e = await setupProtocol(ctx);
+    const whale = await actor(ctx, e, 300_000n * USDC);
+    const minnow = await actor(ctx, e, 300_000n * USDC);
+    await deposit(e, whale, 80_000n * USDC);
+    await deposit(e, minnow, 20_000n * USDC);
+
+    const trader = await actor(ctx, e, 20_000n * USDC);
+    const position = await open(e, trader, {
+      nonce: 1,
+      notional: 4_000n * USDC,
+      margin: 1_000n * USDC,
+    });
+
+    await ctx.p.clpPool.methods
+      .setState({ settled: {} })
+      .accounts({ admin: ctx.provider.wallet.publicKey, pool: e.pool })
+      .rpc();
+
+    // Nothing new comes in.
+    const depMsg = await mustFail(deposit(e, whale, 1_000n * USDC), "settled accepted a deposit");
+    assert.match(depMsg, /StateForbids|state/i);
+    const openMsg = await mustFail(
+      open(e, trader, { nonce: 2, notional: 1_000n * USDC, margin: 250n * USDC }),
+      "settled accepted a new position",
+    );
+    assert.match(openMsg, /StateForbidsOpen|state/i);
+
+    // But the trader can still get their margin back. Without this the margin
+    // is stranded and the LPs are haircut forever for money nobody collects.
+    const traderBefore = await balance(ctx.conn, trader.usdc);
+    await close(e, trader, position);
+    assert.ok(
+      (await balance(ctx.conn, trader.usdc)) > traderBefore,
+      "a settled market must still let a position unwind",
+    );
+
+    const p = await poolState(e.pool);
+    assert.equal(BigInt(p.marginHeld.toString()), 0n, "no liability left hanging");
+
+    // The normal exit is barred; redemption is the only way out.
+    const wMsg = await mustFail(
+      ctx.p.clpPool.methods
+        .withdraw(big(1_000n * USDC))
+        .accounts({
+          owner: whale.kp.publicKey,
+          pool: e.pool,
+          oracle: e.oracle,
+          clpMint: e.clpMint,
+          usdcVault: e.usdcVault,
+          fractionVault: e.fractionVault,
+          ownerClp: whale.clp,
+          ownerUsdc: whale.usdc,
+          ownerFractions: whale.fractions,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([whale.kp])
+        .rpc(),
+      "the normal withdraw path worked after settlement",
+    );
+    assert.match(wMsg, /StateForbids|state/i);
+
+    const redeem = (who, shares) =>
+      ctx.p.clpPool.methods
+        .redeemSettled(big(shares))
+        .accounts({
+          owner: who.kp.publicKey,
+          pool: e.pool,
+          oracle: e.oracle,
+          clpMint: e.clpMint,
+          usdcVault: e.usdcVault,
+          fractionVault: e.fractionVault,
+          ownerClp: who.clp,
+          ownerUsdc: who.usdc,
+          ownerFractions: who.fractions,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([who.kp])
+        .rpc();
+
+    const wBefore = await balance(ctx.conn, whale.usdc);
+    const mBefore = await balance(ctx.conn, minnow.usdc);
+    await redeem(whale, 80_000n * USDC);
+    await redeem(minnow, 20_000n * USDC);
+    const wOut = (await balance(ctx.conn, whale.usdc)) - wBefore;
+    const mOut = (await balance(ctx.conn, minnow.usdc)) - mBefore;
+
+    // Four times the shares, four times the payout. The haircut, whatever it
+    // is, falls on both identically — that is the whole point of pro-rata.
+    const ratio = (wOut * 1_000n) / mOut;
+    assert.ok(ratio >= 3_990n && ratio <= 4_010n, `payout ratio was ${ratio}/1000, expected ~4000`);
+
+    const after = await poolState(e.pool);
+    assert.equal(BigInt(after.clpSupply.toString()), 0n, "everyone is out");
+  });
 });

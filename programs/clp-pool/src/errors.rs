@@ -12,6 +12,8 @@ pub enum PoolError {
     CardWeightExceeded,
     #[msg("Market is already settled")]
     AlreadySettled,
+    #[msg("This path is only available once the market has settled")]
+    NotSettled,
     #[msg("Market state forbids this operation")]
     StateForbids,
     #[msg("Insufficient liquid sleeve")]

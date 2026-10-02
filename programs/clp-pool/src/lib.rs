@@ -232,6 +232,38 @@ pub mod clp_pool {
         Ok(())
     }
 
+    /// Burn CLP after the market has settled and take the final slice.
+    ///
+    /// Separate from `withdraw` because the rules differ: `withdraw` is a
+    /// normal exit at NAV and is barred outside `Active`; this one is the only
+    /// way out of a settled market and carries the haircut.
+    pub fn redeem_settled(ctx: Context<Withdraw>, shares: u64) -> Result<()> {
+        let price = ctx.accounts.price()?;
+        let pool = &ctx.accounts.pool;
+        require!(pool.state == MarketState::Settled, PoolError::NotSettled);
+        require!(shares > 0, PoolError::ZeroAmount);
+
+        let (usdc_out, fractions_out) = pool.settlement_split(shares, price)?;
+        ctx.accounts.burn_clp(shares)?;
+        ctx.accounts.push_usdc(usdc_out)?;
+        ctx.accounts.push_fractions(fractions_out)?;
+
+        let pool = &mut ctx.accounts.pool;
+        pool.usdc_sleeve = pool.usdc_sleeve.saturating_sub(usdc_out);
+        pool.fraction_balance = pool.fraction_balance.saturating_sub(fractions_out);
+        pool.clp_supply = pool.clp_supply.saturating_sub(shares);
+
+        emit!(Redeemed {
+            pool: pool.key(),
+            owner: ctx.accounts.owner.key(),
+            shares,
+            usdc: usdc_out,
+            fractions: fractions_out,
+            price,
+        });
+        Ok(())
+    }
+
     /// Bind the perp market allowed to touch the pool's risk accounting.
     pub fn set_perp_market(ctx: Context<AdminOnly>, market: Pubkey) -> Result<()> {
         ctx.accounts.pool.perp_market = market;
@@ -365,10 +397,29 @@ impl Pool {
         Ok((usdc, fractions))
     }
 
-    /// Final redemption in `Settled`, with an equal pro-rata haircut.
-    pub fn settlement_payout(&self, shares: u64, total_claims: u64, price: u64) -> Result<u64> {
-        let claim = self.assets_for(shares, price)?;
-        m(prorata_haircut(claim, total_claims, self.usdc_sleeve))
+    /// Final redemption in `Settled`: a proportional slice of both sleeves,
+    /// scaled by an equal haircut when the pool cannot cover what it owes.
+    ///
+    /// The haircut is `NAV / total_assets`. Assets are what is physically in
+    /// the vaults; NAV is what belongs to the LPs after bad debt and after the
+    /// margin still owed to open positions. When those liabilities exist, the
+    /// raw proportional split would hand LPs money that is not theirs, so
+    /// every holder is scaled by the same factor.
+    ///
+    /// Equal is the point. The alternative — first come, first served — is
+    /// what a bank run is, and it is decided by who is awake rather than by
+    /// who is owed.
+    pub fn settlement_split(&self, shares: u64, price: u64) -> Result<(u64, u64)> {
+        let (usdc_raw, frac_raw) = self.withdraw_split(shares)?;
+        let assets = self
+            .usdc_sleeve
+            .checked_add(self.card_sleeve_value(price)?)
+            .ok_or(PoolError::Overflow)?;
+        let nav = self.nav(price)?;
+        Ok((
+            m(prorata_haircut(usdc_raw, assets, nav))?,
+            m(prorata_haircut(frac_raw, assets, nav))?,
+        ))
     }
 
     /// Book a fee that is ALREADY in the sleeve: records the split without
@@ -799,6 +850,16 @@ pub struct Withdrawn {
 }
 
 #[event]
+pub struct Redeemed {
+    pub pool: Pubkey,
+    pub owner: Pubkey,
+    pub shares: u64,
+    pub usdc: u64,
+    pub fractions: u64,
+    pub price: u64,
+}
+
+#[event]
 pub struct PositionSettled {
     pub pool: Pubkey,
     pub to_trader: u64,
@@ -971,15 +1032,53 @@ mod tests {
     }
 
     #[test]
+    fn settlement_without_liabilities_pays_the_full_proportional_slice() {
+        let p = pool();
+        let shares = p.clp_supply / 10;
+        assert_eq!(p.settlement_split(shares, PAR).unwrap(), p.withdraw_split(shares).unwrap());
+    }
+
+    #[test]
     fn the_settlement_haircut_is_equal_for_everyone() {
         let mut p = pool();
-        p.usdc_sleeve = 70_000 * USDC; // pool holds only 70% of what it owes
-        p.fraction_balance = 0;
-        let total_claims = 100_000 * USDC;
-        let a = p.settlement_payout(p.clp_supply / 2, total_claims, PAR).unwrap();
-        let b = p.settlement_payout(p.clp_supply / 4, total_claims, PAR).unwrap();
-        assert!(a > 0 && b > 0);
-        assert!((a as i128 - 2 * b as i128).abs() <= 2);
+        // 40k of bad debt against 200k of assets: everyone takes 20%
+        p.bad_debt = 40_000 * USDC;
+
+        let (big_usdc, _) = p.settlement_split(p.clp_supply / 2, PAR).unwrap();
+        let (small_usdc, _) = p.settlement_split(p.clp_supply / 4, PAR).unwrap();
+
+        // half the shares gets exactly twice as much, and both are cut 20%
+        assert_eq!(big_usdc, 56_000 * USDC); // 70k raw * 0.8
+        assert_eq!(small_usdc, 28_000 * USDC);
+        assert!((big_usdc as i128 - 2 * small_usdc as i128).abs() <= 2);
+    }
+
+    #[test]
+    fn open_positions_hold_back_their_margin_at_settlement() {
+        // Margin still owed to traders is not the LPs' to take, even at the
+        // end. It shows up as the same haircut bad debt would cause.
+        let mut p = pool();
+        p.usdc_sleeve += 20_000 * USDC;
+        p.margin_held = 20_000 * USDC;
+
+        let shares = p.clp_supply; // everyone leaves at once
+        let (usdc, frac) = p.settlement_split(shares, PAR).unwrap();
+        let taken = usdc + p.fraction_value(frac, PAR).unwrap();
+
+        assert!(taken <= p.nav(PAR).unwrap() + 2, "LPs took more than they are owed");
+        assert!(
+            p.usdc_sleeve + p.card_sleeve_value(PAR).unwrap() - usdc >= 20_000 * USDC - 2,
+            "the traders' margin must survive the LPs leaving"
+        );
+    }
+
+    #[test]
+    fn redeeming_everything_never_pays_out_more_than_exists() {
+        let mut p = pool();
+        p.bad_debt = 150_000 * USDC; // deeply underwater
+        let (usdc, frac) = p.settlement_split(p.clp_supply, PAR).unwrap();
+        assert!(usdc <= p.usdc_sleeve);
+        assert!(frac <= p.fraction_balance);
     }
 
     #[test]
@@ -991,7 +1090,11 @@ mod tests {
         assert!(!p.state.allows_withdraw(), "withdrawals freeze in ReduceOnly");
         assert!(p.state.allows_close() && p.state.allows_liquidate());
         p.state = MarketState::Settled;
-        assert!(!p.state.allows_close() && !p.state.allows_liquidate());
+        assert!(!p.state.allows_open() && !p.state.allows_deposit());
+        assert!(!p.state.allows_withdraw(), "the normal exit is barred");
+        // but unwinding stays open, or trader margin is stranded forever and
+        // the LPs are haircut for money nobody can ever collect
+        assert!(p.state.allows_close() && p.state.allows_liquidate());
     }
 
     #[test]
