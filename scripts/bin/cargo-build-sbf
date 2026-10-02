@@ -1,0 +1,32 @@
+#!/bin/bash
+# Shim: rewrite Anchor's hardcoded `--arch v3` to `--arch v1`.
+#
+# Anchor 1.2 always passes `--arch v3`, and `anchor build -- --arch v0` is
+# refused because the flag is already there. The Solana CLI 3.1.10 cannot
+# parse the resulting ELF, so those binaries cannot be deployed anywhere.
+#
+# Put this directory first on PATH and `anchor build` becomes safe:
+#
+#     export PATH="$PWD/scripts/bin:$PATH"
+#
+# Delete this shim once the toolchain can deploy v3 — see Blocker #7.
+set -euo pipefail
+
+real=""
+for candidate in \
+  "$HOME/.local/share/solana/install/active_release/bin/cargo-build-sbf" \
+  "/usr/local/bin/cargo-build-sbf"; do
+  [ -x "$candidate" ] && { real="$candidate"; break; }
+done
+if [ -z "$real" ]; then
+  echo "cargo-build-sbf shim: cannot find the real binary" >&2
+  exit 1
+fi
+
+args=(); next_is_arch=0
+for a in "$@"; do
+  if [ $next_is_arch -eq 1 ]; then next_is_arch=0; args+=("v1"); continue; fi
+  if [ "$a" = "--arch" ]; then args+=("$a"); next_is_arch=1; continue; fi
+  args+=("$a")
+done
+exec "$real" "${args[@]}"

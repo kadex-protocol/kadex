@@ -3,13 +3,15 @@
 > Read this before your first deploy. `anchor build` alone produces binaries
 > that **cannot be deployed**, and the error message does not say why.
 
-## Build with the npm script, not `anchor build`
+## Build
 
 ```sh
-npm run build:programs
+export PATH="$PWD/scripts/bin:$PATH"   # once, in your shell profile
+npm run build:programs                 # or plain `anchor build`
 ```
 
-Not `anchor build` on its own. Here is why.
+With `scripts/bin` on your PATH, `anchor build` is safe. Without it, it
+produces binaries that cannot be deployed anywhere. Here is why.
 
 Anchor 1.2 hardcodes `--arch v3`, so `anchor build` emits SBPF v3 binaries.
 The Solana CLI 3.1.10 that ships with this toolchain cannot parse them:
@@ -24,11 +26,30 @@ them too. The *runtime* supports SBPFv3 — the feature gate
 `SIMD-0178, SIMD-0179 and SIMD-0189` is active on a fresh validator — but every
 tool that has to read the ELF before sending it is capped below v3.
 
-`scripts/build.mjs` runs `anchor build` for the IDLs and TypeScript types, then
-overwrites the binaries with `cargo-build-sbf --arch v1`. The source is
-identical; only the bytecode target differs. It then checks `e_flags` on every
-output and fails loudly if anything is still v3, because a silent reversion
-would not surface until someone tried to deploy.
+### The fix
+
+`scripts/bin/cargo-build-sbf` is a shim. Anchor invokes `cargo-build-sbf` by
+name, so putting that directory first on PATH lets the shim rewrite `--arch v3`
+to `--arch v1` and pass everything else straight through. The source is
+identical; only the bytecode target differs.
+
+`npm run build:programs` puts the shim on PATH itself and then checks `e_flags`
+on every output, failing loudly if anything is still v3 — a silent reversion
+would not otherwise surface until someone tried to deploy.
+
+Add the shim to your own PATH as well, so a bare `anchor build` is safe too:
+
+```sh
+echo 'export PATH="$HOME/Desktop/slab/scripts/bin:$PATH"' >> ~/.zshrc
+```
+
+### Removing the shim later
+
+It exists only because the local CLI is older than the bytecode Anchor emits.
+Agave 4.3.0 is released and should parse SBPF v3 natively. Once the toolchain
+is upgraded and `solana program deploy target/deploy/oracle.so` works on a v3
+binary, delete `scripts/bin/` and the `REQUIRED_ARCH` check in
+`scripts/build.mjs`.
 
 ## Verifying before you deploy
 

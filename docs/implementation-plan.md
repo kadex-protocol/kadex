@@ -141,12 +141,16 @@ The runtime supports SBPFv3 (the feature gate is active on a fresh validator);
 every tool that reads the ELF before sending it does not. So `anchor build`
 alone yields binaries that cannot reach devnet.
 
-Mitigated, not fixed: `npm run build:programs` runs `anchor build` for IDLs and
-types, then overwrites the binaries with `cargo-build-sbf --arch v1`, and
-verifies `e_flags` on each one. See `docs/deploying.md`.
+Mitigated with a PATH shim. `scripts/bin/cargo-build-sbf` rewrites `--arch v3`
+to `--arch v1` and passes everything else through; Anchor invokes
+`cargo-build-sbf` by name, so putting that directory first on PATH is enough.
+`npm run build:programs` does this itself and verifies `e_flags` on each
+output. See `docs/deploying.md`.
 
-**Anyone who runs `anchor build` directly still gets undeployable output.**
-That is the remaining sharp edge.
+The sharp edge is now only for someone who has not put `scripts/bin` on their
+PATH. The real fix is upgrading the Solana CLI: **Agave 4.3.0 is released**,
+far newer than the pinned 3.1.10, and should parse v3 natively. That is a
+toolchain change worth doing after the submission rather than during it.
 
 ~~Blocker #4 — risk CPI between `perp` and `clp-pool`~~ — resolved on 2 Oct.
 `clp_pool::settle_position` is the single door value leaves the pool through,

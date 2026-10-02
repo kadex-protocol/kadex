@@ -26,12 +26,19 @@
 
 import { spawnSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const OUT = join(ROOT, "target", "deploy");
-const ENV = { ...process.env, NODE_OPTIONS: "" };
+// The shim rewrites Anchor's hardcoded `--arch v3` to v1, so a single
+// `anchor build` now produces deployable binaries. Without it Anchor builds
+// v3 and we would have to build everything a second time.
+const ENV = {
+  ...process.env,
+  NODE_OPTIONS: "",
+  PATH: join(ROOT, "scripts", "bin") + delimiter + process.env.PATH,
+};
 
 /** directory name -> output .so name */
 const PROGRAMS = {
@@ -59,13 +66,8 @@ function eFlags(path) {
   return buf.readUInt32LE(48);
 }
 
-console.log("[build] anchor build — IDLs and TypeScript types");
+console.log(`[build] anchor build, with the --arch ${REQUIRED_ARCH} shim on PATH`);
 sh("anchor", ["build"]);
-
-console.log(`[build] cargo-build-sbf --arch ${REQUIRED_ARCH} — deployable binaries`);
-for (const dir of Object.keys(PROGRAMS)) {
-  sh("cargo-build-sbf", ["--arch", REQUIRED_ARCH, "--sbf-out-dir", OUT], join(ROOT, "programs", dir));
-}
 
 let bad = 0;
 for (const name of Object.values(PROGRAMS)) {
