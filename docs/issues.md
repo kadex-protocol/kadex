@@ -6,6 +6,12 @@ accepted.
 
 Last reviewed 2 Oct 2026.
 
+> **card-vault was unreachable on-chain until 2 Oct.** `whitelist_card` created
+> the vault account without storing its bump, so every `fractionalize` derived
+> a different PDA and failed `ConstraintSeeds`. No card could ever be
+> deposited. Two unit tests and no integration coverage is how that survived;
+> `tests/integration/vault.test.mjs` is why it cannot recur.
+
 | # | Issue | Status |
 |---|---|---|
 | 1 | Who provides the first AMM liquidity | **Decision** — calculator built |

@@ -64,6 +64,18 @@ pub mod card_vault {
         c.enabled = true;
         c.bump = ctx.bumps.card;
 
+        // The vault account is created here, so it is filled in here. Leaving
+        // it zeroed until `fractionalize` meant `vault.bump` was 0, and every
+        // later `bump = vault.bump` constraint re-derived a DIFFERENT address
+        // — so no card could ever be deposited. Identity and bump belong to
+        // the account from birth; only custody state changes later.
+        let v = &mut ctx.accounts.vault;
+        v.nft_mint = ctx.accounts.nft_mint.key();
+        v.fraction_mint = ctx.accounts.fraction_mint.key();
+        v.fractions_minted = 0;
+        v.locked = false;
+        v.bump = ctx.bumps.vault;
+
         ctx.accounts.registry.card_count =
             ctx.accounts.registry.card_count.saturating_add(1);
         Ok(())
