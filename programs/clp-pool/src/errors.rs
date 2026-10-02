@@ -18,4 +18,20 @@ pub enum PoolError {
     InsufficientLiquidity,
     #[msg("Only the registered perp market")]
     NotPerpMarket,
+    #[msg("Amount is zero")]
+    ZeroAmount,
+    #[msg("Deposit too small to mint any CLP")]
+    DustDeposit,
+    #[msg("Arithmetic overflow")]
+    Overflow,
+    #[msg("Oracle account differs from the one registered on the pool")]
+    WrongOracle,
+    #[msg("Token account uses the wrong mint")]
+    WrongMint,
+    #[msg("Not one of the pool's registered vaults")]
+    WrongVault,
+    #[msg("The token account does not belong to the signer")]
+    NotOwner,
+    #[msg("Deposit would push the card sleeve past its target share")]
+    SleeveTargetExceeded,
 }

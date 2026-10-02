@@ -25,7 +25,7 @@ If `cargo test` passes and `anchor build` produces four `.so` files in
 
 ## 2. What already exists
 
-115 tests passing. No risk handler is implemented yet except
+121 tests passing. No risk handler is implemented yet except
 `open_position` — deliberately. Day 1 was about getting the boundaries right
 before anyone builds on top of them.
 
@@ -37,11 +37,12 @@ before anyone builds on top of them.
 | `programs/oracle` | accounts + all four defences, 11 tests. litesvm blocked (#6) |
 | `programs/mock-amm` | constant-product price surface for devnet, 8 tests |
 | `programs/card-vault` | full NFT↔fraction cycle, 2 tests. Missing: litesvm |
-| `programs/clp-pool` | accounting + invariants, 12 tests. Missing: handlers |
-| `programs/perp` | **`open_position` complete** — the reference shape |
+| `programs/clp-pool` | deposit, withdraw, settle CPI door, 14 tests |
+| `programs/perp` | open, close, liquidate — all three complete |
 | `packages/types` `packages/sdk` | PDAs and maths ready for the frontend |
 | `apps/keeper` | **done** — permissionless refresh loop |
-| `apps/web` `apps/liquidator` | empty |
+| `apps/liquidator` | scanner + decoder done; market/pool decode pending |
+| `apps/web` | empty |
 
 ## 3. The pattern — copy this shape
 
@@ -164,11 +165,15 @@ Branch: `backend/risk-engine`
 | Day | Task |
 |---|---|
 | ✅ D1–D2 | accounts + fixed point + overflow tests |
-| D3–D5 | `deposit`, proportional `withdraw`, NAV, token CPI |
-| D6–D8 | `close_position`, `liquidate` |
-| **D9** | **integration: both ceilings enforced end to end** |
-| D10 | reference liquidator bot |
-| D11 | `ReduceOnly`, `Settled`, pro-rata haircut |
+| ✅ D3–D5 | `deposit_usdc`, `deposit_fractions`, proportional `withdraw`, NAV |
+| ✅ D6–D8 | `close_position`, `liquidate`, and the `settle_position` CPI door |
+| ✅ D10 | liquidator scanner, decoder verified against the IDL |
+| D9 | end-to-end integration — blocked with A on Blocker #6 |
+| D11 | `Settled` final redemption path |
+
+**B has reached the same wall A did.** Everything that can be proved without
+a validator is proved: 102 Rust tests. What is left needs on-chain
+integration, which Blocker #6 is holding.
 
 The decisions already exist and are tested: `risk::settle_close`,
 `risk::settle_liquidation`, `risk::capacity`. What is missing is the token

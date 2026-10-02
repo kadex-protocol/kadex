@@ -28,4 +28,6 @@ pub enum PerpError {
     WrongMint,
     #[msg("Not the pool's registered USDC vault")]
     WrongVault,
+    #[msg("Position belongs to a different market")]
+    WrongMarket,
 }

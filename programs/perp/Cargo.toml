@@ -25,7 +25,7 @@ anchor-spl = { workspace = true }
 slab-math = { workspace = true }
 slab-risk = { workspace = true }
 slab-interface = { workspace = true }
-clp-pool = { path = "../clp-pool", features = ["no-entrypoint"] }
+clp-pool = { path = "../clp-pool", features = ["cpi"] }
 
 [dev-dependencies]
 litesvm = "0.10.0"

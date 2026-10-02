@@ -84,7 +84,7 @@ pub mod perp {
 
         let mk = &mut ctx.accounts.market;
         let mut state = mk.risk();
-        r(state.add_oi(side.into(), notional))?;
+        r(state.add_position(side.into(), notional, approval.entry_price))?;
         mk.set_risk(state);
         mk.open_positions = mk.open_positions.saturating_add(1);
 
@@ -129,12 +129,60 @@ pub mod perp {
         Ok(())
     }
 
-    // D6-D8 (Backend B): close_position, liquidate.
-    //
-    // Both follow the shape above. The decisions already exist and are tested:
-    // `risk::settle_close` and `risk::settle_liquidation`. What is missing is
-    // only the payout, which needs a CPI into `clp-pool` signed by the market
-    // PDA — see Blocker #4 in docs/implementation-plan.md.
+    /// Close your own position and take what is left of the margin.
+    pub fn close_position(ctx: Context<ClosePosition>) -> Result<()> {
+        let price = ctx.accounts.mark_price()?;
+        let pos = ctx.accounts.position.risk();
+        let idx = ctx.accounts.market.risk().borrow_index(pos.side);
+
+        let outcome = r(risk::settle_close(&pos, price, idx))?;
+        let fee = ctx.accounts.close_fee(pos.notional)?;
+        let snapshot = ctx.accounts.unwind(pos, price)?;
+
+        ctx.accounts.settle(outcome.to_trader.saturating_sub(fee), fee, outcome.bad_debt, snapshot)?;
+
+        emit!(PositionClosed {
+            position: ctx.accounts.position.key(),
+            owner: ctx.accounts.owner.key(),
+            price,
+            to_trader: outcome.to_trader.saturating_sub(fee),
+            fee,
+            bad_debt: outcome.bad_debt,
+        });
+        Ok(())
+    }
+
+    /// Liquidate an underwater position. PERMISSIONLESS, and paid.
+    ///
+    /// Liquidation does not happen on its own: somebody has to send the
+    /// transaction, so somebody has to be paid for it. The maintenance margin
+    /// exists precisely so there is still something left to pay them with.
+    pub fn liquidate(ctx: Context<Liquidate>) -> Result<()> {
+        let price = ctx.accounts.mark_price()?;
+        let params = ctx.accounts.pool.params.risk();
+        let pos = ctx.accounts.position.risk();
+        let idx = ctx.accounts.market.risk().borrow_index(pos.side);
+
+        require!(
+            r(risk::is_liquidatable(&pos, price, idx, &params))?,
+            PerpError::NotLiquidatable
+        );
+
+        let outcome = r(risk::settle_liquidation(&pos, price, idx, &params))?;
+        let snapshot = ctx.accounts.unwind(pos, price)?;
+        ctx.accounts.settle(outcome.liquidator_fee, 0, outcome.bad_debt, snapshot)?;
+
+        emit!(PositionLiquidated {
+            position: ctx.accounts.position.key(),
+            owner: ctx.accounts.position.owner,
+            liquidator: ctx.accounts.liquidator.key(),
+            price,
+            liquidator_fee: outcome.liquidator_fee,
+            to_pool: outcome.to_pool,
+            bad_debt: outcome.bad_debt,
+        });
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +196,10 @@ pub struct Market {
     pub oracle: Pubkey,
     pub oi_long: u64,
     pub oi_short: u64,
+    /// Sum of `notional / entry_price` per side, in WAD. Lets the whole book
+    /// be marked in O(1) so NAV can account for open positions.
+    pub units_long: u128,
+    pub units_short: u128,
     pub borrow_idx_long: u128,
     pub borrow_idx_short: u128,
     pub last_accrual_ts: i64,
@@ -166,6 +218,8 @@ impl Market {
         MarketRisk {
             oi_long: self.oi_long,
             oi_short: self.oi_short,
+            units_long: self.units_long,
+            units_short: self.units_short,
             borrow_idx_long: self.borrow_idx_long,
             borrow_idx_short: self.borrow_idx_short,
             last_accrual_ts: self.last_accrual_ts,
@@ -175,9 +229,15 @@ impl Market {
     pub fn set_risk(&mut self, r: MarketRisk) {
         self.oi_long = r.oi_long;
         self.oi_short = r.oi_short;
+        self.units_long = r.units_long;
+        self.units_short = r.units_short;
         self.borrow_idx_long = r.borrow_idx_long;
         self.borrow_idx_short = r.borrow_idx_short;
         self.last_accrual_ts = r.last_accrual_ts;
+    }
+
+    pub fn signer_seeds<'a>(&'a self, pool: &'a Pubkey) -> [&'a [u8]; 3] {
+        [seeds::MARKET, pool.as_ref(), core::slice::from_ref(&self.bump)]
     }
 }
 
@@ -418,4 +478,177 @@ mod tests {
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// settlement accounts
+// ---------------------------------------------------------------------------
+
+/// Shared settlement plumbing for closing and liquidating.
+///
+/// Both instructions do the same three things once the decision is made:
+/// unwind the book, push the new PnL snapshot, and move USDC out of the pool.
+/// Keeping it in one place means there is one CPI door to audit, not two.
+macro_rules! settler {
+    ($t:ty) => {
+        impl<'info> $t {
+            /// Price for marking. `require_markable`, not `require_tradeable`:
+            /// a position must be closable and liquidatable even when the
+            /// market has stopped accepting new risk. Blocking that would
+            /// leave rotten positions accumulating.
+            pub fn mark_price(&self) -> Result<u64> {
+                let view = read_oracle(
+                    &self.oracle.to_account_info(),
+                    &ORACLE_PROGRAM_ID,
+                )?;
+                let now = Clock::get()?.unix_timestamp;
+                view.require_markable(now, 900)
+            }
+
+            /// Remove the position from the book and return the resulting
+            /// whole-book PnL, which the pool stores as its snapshot.
+            pub fn unwind(&mut self, pos: slab_risk::PositionRisk, price: u64) -> Result<i128> {
+                let mk = &mut self.market;
+                let mut state = mk.risk();
+                r(state.remove_position(pos.side, pos.notional, pos.entry_price))?;
+                mk.set_risk(state);
+                mk.open_positions = mk.open_positions.saturating_sub(1);
+                r(state.unrealized_pnl(price))
+            }
+
+            /// The one door value leaves the pool through.
+            pub fn settle(
+                &self,
+                to_trader: u64,
+                fee: u64,
+                bad_debt: u64,
+                trader_pnl_now: i128,
+            ) -> Result<()> {
+                let pool_key = self.pool.key();
+                let seeds = self.market.signer_seeds(&pool_key);
+                clp_pool::cpi::settle_position(
+                    CpiContext::new_with_signer(
+                        self.clp_pool_program.key(),
+                        clp_pool::cpi::accounts::SettlePosition {
+                            market: self.market.to_account_info(),
+                            pool: self.pool.to_account_info(),
+                            usdc_vault: self.usdc_vault.to_account_info(),
+                            trader_usdc: self.payout_usdc.to_account_info(),
+                            token_program: self.token_program.to_account_info(),
+                        },
+                        &[&seeds],
+                    ),
+                    to_trader,
+                    fee,
+                    bad_debt,
+                    trader_pnl_now,
+                )
+            }
+        }
+    };
+}
+
+#[derive(Accounts)]
+pub struct ClosePosition<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [seeds::MARKET, market.pool.as_ref()], bump = market.bump,
+        has_one = pool @ PerpError::WrongPool,
+        has_one = oracle @ PerpError::WrongOracle,
+    )]
+    pub market: Account<'info, Market>,
+    #[account(mut)]
+    pub pool: Account<'info, Pool>,
+    /// CHECK: read through `read_oracle`.
+    pub oracle: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        close = owner,
+        has_one = owner @ PerpError::NotOwner,
+        constraint = position.market == market.key() @ PerpError::WrongMarket,
+    )]
+    pub position: Account<'info, Position>,
+    #[account(mut, address = pool.usdc_vault @ PerpError::WrongVault)]
+    pub usdc_vault: Account<'info, TokenAccount>,
+    /// The closing trader is paid here.
+    #[account(mut, constraint = payout_usdc.owner == owner.key() @ PerpError::NotOwner)]
+    pub payout_usdc: Account<'info, TokenAccount>,
+    pub clp_pool_program: Program<'info, clp_pool::program::ClpPool>,
+    pub token_program: Program<'info, Token>,
+}
+settler!(ClosePosition<'info>);
+
+impl<'info> ClosePosition<'info> {
+    /// Closing fee, rounded up, capped at what the trader is actually owed so
+    /// a fee can never manufacture bad debt.
+    pub fn close_fee(&self, notional: u64) -> Result<u64> {
+        let fee = m(slab_math::apply_bps_ceil(
+            notional as u128,
+            self.pool.params.open_close_fee_bps as u128,
+        ))
+        .and_then(|v| m(slab_math::to_u64(v)))?;
+        Ok(fee)
+    }
+}
+
+#[derive(Accounts)]
+pub struct Liquidate<'info> {
+    /// Permissionless. Whoever sends this transaction is paid for it.
+    #[account(mut)]
+    pub liquidator: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [seeds::MARKET, market.pool.as_ref()], bump = market.bump,
+        has_one = pool @ PerpError::WrongPool,
+        has_one = oracle @ PerpError::WrongOracle,
+    )]
+    pub market: Account<'info, Market>,
+    #[account(mut)]
+    pub pool: Account<'info, Pool>,
+    /// CHECK: read through `read_oracle`.
+    pub oracle: UncheckedAccount<'info>,
+    /// Rent goes back to the position's owner, not to the liquidator. The
+    /// liquidator is paid by the fee; taking the rent as well would be a
+    /// second, undeclared reward.
+    #[account(
+        mut,
+        close = position_owner,
+        constraint = position.market == market.key() @ PerpError::WrongMarket,
+        constraint = position.owner == position_owner.key() @ PerpError::NotOwner,
+    )]
+    pub position: Account<'info, Position>,
+    /// CHECK: receives the closed position's rent; identity checked above.
+    #[account(mut)]
+    pub position_owner: UncheckedAccount<'info>,
+    #[account(mut, address = pool.usdc_vault @ PerpError::WrongVault)]
+    pub usdc_vault: Account<'info, TokenAccount>,
+    /// The liquidator's reward is paid here.
+    #[account(mut, constraint = payout_usdc.owner == liquidator.key() @ PerpError::NotOwner)]
+    pub payout_usdc: Account<'info, TokenAccount>,
+    pub clp_pool_program: Program<'info, clp_pool::program::ClpPool>,
+    pub token_program: Program<'info, Token>,
+}
+settler!(Liquidate<'info>);
+
+#[event]
+pub struct PositionClosed {
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub price: u64,
+    pub to_trader: u64,
+    pub fee: u64,
+    pub bad_debt: u64,
+}
+
+#[event]
+pub struct PositionLiquidated {
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub liquidator: Pubkey,
+    pub price: u64,
+    pub liquidator_fee: u64,
+    pub to_pool: u64,
+    pub bad_debt: u64,
 }

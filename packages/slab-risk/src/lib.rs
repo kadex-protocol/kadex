@@ -22,10 +22,10 @@
 #![forbid(unsafe_code)]
 
 use slab_math::{
-    accrue_borrow_index, apply_bps_ceil, borrow_owed as owed, borrow_rate_hourly, equity as eq,
-    health_wad, liquidation_price as liq_price, min_margin, mul_wad_ceil, oi_allowed,
-    oi_cap_depth, oi_cap_solvency, pnl as raw_pnl, side_multiplier, to_u64, utilization,
-    MathError, Side,
+    accrue_borrow_index, apply_bps_ceil, borrow_owed as owed, borrow_rate_hourly,
+    div_wad_floor, equity as eq, health_wad, liquidation_price as liq_price, min_margin,
+    mul_wad_ceil, mul_wad_floor, oi_allowed, oi_cap_depth, oi_cap_solvency, pnl as raw_pnl,
+    side_multiplier, to_u64, utilization, MathError, Side,
 };
 
 pub use slab_math::{Side as RiskSide, RAY, WAD};
@@ -124,6 +124,16 @@ pub struct PriceInput {
 pub struct MarketRisk {
     pub oi_long: u64,
     pub oi_short: u64,
+    /// Sum of `notional / entry_price` across open longs, in WAD.
+    ///
+    /// This exists so aggregate unrealized PnL is O(1). For one position,
+    /// `notional * (p - e) / e == p * (notional / e) - notional`, so summing
+    /// `notional / e` lets the whole side be marked with one multiply. Without
+    /// it, NAV would have to iterate every position, which cannot be done
+    /// on-chain — and a NAV that ignores open positions is simply wrong.
+    pub units_long: u128,
+    /// Same, for open shorts.
+    pub units_short: u128,
     pub borrow_idx_long: u128,
     pub borrow_idx_short: u128,
     pub last_accrual_ts: i64,
@@ -134,10 +144,32 @@ impl MarketRisk {
         Self {
             oi_long: 0,
             oi_short: 0,
+            units_long: 0,
+            units_short: 0,
             borrow_idx_long: RAY,
             borrow_idx_short: RAY,
             last_accrual_ts: now,
         }
+    }
+
+    /// Aggregate unrealized PnL of every open position, signed, at `price`.
+    ///
+    /// Positive means traders are ahead, which means the pool is behind by the
+    /// same amount.
+    pub fn unrealized_pnl(&self, price: u64) -> RiskResult<i128> {
+        let long_mark = mul_wad_floor(self.units_long, price as u128)?;
+        let short_mark = mul_wad_floor(self.units_short, price as u128)?;
+        let long = (long_mark as i128) - (self.oi_long as i128);
+        let short = (self.oi_short as i128) - (short_mark as i128);
+        long.checked_add(short).ok_or(RiskError::Math)
+    }
+
+    /// Units contributed by a position of `notional` entered at `entry_price`.
+    pub fn units_of(notional: u64, entry_price: u64) -> RiskResult<u128> {
+        if entry_price == 0 {
+            return Err(RiskError::Math);
+        }
+        Ok(div_wad_floor(notional as u128, entry_price as u128)?)
     }
 
     pub fn oi_total(&self) -> RiskResult<u64> {
@@ -165,21 +197,37 @@ impl MarketRisk {
         }
     }
 
-    pub fn add_oi(&mut self, side: Side, notional: u64) -> RiskResult<()> {
-        let slot = match side {
-            Side::Long => &mut self.oi_long,
-            Side::Short => &mut self.oi_short,
-        };
-        *slot = slot.checked_add(notional).ok_or(RiskError::Math)?;
+    /// Record an opened position. Notional and units move together; letting
+    /// them drift would corrupt every NAV afterwards.
+    pub fn add_position(&mut self, side: Side, notional: u64, entry_price: u64) -> RiskResult<()> {
+        let units = Self::units_of(notional, entry_price)?;
+        match side {
+            Side::Long => {
+                self.oi_long = self.oi_long.checked_add(notional).ok_or(RiskError::Math)?;
+                self.units_long = self.units_long.checked_add(units).ok_or(RiskError::Math)?;
+            }
+            Side::Short => {
+                self.oi_short = self.oi_short.checked_add(notional).ok_or(RiskError::Math)?;
+                self.units_short = self.units_short.checked_add(units).ok_or(RiskError::Math)?;
+            }
+        }
         Ok(())
     }
 
-    pub fn remove_oi(&mut self, side: Side, notional: u64) {
-        let slot = match side {
-            Side::Long => &mut self.oi_long,
-            Side::Short => &mut self.oi_short,
-        };
-        *slot = slot.saturating_sub(notional);
+    /// Record a closed or liquidated position.
+    pub fn remove_position(&mut self, side: Side, notional: u64, entry_price: u64) -> RiskResult<()> {
+        let units = Self::units_of(notional, entry_price)?;
+        match side {
+            Side::Long => {
+                self.oi_long = self.oi_long.saturating_sub(notional);
+                self.units_long = self.units_long.saturating_sub(units);
+            }
+            Side::Short => {
+                self.oi_short = self.oi_short.saturating_sub(notional);
+                self.units_short = self.units_short.saturating_sub(units);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -759,12 +807,68 @@ mod tests {
     #[test]
     fn open_interest_accounting_is_symmetric() {
         let mut mk = MarketRisk::new(0);
-        mk.add_oi(Side::Long, 1_000).unwrap();
-        mk.add_oi(Side::Short, 400).unwrap();
+        let par = WAD as u64;
+        mk.add_position(Side::Long, 1_000, par).unwrap();
+        mk.add_position(Side::Short, 400, par).unwrap();
         assert_eq!(mk.oi_total().unwrap(), 1_400);
-        mk.remove_oi(Side::Long, 1_000);
+        mk.remove_position(Side::Long, 1_000, par).unwrap();
         assert_eq!(mk.oi_long, 0);
+        assert_eq!(mk.units_long, 0, "units must unwind with notional");
         assert_eq!(mk.oi_total().unwrap(), 400);
+    }
+
+    #[test]
+    fn aggregate_unrealized_pnl_matches_summing_positions_one_by_one() {
+        // The whole reason units exist: this has to be exact, because NAV
+        // depends on it and NAV cannot iterate positions on-chain.
+        let par = WAD as u64;
+        let mut mk = MarketRisk::new(0);
+        let entries = [(Side::Long, 1_000 * USDC, par), (Side::Long, 500 * USDC, par * 2),
+                       (Side::Short, 800 * USDC, par), (Side::Short, 300 * USDC, par / 2)];
+        for (side, notional, entry) in entries {
+            mk.add_position(side, notional, entry).unwrap();
+        }
+
+        let price = par * 3 / 2;
+        let aggregate = mk.unrealized_pnl(price).unwrap();
+        let summed: i128 = entries
+            .iter()
+            .map(|(side, notional, entry)| {
+                pnl(&PositionRisk { side: *side, notional: *notional, margin: 0,
+                                    entry_price: *entry, borrow_idx_entry: RAY }, price).unwrap()
+            })
+            .sum();
+
+        // rounding can differ by at most one unit per position
+        assert!((aggregate - summed).abs() <= entries.len() as i128,
+                "aggregate {aggregate} vs summed {summed}");
+    }
+
+    #[test]
+    fn an_empty_market_has_no_unrealized_pnl() {
+        let mk = MarketRisk::new(0);
+        assert_eq!(mk.unrealized_pnl(WAD as u64).unwrap(), 0);
+        assert_eq!(mk.unrealized_pnl(WAD as u64 * 3).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_balanced_book_nets_to_zero_at_any_price() {
+        let par = WAD as u64;
+        let mut mk = MarketRisk::new(0);
+        mk.add_position(Side::Long, 1_000 * USDC, par).unwrap();
+        mk.add_position(Side::Short, 1_000 * USDC, par).unwrap();
+        for p in [par / 2, par, par * 2, par * 7] {
+            assert_eq!(mk.unrealized_pnl(p).unwrap(), 0, "at price {p}");
+        }
+    }
+
+    #[test]
+    fn trader_gains_show_up_as_a_positive_aggregate() {
+        let par = WAD as u64;
+        let mut mk = MarketRisk::new(0);
+        mk.add_position(Side::Long, 1_000 * USDC, par).unwrap();
+        assert_eq!(mk.unrealized_pnl(par * 12 / 10).unwrap(), 200 * USDC as i128);
+        assert_eq!(mk.unrealized_pnl(par * 8 / 10).unwrap(), -(200 * USDC as i128));
     }
 
     #[test]

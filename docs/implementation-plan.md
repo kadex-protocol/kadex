@@ -18,16 +18,16 @@ three apps.
 | `programs/oracle` | program | Backend A | state + defences, 11 tests |
 | `programs/mock-amm` | program | Backend A | constant-product fixture, 8 tests |
 | `programs/card-vault` | program | Backend A | full cycle, 2 tests |
-| `programs/clp-pool` | program | Backend B | accounting, 12 tests |
-| `programs/perp` | program | Backend B | `open_position` done, 2 guards |
+| `programs/clp-pool` | program | Backend B | deposit/withdraw/settle, 14 tests |
+| `programs/perp` | program | Backend B | open/close/liquidate + 2 guards |
 | `packages/types` | TS | Frontend | PDAs and views frozen |
 | `packages/sdk` | TS | Frontend | maths mirror + derivations |
 | `packages/oracle` | TS | Backend A | adapters, mock working |
 | `apps/keeper` | TS | Backend A | **done** — permissionless refresh loop |
-| `apps/liquidator` | TS | Backend B | empty |
+| `apps/liquidator` | TS | Backend B | scanner done, decode pending |
 | `apps/web` | Next.js | Frontend | empty |
 
-115 tests: 96 Rust, 19 Rust↔TS parity.
+121 tests: 102 Rust, 19 Rust↔TS parity.
 
 ## 2. Declared deviations from the spec
 
@@ -153,11 +153,10 @@ run in under a second. What is missing is proof that account validation and
 the state machine behave on-chain — worth having before the submission, not
 before the next commit.
 
-### Blocker #4 — risk CPI between `perp` and `clp-pool` (MEDIUM, owner: B)
-
-`perp` has to move USDC out of the pool's vault when a winning position
-closes. The design: `Pool.perp_market` holds the authorised PDA, and only it
-signs. Not implemented yet — this is the D6–D8 work.
+~~Blocker #4 — risk CPI between `perp` and `clp-pool`~~ — resolved on 2 Oct.
+`clp_pool::settle_position` is the single door value leaves the pool through,
+gated by `address = pool.perp_market` on a `Signer`, and `perp` signs it with
+the market PDA's seeds. Closing and liquidating both go through it.
 
 ~~Blocker #5 — trailing space in the folder name~~ — resolved on 1 Oct. The
 project directory is now `slab`, matching the repository.
