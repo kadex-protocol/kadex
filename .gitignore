@@ -9,3 +9,4 @@ node_modules/
 packages/*/dist/
 target/
 test-ledger/
+tsconfig.tsbuildinfo
