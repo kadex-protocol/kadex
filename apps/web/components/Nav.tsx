@@ -8,6 +8,8 @@ import { IS_SAMPLE } from "@/lib/market";
 const LINKS = [
   { href: "/", label: "Market" },
   { href: "/index-methodology", label: "Index" },
+  { href: "/vault", label: "Vault" },
+  { href: "/pool", label: "Pool" },
   { href: "/positions", label: "Positions" },
 ];
 

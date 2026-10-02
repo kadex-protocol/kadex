@@ -13,9 +13,17 @@
  */
 
 import type { MarketView, OracleView, PoolView, PositionView, Side } from "@slab/types";
+import { gates, oracleTradeable } from "@slab/types";
 import { PublicKey } from "@solana/web3.js";
 import { WAD } from "@slab/types";
-import { deriveBorrowRates, deriveCapacity, derivePool, derivePosition } from "@slab/sdk";
+import {
+  deriveBorrowRates,
+  deriveCapacity,
+  derivePool,
+  derivePosition,
+  deriveWithdraw,
+  math,
+} from "@slab/sdk";
 
 /** Flips to false the moment this is pointed at a cluster. */
 export const IS_SAMPLE = true;
@@ -197,8 +205,8 @@ export function quote(snapshot: MarketSnapshot, side: Side, notionalUsdc: bigint
   let problem: string | null = null;
   if (pool.state !== "active") {
     problem = "The market is not accepting new positions.";
-  } else if (oracle.state !== "ok") {
-    problem = "The index price is not currently tradeable.";
+  } else if (!oracleTradeable(oracle.state)) {
+    problem = `The index price is ${oracle.state} and not currently tradeable.`;
   } else if (notionalUsdc > capacity.free) {
     problem = `Exceeds available capacity of ${(Number(capacity.free) / 1e6).toLocaleString("en-US", { maximumFractionDigits: 0 })} USDC.`;
   }
@@ -222,3 +230,124 @@ export const fmtPrice = (x: bigint) => (Number(x) / 1e6).toFixed(4);
 export const fmtPct = (wad: bigint, digits = 2) => `${((Number(wad) / 1e6) * 100).toFixed(digits)}%`;
 
 export const fmtBps = (bps: number) => `${(bps / 100).toFixed(2)}%`;
+
+// ───────────────────────────────────────────────────────────────────────────
+// Liquidity provision
+// ───────────────────────────────────────────────────────────────────────────
+
+/** A CLP depositor holds a wallet balance of each thing they can deposit. */
+export interface Balances {
+  usdc: bigint;
+  fractions: bigint;
+  clp: bigint;
+}
+
+/** Nothing, until a wallet is connected and the programs are live. */
+export async function loadBalances(owner: PublicKey | null): Promise<Balances> {
+  if (!owner) return { usdc: 0n, fractions: 0n, clp: 0n };
+  return { usdc: 0n, fractions: 0n, clp: 0n };
+}
+
+export type DepositKind = "usdc" | "fractions";
+
+export interface DepositQuote {
+  /** Value credited after any haircut. */
+  netValue: bigint;
+  /** What the haircut costs, in USDC. Zero for a USDC deposit. */
+  haircut: bigint;
+  shares: bigint;
+  /** Share of the pool afterwards, WAD. */
+  shareOfPool: bigint;
+  problem: string | null;
+}
+
+/**
+ * Price a CLP deposit.
+ *
+ * USDC goes in at face. Card fractions take a haircut and are additionally
+ * refused if they would push the illiquid sleeve past its target, because the
+ * liquid sleeve is what pays winning traders — letting the card side grow
+ * unchecked would quietly shrink the capacity backing every open position.
+ */
+export function quoteDeposit(
+  snapshot: MarketSnapshot,
+  kind: DepositKind,
+  amount: bigint,
+): DepositQuote {
+  const { pool, poolStats, oracle } = snapshot;
+  const empty: DepositQuote = {
+    netValue: 0n,
+    haircut: 0n,
+    shares: 0n,
+    shareOfPool: 0n,
+    problem: null,
+  };
+  if (amount <= 0n) return empty;
+
+  // 1 fraction = $1 at parity; the oracle price moves that.
+  const gross = kind === "usdc" ? amount : (amount * oracle.price) / WAD;
+  const haircutBps = kind === "usdc" ? 0n : BigInt(pool.params.depositHaircutBps);
+  // The program rounds the deduction up, against the depositor.
+  const haircut = (gross * haircutBps + 9_999n) / 10_000n;
+  const netValue = gross - haircut;
+
+  const shares = math.sharesForDeposit(netValue, poolStats.nav, pool.clpSupply);
+  const supplyAfter = pool.clpSupply + shares;
+
+  let problem: string | null = null;
+  if (!gates(pool.state).canDeposit) {
+    problem = `The pool is ${pool.state} and is not accepting deposits.`;
+  } else if (shares <= 0n) {
+    problem = "Too small — this would mint zero CLP.";
+  } else if (kind === "fractions") {
+    // require_sleeve_within_target, checked here so the button can explain
+    // itself rather than the transaction failing.
+    const cardsAfter = ((pool.cardSleeveValue / (oracle.price || WAD)) * WAD + amount * oracle.price) / WAD;
+    const totalAfter = cardsAfter + pool.usdcSleeve;
+    const weight = totalAfter === 0n ? 0n : (cardsAfter * WAD) / totalAfter;
+    if (weight > pool.params.cardSleeveTarget) {
+      problem = `Would take the card sleeve to ${fmtPct(weight, 1)}, above its ${fmtPct(pool.params.cardSleeveTarget, 0)} target.`;
+    }
+  }
+
+  return {
+    netValue,
+    haircut,
+    shares,
+    shareOfPool: supplyAfter === 0n ? 0n : (shares * WAD) / supplyAfter,
+    problem,
+  };
+}
+
+export interface WithdrawQuote {
+  usdc: bigint;
+  fractions: bigint;
+  totalValue: bigint;
+  problem: string | null;
+}
+
+/**
+ * Price a CLP redemption.
+ *
+ * A withdrawal is a proportional slice of BOTH sleeves — you cannot take only
+ * the USDC and leave the cards behind. That is what stops a run from draining
+ * the liquid side and stranding everyone else with the illiquid one.
+ */
+export function quoteWithdraw(snapshot: MarketSnapshot, shares: bigint): WithdrawQuote {
+  const { pool, oracle } = snapshot;
+  if (shares <= 0n) return { usdc: 0n, fractions: 0n, totalValue: 0n, problem: null };
+
+  if (shares > pool.clpSupply) {
+    return { usdc: 0n, fractions: 0n, totalValue: 0n, problem: "More CLP than exists." };
+  }
+
+  const split = deriveWithdraw(pool, shares);
+  return {
+    usdc: split.usdc,
+    fractions: split.cardFractions,
+    totalValue: split.usdc + split.cardFractions,
+    problem: gates(pool.state).canWithdraw
+      ? null
+      : `The pool is ${pool.state} and is not accepting redemptions.`,
+  };
+}

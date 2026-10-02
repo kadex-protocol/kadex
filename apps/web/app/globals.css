@@ -497,9 +497,15 @@ table.ledger th.num {
   border-color: var(--ink);
 }
 
-.field input:focus-visible {
+.field input:focus-visible,
+.field select:focus-visible {
   outline: 2px solid var(--vermilion);
   outline-offset: 1px;
+}
+
+.field select:focus {
+  outline: none;
+  border-color: var(--ink);
 }
 
 .helper {

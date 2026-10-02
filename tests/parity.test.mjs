@@ -11,6 +11,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as m from "../packages/sdk/src/math.ts";
+import { gates } from "../packages/types/src/index.ts";
+import { readFile } from "node:fs/promises";
 
 const USDC = 1_000_000n;
 const WAD = m.WAD;
@@ -165,4 +167,48 @@ test("the full hedge scenario from the spec", () => {
   const shortGain = m.pnl("short", entry, after, notional);
   assert.equal(shortGain, 640n * USDC);
   assert.equal(cardLoss + shortGain, 0n);
+});
+
+/**
+ * The TypeScript `gates` mirror must agree with `MarketState::allows_*`.
+ *
+ * This drifted once already: close and liquidate became unconditional in Rust
+ * so a settled market could unwind, and the TS copy still said reduceOnly was
+ * the last state that allowed them. The screen would have greyed out Close for
+ * exactly the people whose margin was stuck.
+ */
+test("the gates mirror matches the Rust", async () => {
+  const src = await readFile(
+    new URL("../packages/slab-interface/src/lib.rs", import.meta.url),
+    "utf8",
+  );
+
+  const rustAllows = (fn) => {
+    const body = src.match(new RegExp(`pub fn ${fn}\\(&self\\) -> bool \\{([^}]*)\\}`))?.[1];
+    assert.ok(body, `could not find ${fn} in the Rust`);
+    if (body.trim() === "true") return () => true;
+    const states = [...body.matchAll(/MarketState::(\w+)/g)].map((m) =>
+      m[1][0].toLowerCase() + m[1].slice(1),
+    );
+    return (s) => states.includes(s);
+  };
+
+  const pairs = [
+    ["allows_open", "canOpen"],
+    ["allows_close", "canClose"],
+    ["allows_liquidate", "canLiquidate"],
+    ["allows_deposit", "canDeposit"],
+    ["allows_withdraw", "canWithdraw"],
+  ];
+
+  for (const state of ["active", "reduceOnly", "settled"]) {
+    const ts = gates(state);
+    for (const [rustFn, tsKey] of pairs) {
+      assert.equal(
+        ts[tsKey],
+        rustAllows(rustFn)(state),
+        `${tsKey} disagrees with ${rustFn} in state "${state}"`,
+      );
+    }
+  }
 });

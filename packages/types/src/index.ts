@@ -108,11 +108,20 @@ export type OracleState = "ok" | "stale" | "shallowDepth" | "diverged" | "uninit
 export type Side = "long" | "short";
 export type AmmAdapterKind = "mock" | "meteora" | "orca" | "raydium";
 
-/** Mirrors `MarketState::allows_*` from Rust. Used to enable controls. */
+/**
+ * Mirrors `MarketState::allows_*` from Rust. Used to enable controls.
+ *
+ * Close and liquidate are allowed in EVERY state, settled included. A settled
+ * market still has to unwind: margin that cannot be released is margin stranded
+ * forever, and LPs carrying it are haircut permanently. A UI that greys out
+ * Close here would trap exactly the people who most need it.
+ *
+ * Kept honest by `gates_match_the_rust` in tests/parity.test.mjs.
+ */
 export const gates = (s: MarketState) => ({
   canOpen: s === "active",
-  canClose: s === "active" || s === "reduceOnly",
-  canLiquidate: s === "active" || s === "reduceOnly",
+  canClose: true,
+  canLiquidate: true,
   canDeposit: s === "active",
   canWithdraw: s === "active",
 });
