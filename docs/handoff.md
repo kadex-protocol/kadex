@@ -25,7 +25,7 @@ If `cargo test` passes and `anchor build` produces four `.so` files in
 
 ## 2. What already exists
 
-107 tests passing. No risk handler is implemented yet except
+115 tests passing. No risk handler is implemented yet except
 `open_position` — deliberately. Day 1 was about getting the boundaries right
 before anyone builds on top of them.
 
@@ -34,12 +34,14 @@ before anyone builds on top of them.
 | `packages/slab-math` | **done** — fixed point, 32 tests |
 | `packages/slab-risk` | **done** — every risk rule, 23 tests |
 | `packages/slab-interface` | **frozen** — the contract between tracks |
-| `programs/oracle` | accounts + all four defences, 11 tests. Missing: litesvm |
+| `programs/oracle` | accounts + all four defences, 11 tests. litesvm blocked (#6) |
+| `programs/mock-amm` | constant-product price surface for devnet, 8 tests |
 | `programs/card-vault` | full NFT↔fraction cycle, 2 tests. Missing: litesvm |
 | `programs/clp-pool` | accounting + invariants, 12 tests. Missing: handlers |
 | `programs/perp` | **`open_position` complete** — the reference shape |
 | `packages/types` `packages/sdk` | PDAs and maths ready for the frontend |
-| `apps/web` `apps/keeper` `apps/liquidator` | empty |
+| `apps/keeper` | **done** — permissionless refresh loop |
+| `apps/web` `apps/liquidator` | empty |
 
 ## 3. The pattern — copy this shape
 
@@ -138,12 +140,18 @@ Branch: `backend/card-vault-oracle`
 | Day | Task |
 |---|---|
 | ✅ D1 | fraction decimals fixed at 6 |
-| D2 | litesvm tests for `fractionalize` and `redeem_card` |
-| D3 | mock AMM pool on-chain + first liquidity deposit |
-| D4 | reserve reader + TWAP + clamp, isolated and tested |
-| D5–D6 | `refresh_price` on-chain + minimum depth |
-| **D7** | **freeze the price function and hand it to B** |
-| D8–D11 | oracle negatives: clamp, divergence, minimum depth |
+| ✅ D3 | `mock-amm`: a real curve whose price can be pushed |
+| ✅ D4 | reserve reader, TWAP and clamp — tested as pure logic |
+| ✅ D5–D6 | `refresh_price` on-chain, depth floor, divergence, staleness |
+| ✅ | keeper: permissionless refresh loop |
+| ⚠️ D2/D8 | litesvm integration tests written but blocked — see Blocker #6 |
+| **D7** | **the price function is frozen. B is unblocked.** |
+
+**A has reached D7.** `OracleView` is final: `price`, `twap`, `ts`, `depth`,
+`state`, plus `require_tradeable`, `require_markable` and `risk_input`.
+Nothing B consumes will move. What remains on A's side is the litesvm
+unblock and, when Blocker #1 clears, the real AMM adapter — neither of which
+changes the interface.
 
 The D2 negatives that matter: mint outside the whitelist, redemption with
 insufficient fractions, redemption by someone who does not hold all the

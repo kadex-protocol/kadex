@@ -16,17 +16,18 @@ three apps.
 | `packages/slab-risk` | Rust crate | shared | **done**, 23 tests |
 | `packages/slab-interface` | Rust crate | shared | **frozen**, 6 tests |
 | `programs/oracle` | program | Backend A | state + defences, 11 tests |
+| `programs/mock-amm` | program | Backend A | constant-product fixture, 8 tests |
 | `programs/card-vault` | program | Backend A | full cycle, 2 tests |
 | `programs/clp-pool` | program | Backend B | accounting, 12 tests |
 | `programs/perp` | program | Backend B | `open_position` done, 2 guards |
 | `packages/types` | TS | Frontend | PDAs and views frozen |
 | `packages/sdk` | TS | Frontend | maths mirror + derivations |
 | `packages/oracle` | TS | Backend A | adapters, mock working |
-| `apps/keeper` | TS | Backend A | empty |
+| `apps/keeper` | TS | Backend A | **done** — permissionless refresh loop |
 | `apps/liquidator` | TS | Backend B | empty |
 | `apps/web` | Next.js | Frontend | empty |
 
-107 tests: 88 Rust, 19 Rust↔TS parity.
+115 tests: 96 Rust, 19 Rust↔TS parity.
 
 ## 2. Declared deviations from the spec
 
@@ -79,8 +80,8 @@ What that means day to day:
 | Day | Backend A | Backend B | Frontend |
 |---|---|---|---|
 | D1 | ✅ fraction decimals (6, fixed) | ✅ accounts + fixed point | ✅ scaffold + PDAs |
-| D2 | litesvm for `fractionalize`/`redeem` | ✅ `open_position` reference | account reads via SDK |
-| D3 | mock AMM pool + first liquidity | `deposit`/proportional `withdraw` | pool screen with real shapes |
+| D2 | ⚠️ litesvm blocked (#6) | ✅ `open_position` reference | account reads via SDK |
+| D3 | ✅ mock AMM + ✅ keeper | `deposit`/proportional `withdraw` | pool screen with real shapes |
 
 ## 5. What is frozen
 
@@ -117,6 +118,40 @@ market. This is a product decision, not a coding one.
 The same AMM pool prices the perp **and** the CLP's card sleeve. Pushing the
 AMM moves both. The liquid sleeve mitigates this; it does not eliminate it.
 It goes in the submission as written.
+
+### Blocker #6 — litesvm cannot load our binaries (MEDIUM, owner: A)
+
+On-chain integration tests are written and correct, but cannot run on this
+toolchain. The version matrix does not close:
+
+- Anchor 1.2 hardcodes `--arch v3`, so every binary we produce is SBPF v3
+  (`e_flags: 3`). `anchor build -- --arch v0` is refused: the flag is already
+  passed.
+- litesvm 0.10, which the Anchor template pins, predates SBPF v3 and rejects
+  our binaries with `InvalidAccountData` — confirmed by a one-line smoke test
+  that loads nothing but the ELF.
+- litesvm 0.16 loads them, but its dependency tree conflicts with
+  anchor-lang 1.2's `solana-*` crates.
+- litesvm 0.17 needs rustc 1.97.1; platform-tools pins 1.89 and the host has
+  1.96.
+
+The tests live in `programs/oracle/tests/test_defences.rs` and
+`programs/mock-amm/tests/smoke.rs`, gated behind `--features integration` so
+they do not break `cargo test`. Ten negative cases are written and waiting:
+clamp, depth floor, staleness, divergence, wrong pool, non-admin, and the
+permissionless refresh.
+
+Three ways out, cheapest first:
+
+1. a `solana-test-validator` + TypeScript suite, which tests the deployed
+   artifact and sidesteps the matrix entirely
+2. `anchor-litesvm`, which exists to reconcile exactly these versions
+3. waiting for a litesvm release whose MSRV matches platform-tools
+
+**This is not blocking anyone.** The rules are covered by 96 pure tests that
+run in under a second. What is missing is proof that account validation and
+the state machine behave on-chain — worth having before the submission, not
+before the next commit.
 
 ### Blocker #4 — risk CPI between `perp` and `clp-pool` (MEDIUM, owner: B)
 

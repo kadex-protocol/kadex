@@ -11,6 +11,9 @@ name = "oracle"
 
 [features]
 default = []
+# Integration tests against litesvm. Blocked on the SBPF v3 toolchain matrix
+# (Blocker #6); the tests compile but cannot load our binaries yet.
+integration = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-log-ix-name = []
@@ -27,6 +30,7 @@ slab-interface = { workspace = true }
 
 
 [dev-dependencies]
+mock-amm = { path = "../mock-amm", features = ["no-entrypoint"] }
 litesvm = "0.10.0"
 solana-message = "3.0.1"
 solana-transaction = "3.0.2"

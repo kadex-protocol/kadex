@@ -11,6 +11,7 @@ card_vault = "J8Tef8N4YSfVwAxpBemCZrz3qCxehTeb2cd1jTwoBczW"
 oracle = "5288ShBXsFxqXiGm22FZi1ZrMnmet4i1ZR3bccyAguqp"
 clp_pool = "3XZkAqLeQDoNXD6Bb9YoGSEdnvqk9r7UMgrKsN5x3L9v"
 perp = "BcVwJ91Jd1k7xUNcGYzRygq2ubaCYn7p5MeUZzy1EyLR"
+mock_amm = "AUPEWRMXpNvN42nCA6ovZRt4eYcaySyRhewxnTa6ygJi"
 
 [provider]
 cluster = "localnet"

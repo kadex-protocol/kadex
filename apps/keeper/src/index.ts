@@ -1,0 +1,147 @@
+/**
+ * SLAB keeper — OWNER: Backend A.
+ *
+ * Calls `refresh_price` on a loop so the oracle stays fresh.
+ *
+ * This process is a convenience, not a dependency. `refresh_price` is
+ * permissionless and recomputes everything from on-chain state, so if this
+ * keeper dies anyone can keep the price alive and nothing is lost but
+ * freshness. That is the whole reason the instruction has no privileged
+ * signer: there is no key here worth stealing and no single process whose
+ * death stops the market.
+ *
+ * What it deliberately does NOT do:
+ *
+ * - it does not compute a price. The program reads the AMM itself.
+ * - it does not sign a price. There is no oracle signature in this design.
+ * - it does not decide anything. If the oracle goes ShallowDepth or Diverged,
+ *   that is the program's judgement and the keeper just reports it.
+ *
+ * Run:
+ *   KEEPER_KEYPAIR=~/.config/solana/id.json \
+ *   RPC_URL=https://api.devnet.solana.com \
+ *   ORACLE=<oracle pda> AMM_POOL=<pool account> \
+ *   npx tsx apps/keeper/src/index.ts
+ */
+
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  Transaction,
+  TransactionInstruction,
+  sendAndConfirmTransaction,
+} from "@solana/web3.js";
+import { PROGRAM_IDS } from "@slab/types";
+
+/**
+ * Anchor's instruction discriminator: the first 8 bytes of
+ * `sha256("global:<snake_case_name>")`.
+ *
+ * Computed rather than pasted. A wrong constant here does not fail loudly —
+ * it produces a transaction the program rejects as an unknown instruction,
+ * which looks like a dozen other problems.
+ */
+function discriminator(name: string): Buffer {
+  return createHash("sha256").update(`global:${name}`).digest().subarray(0, 8);
+}
+
+const REFRESH_PRICE = discriminator("refresh_price");
+
+interface Config {
+  rpcUrl: string;
+  keypairPath: string;
+  oracle: PublicKey;
+  ammPool: PublicKey;
+  intervalMs: number;
+}
+
+function loadConfig(): Config {
+  const need = (k: string): string => {
+    const v = process.env[k];
+    if (!v) throw new Error(`missing env ${k}`);
+    return v;
+  };
+  return {
+    rpcUrl: process.env.RPC_URL ?? "http://127.0.0.1:8899",
+    keypairPath: need("KEEPER_KEYPAIR").replace(/^~/, process.env.HOME ?? "~"),
+    oracle: new PublicKey(need("ORACLE")),
+    ammPool: new PublicKey(need("AMM_POOL")),
+    // 30s against a 900s staleness bound: ~30 missed ticks before the market
+    // notices, which is plenty of margin without spamming the RPC.
+    intervalMs: Number(process.env.INTERVAL_MS ?? 30_000),
+  };
+}
+
+function loadKeypair(path: string): Keypair {
+  const raw = JSON.parse(readFileSync(path, "utf8")) as number[];
+  return Keypair.fromSecretKey(Uint8Array.from(raw));
+}
+
+function refreshPriceIx(cfg: Config, caller: PublicKey): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: PROGRAM_IDS.oracle,
+    keys: [
+      { pubkey: caller, isSigner: true, isWritable: false },
+      { pubkey: cfg.oracle, isSigner: false, isWritable: true },
+      { pubkey: cfg.ammPool, isSigner: false, isWritable: false },
+    ],
+    data: REFRESH_PRICE,
+  });
+}
+
+async function tick(conn: Connection, cfg: Config, signer: Keypair): Promise<void> {
+  const tx = new Transaction().add(refreshPriceIx(cfg, signer.publicKey));
+  const sig = await sendAndConfirmTransaction(conn, tx, [signer], {
+    commitment: "confirmed",
+    skipPreflight: false,
+  });
+  console.log(`[keeper] refreshed  sig=${sig}`);
+}
+
+async function main(): Promise<void> {
+  const cfg = loadConfig();
+  const conn = new Connection(cfg.rpcUrl, "confirmed");
+  const signer = loadKeypair(cfg.keypairPath);
+
+  console.log(`[keeper] rpc      ${cfg.rpcUrl}`);
+  console.log(`[keeper] oracle   ${cfg.oracle.toBase58()}`);
+  console.log(`[keeper] amm pool ${cfg.ammPool.toBase58()}`);
+  console.log(`[keeper] caller   ${signer.publicKey.toBase58()}`);
+  console.log(`[keeper] every    ${cfg.intervalMs}ms`);
+
+  let consecutiveFailures = 0;
+
+  for (;;) {
+    try {
+      await tick(conn, cfg, signer);
+      consecutiveFailures = 0;
+    } catch (err) {
+      consecutiveFailures += 1;
+      // A failing refresh is not an emergency: the oracle simply ages, and
+      // the program refuses to open new risk once it goes stale. Log it
+      // plainly and keep trying rather than exiting and leaving nobody
+      // refreshing at all.
+      console.error(
+        `[keeper] refresh failed (${consecutiveFailures} in a row):`,
+        err instanceof Error ? err.message : err,
+      );
+      if (consecutiveFailures === 10) {
+        console.error(
+          "[keeper] ten consecutive failures — the oracle will go stale and " +
+            "the market will stop accepting new positions. Check the RPC, the " +
+            "signer's balance, and that AMM_POOL matches the one the oracle " +
+            "was bound to.",
+        );
+      }
+    }
+    await new Promise((r) => setTimeout(r, cfg.intervalMs));
+  }
+}
+
+main().catch((err) => {
+  console.error("[keeper] fatal:", err);
+  process.exit(1);
+});
