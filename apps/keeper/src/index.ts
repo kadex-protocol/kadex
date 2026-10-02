@@ -10,6 +10,18 @@
  * signer: there is no key here worth stealing and no single process whose
  * death stops the market.
  *
+ * # Liveness (issue #5)
+ *
+ * Permissionless means anyone CAN call it, not that anyone WILL. Run at least
+ * two instances, on different machines, with different payers. They will
+ * sometimes race and one will lose; a lost race costs a failed transaction
+ * and nothing else, because `refresh_price` recomputes from scratch and is
+ * idempotent within a slot.
+ *
+ * If every keeper stops, the oracle ages past `max_staleness_secs` and the
+ * market goes ReduceOnly on its own. Positions can still be closed and
+ * liquidated. The failure mode is "no new risk", not "funds stuck".
+ *
  * What it deliberately does NOT do:
  *
  * - it does not compute a price. The program reads the AMM itself.
@@ -69,9 +81,16 @@ function loadConfig(): Config {
     keypairPath: need("KEEPER_KEYPAIR").replace(/^~/, process.env.HOME ?? "~"),
     oracle: new PublicKey(need("ORACLE")),
     ammPool: new PublicKey(need("AMM_POOL")),
-    // 30s against a 900s staleness bound: ~30 missed ticks before the market
-    // notices, which is plenty of margin without spamming the RPC.
-    intervalMs: Number(process.env.INTERVAL_MS ?? 30_000),
+    // 5s, and the binding reason is liquidation rather than staleness.
+    //
+    // Liquidation uses the CLAMPED oracle price, which moves at most 5% per
+    // refresh. A 5x position liquidates after a 13.75% move, so the oracle
+    // needs three refreshes to get there. At 30s that is 90 seconds during
+    // which a position is underwater at spot but not yet liquidatable — and
+    // that window is where bad debt comes from. At 5s it is 15 seconds.
+    //
+    // The 900s staleness bound is far looser than this, so it never binds.
+    intervalMs: Number(process.env.INTERVAL_MS ?? 5_000),
   };
 }
 

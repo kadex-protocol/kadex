@@ -202,7 +202,8 @@ describe("lifecycle", () => {
   });
 
   test("the lower of the two ceilings is the one enforced", async () => {
-    // Depth ceiling at $60k of AMM reserve is about $17.9k; solvency is $233k.
+    // Depth ceiling at $60k of AMM reserve is ~$9k after the 2x attack-safety
+    // factor; solvency is $233k. The lower one has to win.
     const trader = await actor(ctx, env, 400_000n * USDC);
     const msg = await mustFail(
       open(env, trader, { nonce: 4, notional: 30_000n * USDC, margin: 7_500n * USDC }),

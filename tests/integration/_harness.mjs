@@ -80,6 +80,7 @@ export const DEFAULT_ORACLE_PARAMS = {
   maxStalenessSecs: 900,
   minPoolDepth: new anchor.BN(25_000_000_000),
   maxDivergence: new anchor.BN(150_000),
+  slowAlpha: new anchor.BN(10_000),
 };
 
 /**
@@ -200,6 +201,7 @@ export const DEFAULT_POOL_PARAMS = {
   maxCardWeight: new anchor.BN(150_000),
   lpFeeShareBps: 7500,
   reduceOnlyUtilization: new anchor.BN(950_000),
+  attackSafety: new anchor.BN(2_000_000),
 };
 
 /**

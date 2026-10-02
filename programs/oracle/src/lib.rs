@@ -46,6 +46,7 @@ pub mod oracle {
         o.price = 0;
         o.twap = 0;
         o.spot = 0;
+        o.slow_twap = 0;
         o.depth_usdc = 0;
         o.last_update_ts = 0;
         o.last_update_slot = 0;
@@ -104,6 +105,10 @@ pub mod oracle {
         } else {
             clamp_move(previous, twap, o.params.max_tick_move)?
         };
+
+        // The sluggish mark used for collateral. Updated after the clamp, so
+        // it trails an already-smoothed price rather than the raw spot.
+        o.slow_twap = advance_slow(o.slow_twap, o.price, o.params.slow_alpha)?;
 
         o.last_update_ts = now;
         o.last_update_slot = clock.slot;
@@ -194,6 +199,24 @@ pub fn clamp_move(previous: u64, target: u64, max_move_wad: u64) -> Result<u64> 
     let lo = (previous as u128).saturating_sub(delta);
     let clamped = (target as u128).clamp(lo, hi);
     u64::try_from(clamped).map_err(|_| error!(OracleError::PriceOverflow))
+}
+
+/// Advance the sluggish EMA: `slow += (price - slow) * alpha`.
+///
+/// Seeded on the first call rather than crawling up from zero, which would
+/// mark the whole card sleeve at nothing for the first hour.
+pub fn advance_slow(slow: u64, price: u64, alpha_wad: u64) -> Result<u64> {
+    if slow == 0 {
+        return Ok(price);
+    }
+    let delta = if price >= slow {
+        let step = m(mul_wad_floor((price - slow) as u128, alpha_wad as u128))?;
+        (slow as u128).saturating_add(step)
+    } else {
+        let step = m(mul_wad_floor((slow - price) as u128, alpha_wad as u128))?;
+        (slow as u128).saturating_sub(step)
+    };
+    u64::try_from(delta).map_err(|_| error!(OracleError::PriceOverflow))
 }
 
 /// Decide the oracle's state from the three defences.
@@ -317,6 +340,7 @@ mod tests {
             price: 0,
             twap: 0,
             spot: 0,
+            slow_twap: 0,
             depth_usdc: 60_000_000_000,
             last_update_ts: 0,
             last_update_slot: 0,
@@ -432,6 +456,36 @@ mod tests {
             OracleState::Ok,
             "with no external feed the market loses a defence, not its pulse"
         );
+    }
+
+    #[test]
+    fn the_slow_mark_seeds_then_crawls() {
+        let alpha = 10_000; // 0.01
+        // first sample seeds rather than crawling up from zero
+        assert_eq!(advance_slow(0, WAD as u64, alpha).unwrap(), WAD as u64);
+
+        // a doubling is followed at 1% per update
+        let next = advance_slow(WAD as u64, 2 * WAD as u64, alpha).unwrap();
+        assert_eq!(next, WAD as u64 + 10_000);
+
+        // and it takes hundreds of updates to get there
+        let mut slow = WAD as u64;
+        let mut steps = 0;
+        while slow < (WAD as u64) * 3 / 2 && steps < 10_000 {
+            slow = advance_slow(slow, 2 * WAD as u64, alpha).unwrap();
+            steps += 1;
+        }
+        assert!(steps > 60, "a 50% mark-up took only {steps} updates");
+    }
+
+    #[test]
+    fn the_slow_mark_falls_as_slowly_as_it_rises() {
+        // Symmetry matters: the protection comes from min(price, slow), not
+        // from the EMA itself being asymmetric.
+        let alpha = 10_000;
+        let up = advance_slow(WAD as u64, 2 * WAD as u64, alpha).unwrap() - WAD as u64;
+        let down = WAD as u64 - advance_slow(WAD as u64, 0, alpha).unwrap();
+        assert_eq!(up, down);
     }
 
     #[test]

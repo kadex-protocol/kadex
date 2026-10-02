@@ -96,6 +96,14 @@ pub struct RiskParams {
     pub reduce_only_utilization: u64,
     /// Liquidator reward, in basis points of notional.
     pub liquidator_fee_bps: u16,
+    /// How many times attacking must cost what it pays, at the ceiling. WAD.
+    ///
+    /// Without this the depth ceiling leaves NO margin: `cap = cost / mu`
+    /// means `cap * mu == cost`, so at the ceiling an attack breaks even
+    /// exactly and rounding decides whether it is profitable. A factor of 2
+    /// says moving the price must cost twice the cascade, which is the
+    /// difference between an invariant and a coin flip.
+    pub attack_safety: u64,
 }
 
 /// Preconditions the program evaluates before asking for a decision.
@@ -268,11 +276,14 @@ pub struct Capacity {
 /// Both open-interest ceilings, and which one binds.
 ///
 /// - solvency: `U * phi / delta_max` — winners are always paid from liquid assets
-/// - depth: `R * (sqrt(1 + delta_liq) - 1) / mu` — moving the price must cost
-///   more than the liquidation cascade pays
+/// - depth: `R * (sqrt(1 + delta_liq) - 1) / (mu * safety)` — moving the price
+///   must cost `safety` times what the liquidation cascade pays
 pub fn capacity(usdc_sleeve: u64, depth: u64, p: &RiskParams) -> RiskResult<Capacity> {
     let cap_solvency = oi_cap_solvency(usdc_sleeve, p.phi as u128, p.delta_max as u128)?;
-    let cap_depth = oi_cap_depth(depth, p.delta_liq as u128, p.mu as u128)?;
+    // Folding the safety factor into mu keeps the tested formula untouched:
+    // a larger effective mu is exactly a smaller ceiling.
+    let mu_effective = mul_wad_ceil(p.mu as u128, p.attack_safety as u128)?;
+    let cap_depth = oi_cap_depth(depth, p.delta_liq as u128, mu_effective)?;
     Ok(Capacity {
         cap_solvency,
         cap_depth,
@@ -506,6 +517,7 @@ mod tests {
             psi: 500_000,
             reduce_only_utilization: 950_000,
             liquidator_fee_bps: 100,
+            attack_safety: 2_000_000, // 2x
         }
     }
 
@@ -539,7 +551,7 @@ mod tests {
     fn depth_ceiling_binds_long_before_solvency_does() {
         let c = capacity(140_000 * USDC, 60_000 * USDC, &params()).unwrap();
         assert_eq!(c.cap_solvency / USDC, 233_333);
-        assert_eq!(c.cap_depth / USDC, 17_944);
+        assert_eq!(c.cap_depth / USDC, 8_972, "halved by the 2x attack safety factor");
         assert_eq!(c.cap, c.cap_depth);
         assert_eq!(c.binding, Binding::Depth);
     }
@@ -549,6 +561,33 @@ mod tests {
         let c = capacity(140_000 * USDC, 5_000_000 * USDC, &params()).unwrap();
         assert_eq!(c.cap, c.cap_solvency);
         assert_eq!(c.binding, Binding::Solvency);
+    }
+
+    #[test]
+    fn attacking_at_the_ceiling_costs_more_than_it_pays() {
+        // The property the depth ceiling exists for. Before the safety factor
+        // this held only with equality, which is not a margin at all.
+        let p = params();
+        for depth in [25_000, 60_000, 250_000, 1_000_000] {
+            let depth = depth * USDC;
+            let c = capacity(140_000 * USDC, depth, &p).unwrap();
+            let cost = slab_math::cost_to_move_price(depth, p.delta_liq as u128).unwrap();
+            let gain = mul_wad_floor(c.cap_depth as u128, p.mu as u128).unwrap() as u64;
+            assert!(
+                cost >= gain * 2 - 2,
+                "at {depth} depth: attack costs {cost}, pays {gain} - margin gone"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bigger_safety_factor_means_a_smaller_market() {
+        let mut p = params();
+        let base = capacity(140_000 * USDC, 60_000 * USDC, &p).unwrap().cap_depth;
+        p.attack_safety = 4_000_000; // 4x
+        let tighter = capacity(140_000 * USDC, 60_000 * USDC, &p).unwrap().cap_depth;
+        assert!(tighter < base);
+        assert_eq!(base / tighter, 2, "doubling the factor should halve the ceiling");
     }
 
     #[test]
@@ -570,14 +609,14 @@ mod tests {
             price(60_000 * USDC),
             140_000 * USDC,
             Side::Long,
-            10_000 * USDC,
-            2_000 * USDC,
+            5_000 * USDC,
+            1_000 * USDC,
             &params(),
         )
         .unwrap();
         assert_eq!(a.entry_price, WAD as u64);
         assert_eq!(a.borrow_idx_entry, RAY);
-        assert_eq!(a.oi_after, 10_000 * USDC);
+        assert_eq!(a.oi_after, 5_000 * USDC);
     }
 
     #[test]

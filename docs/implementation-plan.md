@@ -184,8 +184,8 @@ haircut.
 ## 8. The finding that changes the plan
 
 ```
-CLP solvency ceiling    $233,333
-AMM depth ceiling        $17,944   ← binds
+CLP solvency ceiling     $233,333
+AMM depth ceiling         $8,972   ← binds (after the 2x attack-safety factor)
 ```
 
 AMM depth binds 13x before solvency. The ceiling the spec details most will

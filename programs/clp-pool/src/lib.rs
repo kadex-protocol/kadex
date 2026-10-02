@@ -299,6 +299,10 @@ pub fn validate_params(p: &PoolParams) -> Result<()> {
     require!(p.lp_fee_share_bps <= 10_000, PoolError::BadParams);
     require!(p.deposit_haircut_bps < 10_000, PoolError::BadParams);
     require!(p.card_sleeve_target > 0, PoolError::BadParams);
+    // A zero safety factor makes the effective mu zero, and the depth ceiling
+    // then divides by zero. Catching it here turns a confusing MathFailure at
+    // open time into a clear rejection at setup time.
+    require!(p.attack_safety > 0, PoolError::BadParams);
     Ok(())
 }
 
@@ -481,7 +485,16 @@ pub struct Pool {
     pub usdc_mint: Pubkey,
     pub clp_mint: Pubkey,
     pub usdc_vault: Pubkey,
-    /// The basket's fraction mint. v1 launches a single basket.
+    /// The basket's fraction mint, bound at `initialize_pool` and never
+    /// changed.
+    ///
+    /// Issue #10 — fragmentation — is handled by this field rather than by a
+    /// convention: a `Pool` has exactly one fraction mint, its PDA is derived
+    /// from the USDC mint, and there is no instruction that rebinds it. A
+    /// second basket needs a second pool and a second market, which is a
+    /// deliberate act rather than an accident. Splitting liquidity across
+    /// baskets makes each one shallower, and by the depth ceiling a shallower
+    /// pool is cheaper to attack.
     pub fraction_mint: Pubkey,
     pub fraction_vault: Pubkey,
     pub oracle: Pubkey,
@@ -556,7 +569,12 @@ macro_rules! oracle_reader {
                     &slab_interface::ORACLE_PROGRAM_ID,
                 )?;
                 let now = Clock::get()?.unix_timestamp;
-                view.require_markable(now, 900)
+                view.require_markable(now, 900)?;
+                // The POOL marks collateral, so it uses the sluggish price.
+                // `perp` keeps using `price` for PnL — a trader's position
+                // must settle at what the market says now, not at a lagging
+                // average. Collateral is the only thing marked conservatively.
+                Ok(view.mark_price())
             }
         }
     };
@@ -969,7 +987,7 @@ mod tests {
     fn the_depth_ceiling_binds_long_before_solvency_does() {
         let c = pool().capacity(60_000 * USDC).unwrap();
         assert_eq!(c.cap_solvency / USDC, 233_333);
-        assert_eq!(c.cap_depth / USDC, 17_944);
+        assert_eq!(c.cap_depth / USDC, 8_972, "halved by the 2x attack safety factor");
         assert_eq!(c.cap, c.cap_depth);
         assert_eq!(c.binding, Binding::Depth);
     }
@@ -1105,6 +1123,7 @@ mod tests {
             |p: &mut PoolParams| p.mu = 0,
             |p: &mut PoolParams| p.deposit_haircut_bps = 10_000,
             |p: &mut PoolParams| p.card_sleeve_target = 0,
+            |p: &mut PoolParams| p.attack_safety = 0,
         ] {
             let mut bad = PoolParams::default();
             mutate(&mut bad);

@@ -246,20 +246,35 @@ we solved it is not.
 The test `the_depth_ceiling_binds_long_before_solvency_does` confirms:
 
 ```
-CLP solvency ceiling    $233,333
-AMM depth ceiling        $17,944   ← binds
+CLP solvency ceiling     $233,333
+AMM depth ceiling         $8,972   ← binds (after the 2x attack-safety factor)
 ```
 
-**AMM depth binds 13x before solvency does.** The ceiling the spec details
+**AMM depth binds 26x before solvency does.** The ceiling the spec details
 most will almost never bite. What sizes the market is the liquidity in the
 fraction pool, not the CLP balance.
 
 Worth the team discussing whether `phi` and `delta_max` are too conservative
 for a constraint that barely ever binds.
 
+## 10b. Issue status
+
+`docs/issues.md` tracks all twelve. Four fixed in code, three are decisions
+(first liquidity, upgrade authority, and the regulatory stance), three were
+already structural, one belongs to the frontend.
+
+The two worth knowing before you write anything:
+
+- **NAV circularity is mitigated, not solved.** The pool marks collateral at
+  `min(fast, slow)` so a push inflates it only over hours, not in one
+  transaction. Say "reduced", never "solved".
+- **The depth ceiling now carries a 2x attack-safety factor.** It used to
+  break even exactly at the ceiling, which is not a margin.
+
 ## 11. Required reading
 
-1. `docs/invariants.md` — the 12 rules that are not negotiable
+1. `docs/issues.md` — what is still open and what is already decided
+2. `docs/invariants.md` — the 12 rules that are not negotiable
 2. `docs/architecture.md` — program boundaries and layers
 3. `docs/oracle.md` — the four defences and Blocker #1
 4. `docs/frontend-contract.md` — frontend only

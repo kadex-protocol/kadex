@@ -159,6 +159,12 @@ pub struct OracleParams {
     pub min_pool_depth: u64,
     /// Largest divergence tolerated against the external median. WAD. Spec: 0.15.
     pub max_divergence: u64,
+    /// EMA coefficient for [`OracleAccount::slow_twap`]. WAD.
+    ///
+    /// Small on purpose. At 0.01 and a 30s refresh the slow price takes about
+    /// fifty minutes to follow a step change, which is the point: see
+    /// [`OracleView::mark_price`].
+    pub slow_alpha: u64,
 }
 
 impl Default for OracleParams {
@@ -169,6 +175,7 @@ impl Default for OracleParams {
             max_staleness_secs: 900,        // 15 min
             min_pool_depth: 25_000_000_000, // $25k in native USDC
             max_divergence: 150_000,        // 15%
+            slow_alpha: 10_000,             // 0.01 -> ~50min to follow a step
         }
     }
 }
@@ -220,6 +227,9 @@ pub struct OracleAccount {
     pub twap: u64,
     /// Last spot read from the AMM, unsmoothed. Diagnostics only.
     pub spot: u64,
+    /// A deliberately sluggish EMA of the price, used ONLY to mark the pool's
+    /// card sleeve. See [`OracleView::mark_price`] for why it exists.
+    pub slow_twap: u64,
     /// AMM reserve in USDC. This is the `R` in the depth ceiling.
     pub depth_usdc: u64,
 
@@ -253,6 +263,8 @@ pub struct OracleView {
     pub ts: i64,
     /// AMM depth in native USDC. Feeds the open-interest ceiling.
     pub depth: u64,
+    /// Sluggish EMA, for marking collateral rather than trading it.
+    pub slow_twap: u64,
     pub state: OracleState,
 }
 
@@ -274,6 +286,28 @@ impl OracleView {
             InterfaceError::OracleStale
         );
         Ok(self.price)
+    }
+
+    /// Price for marking the pool's CARD SLEEVE. Never for PnL.
+    ///
+    /// The circularity this exists to blunt: the same AMM prices the perp and
+    /// the collateral behind it, so one push used to move a trader's PnL and
+    /// inflate the pool backing that same position, in one transaction.
+    ///
+    /// Taking `min(price, slow_twap)` breaks the symmetry. A push upward is
+    /// ignored for hours because the slow EMA lags; a fall is taken
+    /// immediately because the fast price is lower. Collateral marks DOWN fast
+    /// and UP slowly, which is the only direction a pool should ever be wrong
+    /// in.
+    ///
+    /// It does not eliminate the circularity. An attacker willing to hold a
+    /// pushed price for hours still moves both. It removes the single-
+    /// transaction version, which is the one that pays.
+    pub fn mark_price(&self) -> u64 {
+        if self.slow_twap == 0 {
+            return self.price;
+        }
+        self.price.min(self.slow_twap)
     }
 
     /// Shape this view takes when handed to `slab-risk`.
@@ -303,6 +337,7 @@ pub fn read_oracle(ai: &AccountInfo, oracle_program_id: &Pubkey) -> Result<Oracl
         twap: acc.twap,
         ts: acc.last_update_ts,
         depth: acc.depth_usdc,
+        slow_twap: acc.slow_twap,
         state: acc.state,
     })
 }
@@ -350,6 +385,9 @@ pub struct PoolParams {
     pub lp_fee_share_bps: u16,
     /// Utilization at which the market goes `ReduceOnly`. WAD. Spec: 0.95.
     pub reduce_only_utilization: u64,
+    /// How many times attacking must cost what it pays, at the depth ceiling.
+    /// WAD. Default 2.0 — without it the ceiling has no margin at all.
+    pub attack_safety: u64,
 }
 
 impl PoolParams {
@@ -370,6 +408,7 @@ impl PoolParams {
             psi: self.psi,
             reduce_only_utilization: self.reduce_only_utilization,
             liquidator_fee_bps: self.liquidator_fee_bps,
+            attack_safety: self.attack_safety,
         }
     }
 }
@@ -393,6 +432,7 @@ impl Default for PoolParams {
             max_card_weight: 150_000,         // 15%
             lp_fee_share_bps: 7_500,          // 75%
             reduce_only_utilization: 950_000, // 95%
+            attack_safety: 2_000_000,         // 2x
         }
     }
 }
@@ -537,6 +577,7 @@ mod tests {
         assert_eq!(r.psi, p.psi);
         assert_eq!(r.reduce_only_utilization, p.reduce_only_utilization);
         assert_eq!(r.liquidator_fee_bps, p.liquidator_fee_bps);
+        assert_eq!(r.attack_safety, p.attack_safety);
     }
 
     #[test]
@@ -560,6 +601,39 @@ mod tests {
             for b in codes.iter().skip(i + 1) {
                 assert_ne!(a, b, "two risk errors collapsed onto the same code");
             }
+        }
+    }
+
+    #[test]
+    fn collateral_marks_down_fast_and_up_slowly() {
+        let view = |price, slow| OracleView {
+            price,
+            twap: price,
+            ts: 0,
+            depth: 0,
+            slow_twap: slow,
+            state: OracleState::Ok,
+        };
+        let par = WAD as u64;
+
+        // a push upward is ignored until the slow price catches up
+        assert_eq!(view(par * 2, par).mark_price(), par);
+        // a fall is taken immediately
+        assert_eq!(view(par / 2, par).mark_price(), par / 2);
+        // agreement means no effect
+        assert_eq!(view(par, par).mark_price(), par);
+        // before the first slow sample, fall back rather than mark to zero
+        assert_eq!(view(par, 0).mark_price(), par);
+    }
+
+    #[test]
+    fn marking_never_exceeds_the_tradeable_price() {
+        // If it could, the pool would value collateral above what the market
+        // it is quoted against would pay for it.
+        let par = WAD as u64;
+        for (p, s) in [(par, par * 3), (par * 3, par), (par, par), (1, par)] {
+            let v = OracleView { price: p, twap: p, ts: 0, depth: 0, slow_twap: s, state: OracleState::Ok };
+            assert!(v.mark_price() <= v.price);
         }
     }
 

@@ -885,3 +885,226 @@ mod tests {
         assert_eq!(card_loss + short_gain, 0, "the hedge should net to zero");
     }
 }
+
+// ---------------------------------------------------------------------------
+// property tests — issue #6
+// ---------------------------------------------------------------------------
+
+/// Randomised checks over the properties that must hold for every input, not
+/// just the handful a human thinks to write down.
+///
+/// Operation order and rounding direction are where money bugs live: a single
+/// `a * b / c` reordered to `a / c * b` changes the result, and the difference
+/// only shows up at inputs nobody picked by hand. These run thousands of
+/// cases per property with a fixed seed, so a failure is reproducible.
+#[cfg(test)]
+mod properties {
+    use super::*;
+
+    /// Deterministic LCG. A real fuzzer would be better; a dependency-free one
+    /// that always replays identically is better than none.
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            self.0 >> 11
+        }
+        /// Values biased toward realistic token amounts, with the extremes
+        /// still reachable.
+        fn amount(&mut self) -> u64 {
+            match self.next() % 4 {
+                0 => self.next() % 1_000,
+                1 => self.next() % 1_000_000_000,
+                2 => self.next() % 1_000_000_000_000_000,
+                _ => self.next(),
+            }
+        }
+        fn wad(&mut self) -> u128 {
+            1 + (self.next() as u128 % (10 * WAD))
+        }
+    }
+
+    const CASES: usize = 20_000;
+
+    #[test]
+    fn depositing_then_withdrawing_never_creates_value() {
+        let mut r = Rng(0xA11CE);
+        for _ in 0..CASES {
+            let nav = r.amount();
+            let supply = r.amount();
+            let deposit = r.amount();
+            if nav == 0 || supply == 0 {
+                continue;
+            }
+            let Ok(shares) = shares_for_deposit(deposit, nav, supply) else { continue };
+            let Some(nav2) = nav.checked_add(deposit) else { continue };
+            let Some(supply2) = supply.checked_add(shares) else { continue };
+            let Ok(back) = assets_for_shares(shares, nav2, supply2) else { continue };
+            assert!(
+                back <= deposit,
+                "round trip created value: in {deposit}, out {back} (nav {nav}, supply {supply})"
+            );
+        }
+    }
+
+    #[test]
+    fn the_two_sides_of_a_position_always_cancel() {
+        let mut r = Rng(0xBEEF);
+        for _ in 0..CASES {
+            let entry = 1 + r.amount() % 1_000_000_000;
+            let price = 1 + r.amount() % 1_000_000_000;
+            let notional = r.amount() % 1_000_000_000_000;
+            let (Ok(long), Ok(short)) = (
+                pnl(Side::Long, entry, price, notional),
+                pnl(Side::Short, entry, price, notional),
+            ) else {
+                continue;
+            };
+            assert_eq!(long, -short, "long and short disagreed at entry {entry} price {price}");
+        }
+    }
+
+    #[test]
+    fn proportional_shares_never_exceed_the_sleeve() {
+        let mut r = Rng(0xC0FFEE);
+        for _ in 0..CASES {
+            let sleeve = r.amount();
+            let supply = 1 + r.amount();
+            let shares = r.next() % (supply + 1);
+            let Ok(part) = proportional_share(sleeve, shares, supply) else { continue };
+            assert!(part <= sleeve, "slice {part} exceeded sleeve {sleeve}");
+        }
+    }
+
+    #[test]
+    fn a_full_redemption_takes_everything_and_no_more() {
+        let mut r = Rng(0xD15EA5E);
+        for _ in 0..CASES {
+            let sleeve = r.amount();
+            let supply = 1 + r.amount();
+            let Ok(all) = proportional_share(sleeve, supply, supply) else { continue };
+            assert_eq!(all, sleeve, "redeeming the whole supply did not drain the sleeve");
+        }
+    }
+
+    #[test]
+    fn ceil_is_never_below_floor_and_never_more_than_one_above() {
+        let mut r = Rng(0xFEED);
+        for _ in 0..CASES {
+            let a = r.amount() as u128;
+            let b = r.amount() as u128;
+            let c = 1 + r.amount() as u128;
+            let (Ok(lo), Ok(hi)) = (mul_div_floor(a, b, c), mul_div_ceil(a, b, c)) else { continue };
+            assert!(hi >= lo && hi - lo <= 1, "floor {lo} ceil {hi} for {a}*{b}/{c}");
+        }
+    }
+
+    #[test]
+    fn utilization_never_leaves_its_range() {
+        let mut r = Rng(0x1234);
+        for _ in 0..CASES {
+            let oi = r.amount();
+            let cap = r.amount();
+            let Ok(u) = utilization(oi, cap) else { continue };
+            assert!(u <= WAD, "utilization {u} above 100% for oi {oi} cap {cap}");
+        }
+    }
+
+    #[test]
+    fn the_haircut_is_monotone_in_what_is_available() {
+        // More in the pot can never mean less in your hand.
+        let mut r = Rng(0x5EED);
+        for _ in 0..CASES {
+            let claim = r.amount();
+            let total = 1 + r.amount();
+            let a = r.next() % (total + 1);
+            let b = r.next() % (total + 1);
+            let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+            let (Ok(x), Ok(y)) = (prorata_haircut(claim, total, lo), prorata_haircut(claim, total, hi)) else {
+                continue;
+            };
+            assert!(x <= y, "haircut fell when availability rose: {x} then {y}");
+        }
+    }
+
+    #[test]
+    fn the_depth_ceiling_only_ever_grows_with_depth() {
+        let mut r = Rng(0x9999);
+        for _ in 0..1_000 {
+            let mu = 1 + r.wad();
+            let delta = r.wad();
+            let d1 = r.amount() % 1_000_000_000_000;
+            let d2 = d1.saturating_add(r.amount() % 1_000_000_000);
+            let (Ok(c1), Ok(c2)) = (oi_cap_depth(d1, delta, mu), oi_cap_depth(d2, delta, mu)) else {
+                continue;
+            };
+            assert!(c2 >= c1, "deeper pool allowed less OI: {c1} then {c2}");
+        }
+    }
+
+    #[test]
+    fn nothing_panics_on_adversarial_input() {
+        // Every entry point must return an error rather than unwind. A panic
+        // inside a program aborts the transaction with no useful error, and
+        // on-chain that is indistinguishable from a bug in the caller.
+        let mut r = Rng(0xDEAD);
+        for _ in 0..CASES {
+            let a = r.amount();
+            let b = r.amount();
+            let c = r.amount();
+            let w = r.wad();
+            let _ = mul_div_floor(a as u128, b as u128, c as u128);
+            let _ = mul_div_ceil(a as u128, b as u128, c as u128);
+            let _ = utilization(a, b);
+            let _ = borrow_rate_hourly(a as u128, b as u128, w);
+            let _ = side_multiplier(a, b, w);
+            let _ = pnl(Side::Long, a, b, c);
+            let _ = pnl(Side::Short, a, b, c);
+            let _ = liquidation_price(Side::Long, a, b, c, a, w);
+            let _ = oi_cap_solvency(a, w, w);
+            let _ = oi_cap_depth(a, w, w);
+            let _ = nav(a, b, c as i128, a);
+            let _ = clp_price(a, b);
+            let _ = shares_for_deposit(a, b, c);
+            let _ = assets_for_shares(a, b, c);
+            let _ = proportional_share(a, b, c);
+            let _ = prorata_haircut(a, b, c);
+            let _ = accrue_borrow_index(a as u128, w, b as i64);
+            let _ = borrow_owed(a, b as u128, c as u128);
+        }
+    }
+
+    /// Issue #3: 6 decimals with 1 fraction = $1 has to price real cards
+    /// without coarse rounding.
+    #[test]
+    fn six_decimals_prices_real_cards_without_visible_rounding() {
+        // Prices from the basket in the product mock, in native USDC.
+        for card in [1_420_000_000u64, 980_000_000, 520_000_000, 280_000_000, 4_200_000_000] {
+            // One fraction is $1, so a card is `price` fractions.
+            let fractions = card;
+            // Round-trip it through the WAD price the oracle produces.
+            let price = WAD; // $1.00 per fraction
+            let value = mul_wad_floor(fractions as u128, price).unwrap();
+            assert_eq!(value as u64, card, "a card did not round-trip at par");
+
+            // And at an awkward price, the error must stay under a cent.
+            let odd = 1_234_567u128; // $1.234567
+            let v = mul_wad_floor(fractions as u128, odd).unwrap();
+            let implied = mul_div_floor(v, WAD, fractions as u128).unwrap();
+            assert!(
+                odd.abs_diff(implied) <= 1,
+                "price round-trip lost more than one unit: {odd} -> {implied}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_single_fraction_is_still_worth_something() {
+        // If one fraction rounded to zero at realistic prices, dust deposits
+        // would mint CLP for free.
+        for price in [1_000u128, 10_000, WAD, 10 * WAD] {
+            let v = mul_wad_floor(1_000_000, price).unwrap(); // one whole fraction
+            assert!(v > 0, "one fraction priced to zero at {price}");
+        }
+    }
+}
