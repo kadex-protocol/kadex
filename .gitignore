@@ -1,10 +1,11 @@
-target/
-node_modules/
-dist/
-.next/
 .anchor/
-test-ledger/
-*.log
 .DS_Store
 .env
 .env.local
+.next/
+*.log
+dist/
+node_modules/
+packages/*/dist/
+target/
+test-ledger/
