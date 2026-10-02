@@ -11,9 +11,6 @@ name = "mock_amm"
 
 [features]
 default = []
-# Integration tests against litesvm. Blocked on the SBPF v3 toolchain matrix
-# (Blocker #6); the tests compile but cannot load our binaries yet.
-integration = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-log-ix-name = []
@@ -26,12 +23,6 @@ custom-panic = []
 anchor-lang = { workspace = true }
 slab-math = { workspace = true }
 
-[dev-dependencies]
-litesvm = "0.10.0"
-solana-message = "3.0.1"
-solana-transaction = "3.0.2"
-solana-signer = "3.0.0"
-solana-keypair = "3.0.1"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

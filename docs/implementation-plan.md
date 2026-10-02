@@ -27,7 +27,7 @@ three apps.
 | `apps/liquidator` | TS | Backend B | scanner done, decode pending |
 | `apps/web` | Next.js | Frontend | empty |
 
-121 tests: 102 Rust, 19 Rust↔TS parity.
+131 tests: 102 Rust, 19 Rust↔TS parity, 10 on-chain integration.
 
 ## 2. Declared deviations from the spec
 
@@ -119,39 +119,34 @@ The same AMM pool prices the perp **and** the CLP's card sleeve. Pushing the
 AMM moves both. The liquid sleeve mitigates this; it does not eliminate it.
 It goes in the submission as written.
 
-### Blocker #6 — litesvm cannot load our binaries (MEDIUM, owner: A)
+~~Blocker #6 — on-chain integration tests~~ — resolved on 2 Oct via a
+`solana-test-validator` harness. `scripts/with-validator.mjs` boots a throwaway
+validator, deploys all five programs and runs `tests/integration/`. The ten
+oracle defence cases pass against a real runtime. litesvm was abandoned: no
+release both loads our binaries and matches the pinned rustc.
 
-On-chain integration tests are written and correct, but cannot run on this
-toolchain. The version matrix does not close:
+### Blocker #7 — `anchor build` produces undeployable binaries (HIGH, owner: all)
 
-- Anchor 1.2 hardcodes `--arch v3`, so every binary we produce is SBPF v3
-  (`e_flags: 3`). `anchor build -- --arch v0` is refused: the flag is already
-  passed.
-- litesvm 0.10, which the Anchor template pins, predates SBPF v3 and rejects
-  our binaries with `InvalidAccountData` — confirmed by a one-line smoke test
-  that loads nothing but the ELF.
-- litesvm 0.16 loads them, but its dependency tree conflicts with
-  anchor-lang 1.2's `solana-*` crates.
-- litesvm 0.17 needs rustc 1.97.1; platform-tools pins 1.89 and the host has
-  1.96.
+Found while resolving #6, and it is worse than a test problem.
 
-The tests live in `programs/oracle/tests/test_defences.rs` and
-`programs/mock-amm/tests/smoke.rs`, gated behind `--features integration` so
-they do not break `cargo test`. Ten negative cases are written and waiting:
-clamp, depth floor, staleness, divergence, wrong pool, non-admin, and the
-permissionless refresh.
+Anchor 1.2 hardcodes `--arch v3`. The Solana CLI 3.1.10 cannot parse the
+resulting ELF **at all** — not through `solana program deploy`, not through
+`solana program-v4 deploy`:
 
-Three ways out, cheapest first:
+```
+Error: ELF error: Failed to parse ELF file: invalid file header
+```
 
-1. a `solana-test-validator` + TypeScript suite, which tests the deployed
-   artifact and sidesteps the matrix entirely
-2. `anchor-litesvm`, which exists to reconcile exactly these versions
-3. waiting for a litesvm release whose MSRV matches platform-tools
+The runtime supports SBPFv3 (the feature gate is active on a fresh validator);
+every tool that reads the ELF before sending it does not. So `anchor build`
+alone yields binaries that cannot reach devnet.
 
-**This is not blocking anyone.** The rules are covered by 96 pure tests that
-run in under a second. What is missing is proof that account validation and
-the state machine behave on-chain — worth having before the submission, not
-before the next commit.
+Mitigated, not fixed: `npm run build:programs` runs `anchor build` for IDLs and
+types, then overwrites the binaries with `cargo-build-sbf --arch v1`, and
+verifies `e_flags` on each one. See `docs/deploying.md`.
+
+**Anyone who runs `anchor build` directly still gets undeployable output.**
+That is the remaining sharp edge.
 
 ~~Blocker #4 — risk CPI between `perp` and `clp-pool`~~ — resolved on 2 Oct.
 `clp_pool::settle_position` is the single door value leaves the pool through,

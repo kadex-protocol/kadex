@@ -12,20 +12,25 @@ git clone https://github.com/Ooffset/slab.git
 cd slab
 npm install
 npm run sync-keys        # keys/ -> target/deploy/ — fixed program IDs, don't skip
-anchor build             # 4 programs + IDLs + TS types
-cargo test --workspace   # 88 tests, under a second
-node --test tests/parity.test.mjs   # 19 Rust <-> TS parity tests
+npm run build:programs   # NOT `anchor build` — see docs/deploying.md
+cargo test --workspace   # 102 tests, under a second
+npm run test:parity      # 19 Rust <-> TS parity tests
+npm run test:integration # 10 on-chain tests, ~60s, boots a validator
 ```
 
 You need Rust 1.89 (`rust-toolchain.toml` handles it), Solana CLI 3.1.10,
 Anchor CLI 1.2.0, Node 22+.
 
-If `cargo test` passes and `anchor build` produces four `.so` files in
-`target/deploy/`, your environment is correct.
+If `cargo test` passes and `npm run build:programs` ends with "all programs
+are deployable", your environment is correct.
+
+**Do not run `anchor build` on its own.** It emits SBPF v3 binaries that the
+Solana CLI cannot parse, so they cannot be deployed anywhere — including
+devnet. `docs/deploying.md` explains it; Blocker #7 tracks it.
 
 ## 2. What already exists
 
-121 tests passing. No risk handler is implemented yet except
+131 tests passing. No risk handler is implemented yet except
 `open_position` — deliberately. Day 1 was about getting the boundaries right
 before anyone builds on top of them.
 
@@ -145,7 +150,7 @@ Branch: `backend/card-vault-oracle`
 | ✅ D4 | reserve reader, TWAP and clamp — tested as pure logic |
 | ✅ D5–D6 | `refresh_price` on-chain, depth floor, divergence, staleness |
 | ✅ | keeper: permissionless refresh loop |
-| ⚠️ D2/D8 | litesvm integration tests written but blocked — see Blocker #6 |
+| ✅ D2/D8 | 10 on-chain defence tests passing against a real validator |
 | **D7** | **the price function is frozen. B is unblocked.** |
 
 **A has reached D7.** `OracleView` is final: `price`, `twap`, `ts`, `depth`,
@@ -171,9 +176,9 @@ Branch: `backend/risk-engine`
 | D9 | end-to-end integration — blocked with A on Blocker #6 |
 | D11 | `Settled` final redemption path |
 
-**B has reached the same wall A did.** Everything that can be proved without
-a validator is proved: 102 Rust tests. What is left needs on-chain
-integration, which Blocker #6 is holding.
+**B's remaining work is unblocked.** The validator harness exists and works;
+`tests/integration/` is where D9's end-to-end case goes. The decisions are
+already tested — what is left is SPL token setup around them.
 
 The decisions already exist and are tested: `risk::settle_close`,
 `risk::settle_liquidation`, `risk::capacity`. What is missing is the token
