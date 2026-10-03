@@ -19,7 +19,8 @@
     "test:integration": "node scripts/with-validator.mjs node --test tests/integration/*.test.mjs",
     "test:parity": "tsc -b packages/types packages/sdk && node --test tests/parity.test.mjs",
     "web": "npm run dev --workspace apps/web",
-    "web:build": "npm run build --workspace apps/web"
+    "web:build": "npm run build --workspace apps/web",
+    "ab": "tsc -b packages/types packages/sdk && node scripts/ab-test.mjs"
   },
   "devDependencies": {
     "typescript": "^5.6.0",
