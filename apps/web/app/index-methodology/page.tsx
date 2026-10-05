@@ -1,122 +1,146 @@
 "use client";
 
-import { CONSTITUENTS, fmtPct, fmtUsd } from "@/lib/market";
+import { CONSTITUENTS, fmtBps, fmtPct, fmtPrice, fmtUsd } from "@/lib/market";
 import { useMarket } from "@/lib/useMarket";
-import { ConstituentTable } from "@/components/ConstituentTable";
-import { Slab } from "@/components/Slab";
+import { Shelf } from "@/components/Shelf";
+import { Thumb } from "@/components/Slab";
 
 export default function IndexPage() {
-  const { data, loading } = useMarket();
+  const { data } = useMarket();
 
   return (
-    <div className="columns">
-      <main className="main-col">
-        <p className="eyebrow">02 / Index</p>
-        <h1 className="display">Composition &amp; methodology.</h1>
-        <p className="standfirst">What the index holds, and the rules it holds it by.</p>
-
-        <div className="slabs" style={{ marginTop: 26 }}>
-          {CONSTITUENTS.slice(0, 3).map((c) => (
-            <Slab key={c.id} item={c} />
-          ))}
+    <div className="page">
+      <section className="hero" style={{ minHeight: 320 }}>
+        <div className="hero-copy">
+          <p className="kicker">02 / Index</p>
+          <h1 className="display">The Culture Index.</h1>
+          <p className="lede">What the index holds, and the rules it holds it by.</p>
         </div>
+        <Shelf />
+      </section>
 
-        <ConstituentTable />
+      <div className="stats">
+        <div className="stat">
+          <p className="k">Index value</p>
+          <p className="v serif">{data ? fmtPrice(data.oracle.price) : "—"}</p>
+        </div>
+        <div className="stat">
+          <p className="k">Pool NAV</p>
+          <p className="v">{data ? fmtUsd(data.poolStats.nav) : "—"}</p>
+        </div>
+        <div className="stat">
+          <p className="k">Card sleeve</p>
+          <p className="v">{data ? fmtPct(data.poolStats.cardSleeveShare, 1) : "—"}</p>
+        </div>
+        <div className="stat">
+          <p className="k">Constituents</p>
+          <p className="v">{CONSTITUENTS.length}</p>
+        </div>
+      </div>
 
-        <div className="prose" style={{ marginTop: 34 }}>
+      <section className="panel">
+        <div className="panel-head">
+          <div>
+            <h2 className="title">Composition</h2>
+            <p className="sub">Fixed weights. The basket does not rebalance on its own.</p>
+          </div>
+        </div>
+        <div className="t-wrap">
+          <table className="t">
+            <thead>
+              <tr>
+                <th>Constituent</th>
+                <th>Reference</th>
+                <th>Grade</th>
+                <th className="r">Weight</th>
+              </tr>
+            </thead>
+            <tbody>
+              {CONSTITUENTS.map((c) => (
+                <tr key={c.id}>
+                  <td>
+                    <span className="asset">
+                      <Thumb art={c.art} />
+                      <span>
+                        <span className="nm">{c.name}</span>
+                        <span className="id">{c.year} · {c.category}</span>
+                      </span>
+                    </span>
+                  </td>
+                  <td className="n">{c.ref}</td>
+                  <td>{c.grade}</td>
+                  <td className="r n">{fmtBps(c.weightBps)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div className="grid-2">
+        <section className="panel prose">
+          <h2 className="title">Methodology</h2>
+
           <h3>Selection</h3>
           <p>
-            Constituents are professionally graded, tokenized and held under custody. A card enters
-            the basket by whitelist and keeps a fixed weight; the set does not rebalance on its own.
-            A fixed basket is a security decision rather than a simplification — a basket whose
-            membership can move is a basket an attacker can move into.
+            Constituents are professionally graded, tokenized and held under custody. A card
+            enters by whitelist and keeps a fixed weight. A fixed basket is a security decision
+            rather than a simplification — a basket whose membership can move is a basket an
+            attacker can move into.
           </p>
 
           <h3>Pricing</h3>
           <p>
-            The index price is the time-weighted average of an on-chain pool of card fractions,
+            The index price is a time-weighted average of an on-chain pool of card fractions,
             clamped so it cannot travel more than five per cent between readings. External sale
-            data is consulted only as a sanity bound, never as the price itself. If that feed goes
-            quiet the market loses one defence and keeps running.
+            data is a sanity bound, never the price itself. If that feed goes quiet the market
+            loses one defence and keeps running.
           </p>
 
           <h3>Capacity</h3>
           <p>
-            Open interest is limited by two independent ceilings, and the lower one always governs.
-            One is the pool&rsquo;s liquid reserve, so a winning position is always paid from assets
-            that can actually be paid out. The other is the depth of the pricing pool, so that
-            moving the price far enough to force liquidations costs more than the liquidations
-            would pay.
+            Open interest is limited by two independent ceilings and the lower one always
+            governs. One is the pool&rsquo;s liquid reserve, so a winning position is paid from
+            assets that can actually be paid out. The other is the depth of the pricing pool, so
+            that moving the price far enough to force liquidations <em>costs more than it pays</em>.
           </p>
-        </div>
-      </main>
+        </section>
 
-      <div className="side-col">
-        <aside className="ticket">
-          <p className="eyebrow" style={{ margin: 0 }}>
-            Index / 001
-          </p>
-          <div>
-            <h2>Statistics</h2>
-            <p className="subhead">Live composition</p>
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2 className="title">Capacity</h2>
+              <p className="sub">The lower ceiling is the real one.</p>
+            </div>
           </div>
-
-          {loading || !data ? (
-            <p className="body">Reading index state&hellip;</p>
-          ) : (
-            <>
-              <div className="readout">
-                <div>
-                  <span>Index price</span>
-                  <b>{(Number(data.oracle.price) / 1e6).toFixed(4)}</b>
-                </div>
-                <div>
-                  <span>Oracle state</span>
-                  <b>{data.oracle.state}</b>
-                </div>
-                <div>
-                  <span>Pool NAV</span>
-                  <b>{fmtUsd(data.poolStats.nav)}</b>
-                </div>
-                <div>
-                  <span>Card sleeve</span>
-                  <b>{fmtPct(data.poolStats.cardSleeveShare, 1)}</b>
-                </div>
-                <div>
-                  <span>USDC sleeve</span>
-                  <b>{fmtPct(data.poolStats.usdcSleeveShare, 1)}</b>
-                </div>
-              </div>
-
-              <hr className="rule" />
-
-              <h3 className="section-title">Capacity</h3>
-              <div className="readout">
-                <div>
-                  <span>Solvency ceiling</span>
-                  <b>{fmtUsd(data.capacity.capSolvency)}</b>
-                </div>
-                <div>
-                  <span>Depth ceiling</span>
-                  <b>{fmtUsd(data.capacity.capDepth)}</b>
-                </div>
-                <div>
-                  <span>Binding</span>
-                  <b>{data.capacity.binding}</b>
-                </div>
-                <div>
-                  <span>Utilisation</span>
-                  <b>{fmtPct(data.capacity.utilization, 1)}</b>
-                </div>
-              </div>
-            </>
-          )}
-
-          <p className="fineprint">
-            Sample composition. Figures are computed by the production pricing library from
-            placeholder account data.
+          <div className="rows">
+            <div>
+              <span>Solvency ceiling</span>
+              <b>{data ? fmtUsd(data.capacity.capSolvency) : "—"}</b>
+            </div>
+            <div>
+              <span>Depth ceiling</span>
+              <b>{data ? fmtUsd(data.capacity.capDepth) : "—"}</b>
+            </div>
+            <div className="hi">
+              <span>Binding</span>
+              <b>{data?.capacity.binding ?? "—"}</b>
+            </div>
+            <div>
+              <span>Open interest</span>
+              <b>{data ? fmtUsd(data.capacity.oiTotal) : "—"}</b>
+            </div>
+            <div>
+              <span>Utilisation</span>
+              <b>{data ? fmtPct(data.capacity.utilization, 1) : "—"}</b>
+            </div>
+          </div>
+          <hr className="sep" style={{ margin: "20px 0" }} />
+          <p className="fine">
+            Depth binds far before solvency. Adding USDC to the pool barely moves market size;
+            adding liquidity to the pricing pool moves all of it.
           </p>
-        </aside>
+        </section>
       </div>
     </div>
   );

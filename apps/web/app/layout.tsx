@@ -5,7 +5,7 @@ import { Frame } from "@/components/Frame";
 
 export const metadata: Metadata = {
   title: "SLAB — The collector's market",
-  description: "Perpetual exposure to an index of tokenized collectible cards.",
+  description: "Perpetual exposure to a curated index of tokenized collectibles.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -16,7 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
           rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,500&display=swap"
         />
       </head>
       <body>

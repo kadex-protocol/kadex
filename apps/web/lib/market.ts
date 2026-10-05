@@ -35,12 +35,14 @@ export interface Constituent {
   id: string;
   ref: string;
   name: string;
+  series: string;
+  year: string;
   category: string;
   /** Index weight in basis points. */
   weightBps: number;
   grade: string;
-  /** Which of the three artworks to draw. */
-  art: "sun" | "orbit" | "blocks";
+  /** Which artwork to draw. */
+  art: "ascent" | "orbit" | "fields" | "meridian" | "relic";
 }
 
 /**
@@ -48,10 +50,11 @@ export interface Constituent {
  * names and grades are illustrative until the real mints are whitelisted.
  */
 export const CONSTITUENTS: Constituent[] = [
-  { id: "001", ref: "A1023847", name: "Collection 001", category: "Trading cards", weightBps: 4400, grade: "GEM MT 10", art: "sun" },
-  { id: "002", ref: "B7712093", name: "Collection 002", category: "Trading cards", weightBps: 3100, grade: "GEM MT 10", art: "orbit" },
-  { id: "003", ref: "C5587410", name: "Collection 003", category: "Trading cards", weightBps: 1600, grade: "GEM MT 10", art: "blocks" },
-  { id: "004", ref: "D2240918", name: "Collection 004", category: "Trading cards", weightBps: 900, grade: "MINT 9", art: "sun" },
+  { id: "001", ref: "A1023847", name: "Ascent", series: "Archive", year: "1999", category: "Trading cards", weightBps: 3200, grade: "GEM MT 10", art: "ascent" },
+  { id: "002", ref: "B7712093", name: "Orbit", series: "Archive", year: "1998", category: "Trading cards", weightBps: 2400, grade: "GEM MT 10", art: "orbit" },
+  { id: "003", ref: "C5587410", name: "Fields", series: "Archive", year: "1993", category: "Trading cards", weightBps: 1900, grade: "GEM MT 10", art: "fields" },
+  { id: "004", ref: "D2240918", name: "Meridian", series: "Archive", year: "1986", category: "Sports", weightBps: 1500, grade: "MINT 9", art: "meridian" },
+  { id: "005", ref: "E9014772", name: "Relic", series: "Archive", year: "1977", category: "Sports", weightBps: 1000, grade: "MINT 9", art: "relic" },
 ];
 
 const SAMPLE_POOL: PoolView = {
@@ -350,5 +353,88 @@ export function quoteWithdraw(snapshot: MarketSnapshot, shares: bigint): Withdra
     problem: gates(pool.state).canWithdraw
       ? null
       : `The pool is ${pool.state} and is not accepting redemptions.`,
+  };
+}
+
+
+// ───────────────────────────────────────────────────────────────────────────
+// Borrow spread — what the arbitrageur came for (docs/users.md, role 5)
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * Both sides' borrow cost and the gap between them.
+ *
+ * The ticket used to show only the rate for the side you had selected, which
+ * made the spread — the single number an arbitrageur trades on — invisible.
+ * `psi` exists to widen this gap when the book is one-sided; hiding it meant
+ * paying for a mechanism with no audience.
+ */
+export function borrowSpread(s: MarketSnapshot) {
+  const perMonth = (hourly: bigint) => (Number(hourly) / 1e6) * 24 * 30;
+  const long = perMonth(s.borrow.long);
+  const short = perMonth(s.borrow.short);
+  const crowded = long >= short ? "long" : "short";
+  return {
+    longMonthly: long,
+    shortMonthly: short,
+    spread: Math.abs(long - short),
+    crowded: crowded as Side,
+    /** The side an arbitrageur gets paid to take. */
+    paidSide: (crowded === "long" ? "short" : "long") as Side,
+  };
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Portfolio
+// ───────────────────────────────────────────────────────────────────────────
+
+export interface PositionRow {
+  constituentId: string;
+  side: Side;
+  notional: bigint;
+  margin: bigint;
+  entryPrice: bigint;
+  markPrice: bigint;
+  pnl: bigint;
+  pnlPct: number;
+  leverage: number;
+}
+
+/**
+ * Sample positions, shown ONLY while `IS_SAMPLE` is true and always behind the
+ * "concept preview · sample data" flag in the chrome.
+ *
+ * There is no deployment, so a wallet genuinely has no positions. An empty
+ * table is the honest state and the page renders it when this is off — but a
+ * table that has never been seen with data in it is a table nobody has
+ * checked, so these exist to exercise the real one.
+ */
+const SAMPLE_POSITIONS: PositionRow[] = [
+  { constituentId: "001", side: "long", notional: 2_480n * 1_000_000n, margin: 496n * 1_000_000n, entryPrice: 1_010_320n, markPrice: 1_047_210n, pnl: 90_600_000n, pnlPct: 3.65, leverage: 5 },
+  { constituentId: "003", side: "short", notional: 1_920n * 1_000_000n, margin: 384n * 1_000_000n, entryPrice: 1_043_170n, markPrice: 1_019_080n, pnl: 44_300_000n, pnlPct: 2.31, leverage: 5 },
+  { constituentId: "004", side: "long", notional: 3_160n * 1_000_000n, margin: 632n * 1_000_000n, entryPrice: 1_045_500n, markPrice: 1_031_120n, pnl: -43_400_000n, pnlPct: -1.37, leverage: 5 },
+];
+
+export interface Portfolio {
+  rows: PositionRow[];
+  totalValue: bigint;
+  totalPnl: bigint;
+  longNotional: bigint;
+  shortNotional: bigint;
+  cash: bigint;
+}
+
+export async function loadPortfolio(owner: PublicKey | null): Promise<Portfolio> {
+  const rows = owner && IS_SAMPLE ? SAMPLE_POSITIONS : [];
+  const sum = (f: (r: PositionRow) => bigint) => rows.reduce((a, r) => a + f(r), 0n);
+  const cash = rows.length ? 5_240n * 1_000_000n : 0n;
+  const margin = sum((r) => r.margin);
+  return {
+    rows,
+    totalValue: margin + cash + sum((r) => r.pnl),
+    totalPnl: sum((r) => r.pnl),
+    longNotional: sum((r) => (r.side === "long" ? r.notional : 0n)),
+    shortNotional: sum((r) => (r.side === "short" ? r.notional : 0n)),
+    cash,
   };
 }

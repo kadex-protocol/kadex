@@ -3,15 +3,22 @@
 Five roles. Only three of them care about cards; the other two are the ones
 that make the market work, and the current frontend barely speaks to either.
 
-Last reviewed 3 Oct 2026.
+Last reviewed 5 Oct 2026.
+
+> **Update 5 Oct.** The UI was rebuilt dark, and the two cheapest items on the
+> list at the bottom of this file shipped with it: the borrow spread is now
+> permanently visible in the ticket (role 5), and Hedge mode reframes the short
+> side for dealers, sizing in inventory value (role 4). Portfolio exists, which
+> serves roles 1 and 2. What is still missing is a vault inventory view for
+> role 3.
 
 | # | Role | Wants | Screen | State |
 |---|---|---|---|---|
-| 1 | Speculator | directional exposure without owning | Market | **built** |
-| 2 | Liquidity provider | yield for being the counterparty | Pool | **built** |
+| 1 | Speculator | directional exposure without owning | Market, Portfolio | **built** |
+| 2 | Liquidity provider | yield for being the counterparty | Pool, Portfolio | **built** |
 | 3 | Card owner | liquidity without selling | Vault | **built** |
-| 4 | Dealer hedging stock | insurance on inventory | — | **nothing** |
-| 5 | Arbitrageur | the long/short borrow spread | — | **nothing** |
+| 4 | Dealer hedging stock | insurance on inventory | Market → Hedge | **built** |
+| 5 | Arbitrageur | the long/short borrow spread | Market ticket | **built** |
 
 ---
 
