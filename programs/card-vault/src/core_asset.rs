@@ -24,6 +24,14 @@ use crate::errors::VaultError;
 /// live on mainnet-beta rather than taken from documentation.
 pub const CORE_PROGRAM_ID: Pubkey = pubkey!("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d");
 
+/// Collector Crypt's asset collection, read off a live mainnet card rather
+/// than taken from documentation — their docs do not publish it.
+///
+/// Every asset they mint carries this as its update authority, which is what
+/// makes membership checkable instead of asserted.
+pub const COLLECTOR_CRYPT_COLLECTION: Pubkey =
+    pubkey!("CCryptUfeFSZ3Fgc9FLeKrhLVAP67FSqi1GuVoj9CRac");
+
 /// What the vault needs to know about a card before it will accept it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CoreCard {
@@ -95,6 +103,43 @@ mod tests {
     #[test]
     fn a_bare_address_authority_is_not_membership() {
         assert!(!card(None).in_collection(&CC));
+    }
+
+    /// A REAL Collector Crypt card, byte for byte as mainnet holds it:
+    /// `CvsHTsAjWdaxViomzmfzqkVFsNkps6Jzs8d24jjMzP43`, a 1996 Wartortle
+    /// graded PSA 5, fetched 5 Oct 2026.
+    ///
+    /// Fixtures I invent prove the parser agrees with me. This one proves it
+    /// agrees with the chain, which is the only agreement that matters.
+    const REAL_CARD: &str = "AVNjKWjVBC+UKTfXS1vRQejFrKHXP77AjyqGf9hewv6dAqZ6dRaY8L8+Hhp++hRPRifaIbCLArWnKuZKz/eETB71IAAAADE5OTYgIzggV2FydG9ydGxlIFBTQSA1IEphcGFuZXNlPwAAAGh0dHBzOi8vYXJ3ZWF2ZS5uZXQvWVRJekpuaXlaVlB5TnBQeTZEdFhmeGZjY25mOUVwbGhXa1pBM3I2RE9oQQADtgAAAAAAAAAFAAMEAgAAAAUDyY5ALK0GsE3h/v+S00TpD1uwIjWu3YPrqiF/Wrrij0WzAAAAAAAAAAMDDZZab/78Ve2ZuJDfrm6WxHjJv4NvcyJaIfVjVIXaqAq1AAAAAAAAAAAAAAA=";
+
+    #[test]
+    fn a_real_collector_crypt_card_parses_and_belongs_to_their_collection() {
+        use base64::Engine;
+        let data = base64::engine::general_purpose::STANDARD
+            .decode(REAL_CARD)
+            .expect("fixture decodes");
+
+        let asset = BaseAssetV1::from_bytes(&data).expect("a real Core asset parses");
+        assert_eq!(asset.key, Key::AssetV1);
+
+        let card = CoreCard {
+            owner: asset.owner,
+            collection: match asset.update_authority {
+                UpdateAuthority::Collection(c) => Some(c),
+                _ => None,
+            },
+        };
+
+        // The card is vouched for by a collection, not by a bare address.
+        assert!(
+            card.in_collection(&COLLECTOR_CRYPT_COLLECTION),
+            "a live Collector Crypt card must pass the collection check, got {:?}",
+            card.collection
+        );
+
+        // And it is held by somebody — the wallet that would deposit it.
+        assert_ne!(card.owner, Pubkey::default());
     }
 
     #[test]
