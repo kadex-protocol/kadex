@@ -16,6 +16,7 @@ use slab_interface::seeds;
 declare_id!("J8Tef8N4YSfVwAxpBemCZrz3qCxehTeb2cd1jTwoBczW");
 
 pub mod errors;
+pub mod core_asset;
 use errors::VaultError;
 
 /// Decimal places of the fractions.

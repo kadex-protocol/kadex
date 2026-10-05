@@ -24,6 +24,7 @@ anchor-lang = { workspace = true, features = ["init-if-needed"] }
 anchor-spl = { workspace = true }
 slab-math = { workspace = true }
 slab-interface = { workspace = true }
+mpl-core = "0.12"
 
 
 

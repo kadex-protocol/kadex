@@ -2,6 +2,10 @@ use anchor_lang::prelude::*;
 
 #[error_code]
 pub enum VaultError {
+    #[msg("Account is not a Metaplex Core asset.")]
+    NotACoreAsset,
+    #[msg("Card is not in the expected collection.")]
+    WrongCollection,
     #[msg("Only the registry admin")]
     NotAdmin,
     #[msg("Fraction supply must be greater than zero")]
