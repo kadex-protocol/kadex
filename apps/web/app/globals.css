@@ -135,8 +135,8 @@ p.sub { font-size: 12.5px; line-height: 1.55; color: var(--mute); margin: 5px 0 
   position: relative; border-radius: var(--r); overflow: hidden;
   border: 1px solid var(--line-soft);
   background-color: #0a0806;
-  display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.06fr);
-  gap: 20px; align-items: center; padding: 56px 34px 50px; min-height: 440px;
+  display: grid; grid-template-columns: minmax(0, 52%);
+  align-items: center; padding: 54px 38px 50px; min-height: 420px;
   isolation: isolate;
 }
 
@@ -152,8 +152,8 @@ p.sub { font-size: 12.5px; line-height: 1.55; color: var(--mute); margin: 5px 0 
   content: ""; position: absolute; inset: 0; z-index: -2;
   background-image: url("/vault-hall.jpg");
   background-size: cover;
-  background-position: 68% 30%;
-  opacity: .9;
+  background-position: 62% 46%;
+  opacity: 1;
 }
 
 /*
@@ -164,9 +164,8 @@ p.sub { font-size: 12.5px; line-height: 1.55; color: var(--mute); margin: 5px 0 
 .hero::after {
   content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
   background:
-    linear-gradient(96deg, rgba(8,6,5,.95) 0%, rgba(8,6,5,.86) 34%, rgba(8,6,5,.34) 62%, rgba(8,6,5,.12) 100%),
-    radial-gradient(70% 86% at 50% 118%, rgba(0,0,0,.72) 0%, transparent 72%),
-    linear-gradient(180deg, rgba(8,6,5,.5) 0%, transparent 26%);
+    linear-gradient(94deg, rgba(8,6,5,.93) 0%, rgba(8,6,5,.8) 30%, rgba(8,6,5,.3) 56%, rgba(8,6,5,0) 78%),
+    linear-gradient(180deg, rgba(8,6,5,.45) 0%, transparent 22%, transparent 72%, rgba(8,6,5,.5) 100%);
 }
 
 .hero-copy { position: relative; z-index: 2; }
@@ -214,6 +213,7 @@ p.sub { font-size: 12.5px; line-height: 1.55; color: var(--mute); margin: 5px 0 
 .slab-cert .bars span { width: .5px; background: #17120f; display: block; }
 
 .slab-win { margin-top: 4px; aspect-ratio: 5/7; border-radius: 1px; overflow: hidden; position: relative; }
+.slab-win img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .slab-win::after {
   content: ""; position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(116deg, rgba(255,255,255,.17) 0%, transparent 26%, transparent 72%, rgba(255,255,255,.07) 100%);
@@ -261,7 +261,8 @@ table.t .n { font-variant-numeric: tabular-nums; color: var(--cream); }
 table.t th.r, table.t td.r { text-align: right; padding-right: 0; }
 
 .asset { display: flex; align-items: center; gap: 12px; }
-.asset .thumb { width: 38px; height: 52px; border-radius: 3px; overflow: hidden; flex: none; border: 1px solid var(--line); }
+.asset .thumb { width: 38px; height: 52px; border-radius: 3px; overflow: hidden; flex: none; border: 1px solid var(--line); display: block; }
+.asset .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .asset .nm { color: var(--cream); font-size: 13px; }
 .asset .id { color: var(--mute-2); font-size: 10.5px; margin-top: 3px; }
 
@@ -345,7 +346,7 @@ hr.sep { border: none; border-top: 1px solid var(--line-soft); margin: 2px 0; }
 @media (max-width: 1080px) {
   .trade-layout, .grid-2 { grid-template-columns: minmax(0,1fr); }
   .ticket { position: static; }
-  .hero { grid-template-columns: minmax(0,1fr); padding: 38px 24px; }
+  .hero { grid-template-columns: minmax(0,1fr); padding: 38px 24px; min-height: 360px; }
   .hero-note { display: none; }
 }
 

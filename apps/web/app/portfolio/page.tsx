@@ -38,7 +38,7 @@ export default function PortfolioPage() {
 
   return (
     <div className="page">
-      <section className="hero" style={{ minHeight: 300, gridTemplateColumns: "minmax(0,1fr) minmax(0,.8fr)" }}>
+      <section className="hero" style={{ minHeight: 320 }}>
         <div className="hero-copy">
           <p className="kicker">Portfolio</p>
           <h1 className="display">
@@ -49,11 +49,6 @@ export default function PortfolioPage() {
           <p className="lede">
             Track your positions, follow your PnL and manage your exposure — all in one place.
           </p>
-        </div>
-        <div className="hero-art" style={{ display: "flex", justifyContent: "center" }}>
-          <div style={{ width: 150 }}>
-            <Thumb art="ascent" />
-          </div>
         </div>
       </section>
 

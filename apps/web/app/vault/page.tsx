@@ -12,7 +12,6 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { CONSTITUENTS, fmtBps, fmtUsd } from "@/lib/market";
-import { Shelf } from "@/components/Shelf";
 import { Thumb } from "@/components/Slab";
 import { useWallet } from "@/lib/wallet";
 
@@ -49,7 +48,6 @@ export default function VaultPage() {
             A graded collectible becomes fractions you can trade, lend or redeem.
           </p>
         </div>
-        <Shelf count={3} />
       </section>
 
       <div className="trade-layout">

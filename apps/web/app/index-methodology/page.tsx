@@ -2,7 +2,6 @@
 
 import { CONSTITUENTS, fmtBps, fmtPct, fmtPrice, fmtUsd } from "@/lib/market";
 import { useMarket } from "@/lib/useMarket";
-import { Shelf } from "@/components/Shelf";
 import { Thumb } from "@/components/Slab";
 
 export default function IndexPage() {
@@ -16,7 +15,6 @@ export default function IndexPage() {
           <h1 className="display">The Culture Index.</h1>
           <p className="lede">What the index holds, and the rules it holds it by.</p>
         </div>
-        <Shelf />
       </section>
 
       <div className="stats">

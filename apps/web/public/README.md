@@ -1,22 +1,36 @@
 # Static assets
 
-## `vault-hall.jpg`
+Cropped from the project's own reference renders. Source PNGs are 1024x1536
+and live outside the repository; what ships here is the cropped, compressed
+result.
 
-The hero plate. A generated interior — stone hall, arched window, light shaft,
-an empty vitrine on a plinth — used as the background of every `.hero`.
+## `vault-hall.jpg` — the hero plate
 
-**Why this one and not the other reference.** The alternative plate had real
-graded cards in it: Pokemon, Magic, Star Wars, a Jordan rookie. All legible,
-all third-party trademarks. This plate has an *empty* case, so the repository
-carries no one else's marks.
+A landscape band (1024x730, 85 KB) cut from the reference: dark hall and bust
+on the left, arched window and light shaft on the right, four graded cards on
+a stone plinth.
 
-**How it is used.** `background-position: 68% 30%` puts the arch and the light
-on the right, where the objects sit, and leaves the dark left wall for the
-copy. A three-layer scrim in `.hero::after` guarantees the headline stays
-readable at every window width — without it, display type sits on whatever the
-photograph happens to be doing behind it.
+`background-position: 62% 46%` keeps the cards and the light in frame while
+the dark left wall carries the copy. The hero is a single 52%-wide column of
+text over the full-bleed plate.
 
-Source is 1024x1536 PNG, 1.7 MB. Shipped as JPEG quality 68, ~162 KB.
+A two-layer scrim in `.hero::after` sits between plate and content. Without
+it, display type lands on whatever the photograph is doing behind it, which
+breaks at some window widths and not others.
 
-To replace it, keep the same shape: dark and quiet on the left, light and
-interesting on the right.
+## `cards/*.jpg` — the five faces
+
+Charizard, Pikachu, Black Lotus, Jordan, Skywalker. Each is the card face
+only, 280x392 (5:7), ~15-20 KB.
+
+The acrylic case, certification label and barcode around them are drawn in
+CSS, so a crop only ever has to supply the face. That is what lets the same
+file work at 38px in a table and at 128px on the shelf.
+
+## Replacing them
+
+Keep the shapes. The plate wants to be dark and quiet on the left, lit and
+interesting on the right. The faces want to be 5:7 with no case edges.
+
+These are illustrative renders standing in for the real tokenized assets a
+live index would hold.

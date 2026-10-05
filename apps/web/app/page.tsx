@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { CONSTITUENTS, fmtBps, fmtUsd, fmtPrice } from "@/lib/market";
 import { useMarket } from "@/lib/useMarket";
-import { Shelf } from "@/components/Shelf";
 import { Thumb } from "@/components/Slab";
 
 export default function Home() {
@@ -34,8 +33,6 @@ export default function Home() {
             </Link>
           </p>
         </div>
-
-        <Shelf />
       </section>
 
       <section className="pillars">

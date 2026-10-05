@@ -41,8 +41,8 @@ export interface Constituent {
   /** Index weight in basis points. */
   weightBps: number;
   grade: string;
-  /** Which artwork to draw. */
-  art: "ascent" | "orbit" | "fields" | "meridian" | "relic";
+  /** Which card face to show. */
+  art: "charizard" | "pikachu" | "jordan" | "lotus" | "luke";
 }
 
 /**
@@ -50,11 +50,11 @@ export interface Constituent {
  * names and grades are illustrative until the real mints are whitelisted.
  */
 export const CONSTITUENTS: Constituent[] = [
-  { id: "001", ref: "A1023847", name: "Ascent", series: "Archive", year: "1999", category: "Trading cards", weightBps: 3200, grade: "GEM MT 10", art: "ascent" },
-  { id: "002", ref: "B7712093", name: "Orbit", series: "Archive", year: "1998", category: "Trading cards", weightBps: 2400, grade: "GEM MT 10", art: "orbit" },
-  { id: "003", ref: "C5587410", name: "Fields", series: "Archive", year: "1993", category: "Trading cards", weightBps: 1900, grade: "GEM MT 10", art: "fields" },
-  { id: "004", ref: "D2240918", name: "Meridian", series: "Archive", year: "1986", category: "Sports", weightBps: 1500, grade: "MINT 9", art: "meridian" },
-  { id: "005", ref: "E9014772", name: "Relic", series: "Archive", year: "1977", category: "Sports", weightBps: 1000, grade: "MINT 9", art: "relic" },
+  { id: "001", ref: "41677010", name: "Charizard",  series: "Pokemon Game", year: "1999", category: "Trading cards", weightBps: 3200, grade: "GEM MT 10", art: "charizard" },
+  { id: "002", ref: "41687010", name: "Pikachu",    series: "Pokemon Game", year: "1999", category: "Trading cards", weightBps: 2400, grade: "GEM MT 10", art: "pikachu" },
+  { id: "003", ref: "63738203", name: "Black Lotus", series: "Magic",       year: "1993", category: "Trading cards", weightBps: 1900, grade: "GEM MT 10", art: "lotus" },
+  { id: "004", ref: "44578113", name: "M. Jordan",  series: "Topps",        year: "1986", category: "Sports",        weightBps: 1500, grade: "GEM MT 10", art: "jordan" },
+  { id: "005", ref: "63786110", name: "Skywalker",  series: "Star Wars",    year: "1977", category: "Sports",        weightBps: 1000, grade: "GEM MT 10", art: "luke" },
 ];
 
 const SAMPLE_POOL: PoolView = {
