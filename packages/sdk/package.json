@@ -4,5 +4,9 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./math": { "types": "./dist/math.d.ts", "default": "./dist/math.js" }
+  },
   "scripts": { "build": "tsc -b" }
 }

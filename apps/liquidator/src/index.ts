@@ -23,11 +23,23 @@
  *   LIQUIDATOR_KEYPAIR=~/.config/solana/id.json \
  *   RPC_URL=https://api.devnet.solana.com \
  *   MARKET=<market pda> npx tsx apps/liquidator/src/index.ts
+ *
+ * `DRY_RUN=1` evaluates and logs without sending. `IDL_DIR` points at the
+ * Anchor IDLs (default `target/idl`), used to read Market, Pool and Oracle and
+ * to build the instruction; Position is still decoded by hand below.
+ *
+ * The bot evaluates with the market's stored borrow index. The program
+ * accrues before deciding, so its index is never lower: the bot can only
+ * under-estimate what a position owes, which means it may miss a position by
+ * a hair, never send one the program refuses for that reason.
  */
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import { join } from "node:path";
+import * as anchor from "@coral-xyz/anchor";
+import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import { getOrCreateAssociatedTokenAccount, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { PROGRAM_IDS, WAD } from "@slab/types";
 import * as math from "@slab/sdk/math";
 
@@ -131,6 +143,13 @@ function loadKeypair(path: string): Keypair {
   return Keypair.fromSecretKey(Uint8Array.from(raw));
 }
 
+const big = (x: { toString(): string }): bigint => BigInt(x.toString());
+
+function loadIdl(name: string) {
+  const dir = process.env.IDL_DIR ?? join(process.cwd(), "target", "idl");
+  return JSON.parse(readFileSync(join(dir, `${name}.json`), "utf8"));
+}
+
 async function main(): Promise<void> {
   const rpcUrl = process.env.RPC_URL ?? "http://127.0.0.1:8899";
   const marketStr = process.env.MARKET;
@@ -138,39 +157,89 @@ async function main(): Promise<void> {
   if (!marketStr || !keypairPath) {
     throw new Error("set MARKET and LIQUIDATOR_KEYPAIR");
   }
+  const dryRun = process.env.DRY_RUN === "1";
 
   const conn = new Connection(rpcUrl, "confirmed");
   const market = new PublicKey(marketStr);
   const signer = loadKeypair(keypairPath);
   const intervalMs = Number(process.env.INTERVAL_MS ?? 5_000);
 
+  const provider = new anchor.AnchorProvider(conn, new anchor.Wallet(signer), { commitment: "confirmed" });
+  const perp = new anchor.Program(loadIdl("perp"), provider);
+  const clpPool = new anchor.Program(loadIdl("clp_pool"), provider);
+  const oracleProgram = new anchor.Program(loadIdl("oracle"), provider);
+
   console.log(`[liquidator] rpc    ${rpcUrl}`);
   console.log(`[liquidator] market ${market.toBase58()}`);
-  console.log(`[liquidator] caller ${signer.publicKey.toBase58()}`);
+  console.log(`[liquidator] caller ${signer.publicKey.toBase58()}${dryRun ? "  (dry run)" : ""}`);
+
+  // Fetched once: the market never changes its pool, and the pool never
+  // changes its mint, vault or oracle.
+  const mk0 = await (perp.account as any).market.fetch(market);
+  const pool0 = await (clpPool.account as any).pool.fetch(mk0.pool);
+  const payout = dryRun
+    ? null
+    : await getOrCreateAssociatedTokenAccount(conn, signer, pool0.usdcMint, signer.publicKey);
 
   for (;;) {
     try {
-      const positions = await fetchPositions(conn, market);
+      const [mk, pool, oracle, positions] = await Promise.all([
+        (perp.account as any).market.fetch(market),
+        (clpPool.account as any).pool.fetch(mk0.pool),
+        (oracleProgram.account as any).oracleAccount.fetch(mk0.oracle),
+        fetchPositions(conn, market),
+      ]);
 
-      // TODO(D10): read Market and Pool to fill these in. Until then the bot
-      // reports what it sees and liquidates nothing, which is the honest
-      // failure mode — a bot that guesses the price would send transactions
-      // the program rejects, or miss ones it should send.
-      const state: MarketState | null = null;
+      const state: MarketState = {
+        price: big(oracle.price),
+        borrowIdxLong: big(mk.borrowIdxLong),
+        borrowIdxShort: big(mk.borrowIdxShort),
+        maintenanceMargin: big(pool.params.maintenanceMargin),
+      };
+      const doomed = positions.filter((p) => isLiquidatable(p, state));
+      console.log(`[liquidator] ${positions.length} open, ${doomed.length} liquidatable`);
 
-      if (state === null) {
-        console.log(
-          `[liquidator] ${positions.length} open position(s); ` +
-            "market/pool decoding not wired yet, so nothing was evaluated",
-        );
-      } else {
-        const doomed = positions.filter((p) => isLiquidatable(p, state));
-        console.log(`[liquidator] ${positions.length} open, ${doomed.length} liquidatable`);
-        for (const p of doomed) {
-          console.log(
-            `[liquidator] would liquidate ${p.address.toBase58()} ` +
-              `(${p.side} ${Number(p.notional) / Number(WAD)})`,
-          );
+      // A stale oracle refuses liquidation; refresh in the same transaction.
+      // It is permissionless, and a no-op if someone already refreshed this slot.
+      const age = Math.floor(Date.now() / 1000) - Number(oracle.lastUpdateTs);
+      const refresh =
+        age > Number(oracle.params.maxStalenessSecs) / 2
+          ? await (oracleProgram.methods as any)
+              .refreshPrice()
+              .accounts({ caller: signer.publicKey, oracle: mk0.oracle, ammPool: oracle.ammPool })
+              .instruction()
+          : null;
+
+      for (const p of doomed) {
+        const label = `${p.address.toBase58()} (${p.side} ${Number(p.notional) / Number(WAD)})`;
+        if (dryRun || !payout) {
+          console.log(`[liquidator] would liquidate ${label}`);
+          continue;
+        }
+        const ix = await (perp.methods as any)
+          .liquidate()
+          .accounts({
+            liquidator: signer.publicKey,
+            market,
+            pool: mk0.pool,
+            oracle: mk0.oracle,
+            position: p.address,
+            positionOwner: p.owner,
+            usdcVault: pool0.usdcVault,
+            payoutUsdc: payout.address,
+            clpPoolProgram: PROGRAM_IDS.clpPool,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .instruction();
+        const tx = new Transaction();
+        if (refresh) tx.add(refresh);
+        tx.add(ix);
+        try {
+          const sig = await provider.sendAndConfirm(tx);
+          console.log(`[liquidator] liquidated ${label}  sig=${sig}`);
+        } catch (err) {
+          // Usually a lost race: another liquidator got there first.
+          console.warn(`[liquidator] ${label} not liquidated:`, err instanceof Error ? err.message : err);
         }
       }
     } catch (err) {
