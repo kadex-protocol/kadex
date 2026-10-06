@@ -146,10 +146,13 @@ pub mod clp_pool {
 
     /// Burn CLP and receive its value at NAV, as a slice of BOTH sleeves.
     ///
-    /// An earlier version paid a raw proportional slice of the vaults,
-    /// ignoring NAV. With $25k of trader margin in the vault, depositing
-    /// $100k and withdrawing at once returned $110,416 on a validator. Now
-    /// the slice is sized by NAV.
+    /// Two things an earlier version got wrong, and a validator test proved:
+    ///
+    /// - it paid a raw proportional slice of the vaults, ignoring NAV. With
+    ///   $25k of trader margin in the vault, depositing $100k and withdrawing
+    ///   at once returned $110,416. Now the slice is sized by NAV.
+    /// - it let LPs drain the sleeve that open positions were admitted
+    ///   against. Now a withdrawal stops at what open interest needs.
     pub fn withdraw(ctx: Context<Withdraw>, shares: u64) -> Result<()> {
         let marks = ctx.accounts.marks()?;
         let pool = &ctx.accounts.pool;
@@ -157,6 +160,12 @@ pub mod clp_pool {
         require!(shares > 0, PoolError::ZeroAmount);
 
         let (usdc_out, fractions_out) = pool.redeem_split(shares, &marks)?;
+        r(risk::check_withdraw(
+            pool.book.oi_total(),
+            pool.usdc_sleeve.saturating_sub(usdc_out),
+            marks.depth,
+            &pool.params.risk(),
+        ))?;
         ctx.accounts.burn_clp(shares)?;
         ctx.accounts.push_usdc(usdc_out)?;
         ctx.accounts.push_fractions(fractions_out)?;

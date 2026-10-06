@@ -52,6 +52,8 @@ pub enum RiskError {
     UtilizationTooHigh,
     /// Position is still above maintenance margin.
     NotLiquidatable,
+    /// An LP withdrawal would leave open interest above capacity.
+    WithdrawBreachesCapacity,
     /// Fixed-point arithmetic failed.
     Math,
 }
@@ -365,6 +367,28 @@ pub fn check_open(
         oi_after,
         capacity: cap,
     })
+}
+
+/// The gate on LP withdrawals.
+///
+/// Positions were admitted against a capacity computed from the USDC sleeve.
+/// Letting LPs drain that sleeve afterwards un-admits them silently: the
+/// winners would find nothing to be paid from. A withdrawal may take the
+/// pool down to the capacity its open interest needs, and no further.
+pub fn check_withdraw(
+    oi_total: u64,
+    usdc_sleeve_after: u64,
+    depth: u64,
+    p: &RiskParams,
+) -> RiskResult<()> {
+    if oi_total == 0 {
+        return Ok(());
+    }
+    let cap = capacity(usdc_sleeve_after, depth, p)?;
+    if oi_total > cap.cap_solvency {
+        return Err(RiskError::WithdrawBreachesCapacity);
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -819,6 +843,28 @@ mod tests {
         assert_eq!(r.bad_debt, 100 * USDC);
         assert_eq!(r.liquidator_fee, 0);
         assert_eq!(r.to_pool, 0);
+    }
+
+    #[test]
+    fn withdrawals_stop_at_the_capacity_open_interest_needs() {
+        let p = params();
+        // sleeve 140k -> solvency cap 233,333
+        assert!(check_withdraw(200_000 * USDC, 140_000 * USDC, 60_000 * USDC, &p).is_ok());
+        // sleeve 100k -> 166,666 < 200k open
+        assert_eq!(
+            check_withdraw(200_000 * USDC, 100_000 * USDC, 60_000 * USDC, &p),
+            Err(RiskError::WithdrawBreachesCapacity)
+        );
+        // no open interest: anything goes
+        assert!(check_withdraw(0, 0, 0, &p).is_ok());
+    }
+
+    #[test]
+    fn a_shallow_amm_does_not_trap_lps() {
+        // Depth is about manipulation, not about who pays winners. Thin AMM
+        // liquidity must not freeze LP money that the solvency ceiling clears.
+        let p = params();
+        assert!(check_withdraw(10_000 * USDC, 140_000 * USDC, 0, &p).is_ok());
     }
 
     #[test]

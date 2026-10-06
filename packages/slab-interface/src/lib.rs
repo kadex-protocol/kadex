@@ -588,6 +588,8 @@ pub enum InterfaceError {
     UtilizationTooHigh,
     #[msg("Position is not liquidatable yet")]
     NotLiquidatable,
+    #[msg("Withdrawal would leave open interest above the pool's capacity")]
+    WithdrawBreachesCapacity,
 }
 
 /// Convert a [`slab_math::MathError`] into an Anchor error. All program
@@ -611,6 +613,7 @@ pub fn r<T>(res: core::result::Result<T, slab_risk::RiskError>) -> Result<T> {
         E::CapacityExceeded => error!(InterfaceError::CapacityExceeded),
         E::UtilizationTooHigh => error!(InterfaceError::UtilizationTooHigh),
         E::NotLiquidatable => error!(InterfaceError::NotLiquidatable),
+        E::WithdrawBreachesCapacity => error!(InterfaceError::WithdrawBreachesCapacity),
         E::Math => error!(InterfaceError::MathFailure),
     })
 }
@@ -689,6 +692,7 @@ mod tests {
             E::CapacityExceeded,
             E::UtilizationTooHigh,
             E::NotLiquidatable,
+            E::WithdrawBreachesCapacity,
             E::Math,
         ];
         let codes: Vec<String> = all

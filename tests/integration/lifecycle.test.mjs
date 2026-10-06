@@ -480,6 +480,21 @@ describe("lifecycle", () => {
     assert.ok(out <= 100_000n * USDC, `round trip returned ${out}`);
   });
 
+  test("LPs cannot withdraw the sleeve open positions were admitted against", async () => {
+    // Deep AMM so the solvency ceiling is the one that binds.
+    const e = await setupProtocol(ctx, { usdc: 2_000_000n * USDC, fraction: 2_000_000n * USDC });
+    const lp1 = await actor(ctx, e, 30_000n * USDC);
+    await deposit(e, lp1, 30_000n * USDC); // solvency cap 50k
+    const trader = await actor(ctx, e, 20_000n * USDC);
+    await open(e, trader, { nonce: 1, notional: 40_000n * USDC, margin: 10_000n * USDC });
+
+    // 40k open needs 24k of sleeve; taking 10k leaves ~20k
+    const msg = await mustFail(withdraw(e, lp1, 10_000n * USDC), "LP drained the sleeve under open interest");
+    assert.match(msg, /WithdrawBreachesCapacity|capacity/i);
+    // a small withdrawal that stays above the line still works
+    await withdraw(e, lp1, 2_000n * USDC);
+  });
+
   test("a stale oracle admits no new risk, whatever its stored state says", async () => {
     const quick = { ...DEFAULT_ORACLE_PARAMS, maxStalenessSecs: 3 };
     const e = await setupProtocol(ctx, { oracleParams: quick });
