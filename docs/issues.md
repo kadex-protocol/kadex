@@ -42,8 +42,8 @@ node scripts/size-market.mjs 50000      # one size
 ```
   AMM depth    CLP sleeve   max OI     binding    attack cost  attacker gain
   $25,000      $50,000      $3,738     depth      $2,243       $1,121
-  $50,000      $100,000     $7,476     depth      $4,486       $2,242
-  $100,000     $200,000     $14,953    depth      $8,972       $4,485
+  $50,000      $100,000     $7,477     depth      $4,486       $2,243
+  $100,000     $200,000     $14,954    depth      $8,972       $4,486
   $250,000     $500,000     $37,385    depth      $22,431      $11,215
 ```
 
