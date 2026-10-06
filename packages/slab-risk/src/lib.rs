@@ -471,19 +471,23 @@ pub fn settle_liquidation(
     p: &RiskParams,
 ) -> RiskResult<Liquidation> {
     let e = equity(pos, price, index_now)?;
+    let full_fee = to_u64(apply_bps_ceil(
+        pos.notional as u128,
+        p.liquidator_fee_bps as u128,
+    )?)?;
     if e <= 0 {
+        // Still pay the liquidator, out of the margin the pool keeps. A
+        // position past zero equity is the one the pool most needs gone: it
+        // keeps counting against capacity and its loss is already the pool's.
+        // With no fee nobody would send the transaction.
         return Ok(Liquidation {
-            liquidator_fee: 0,
+            liquidator_fee: full_fee.min(pos.margin),
             to_pool: 0,
             bad_debt: to_u64(e.unsigned_abs())?,
         });
     }
     let e_u = to_u64(e as u128)?;
-    let fee = to_u64(apply_bps_ceil(
-        pos.notional as u128,
-        p.liquidator_fee_bps as u128,
-    )?)?
-    .min(e_u);
+    let fee = full_fee.min(e_u);
     Ok(Liquidation {
         liquidator_fee: fee,
         to_pool: e_u - fee,
@@ -841,8 +845,18 @@ mod tests {
         let price = (WAD * 70 / 100) as u64; // loss 300 against margin 200
         let r = settle_liquidation(&pos, price, RAY, &p).unwrap();
         assert_eq!(r.bad_debt, 100 * USDC);
-        assert_eq!(r.liquidator_fee, 0);
+        // still paid, from the margin, so somebody bothers to clear it
+        assert_eq!(r.liquidator_fee, 10 * USDC);
         assert_eq!(r.to_pool, 0);
+    }
+
+    #[test]
+    fn the_bad_debt_fee_never_exceeds_the_margin() {
+        let mut p = params();
+        p.liquidator_fee_bps = 5_000; // absurd, to make the cap bind
+        let pos = position(Side::Long, 1_000 * USDC, 5);
+        let r = settle_liquidation(&pos, (WAD / 2) as u64, RAY, &p).unwrap();
+        assert_eq!(r.liquidator_fee, pos.margin);
     }
 
     #[test]
