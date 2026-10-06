@@ -62,6 +62,8 @@ pub mod perp {
         let pool = &ctx.accounts.pool;
         let params = pool.params.risk();
         let oracle = ctx.accounts.oracle_view()?;
+        // A stale price never admits risk, whatever the stored state says.
+        oracle.require_tradeable(now)?;
 
         // One call. Every rule that can refuse this order refuses in there.
         let approval = r(risk::check_open(
@@ -519,13 +521,17 @@ macro_rules! settler {
             /// a position must be closable and liquidatable even when the
             /// market has stopped accepting new risk. Blocking that would
             /// leave rotten positions accumulating.
+            ///
+            /// Stale is still refused, against the oracle's own limit: a
+            /// closing trader prepends `refresh_price`, which is permissionless
+            /// and a no-op if someone already refreshed this slot.
             pub fn mark_price(&self) -> Result<u64> {
                 let view = read_oracle(
                     &self.oracle.to_account_info(),
                     &ORACLE_PROGRAM_ID,
                 )?;
                 let now = Clock::get()?.unix_timestamp;
-                view.require_markable(now, 900)
+                view.require_markable(now)
             }
 
             /// Remove the position from the book and return the resulting

@@ -297,12 +297,29 @@ pub struct OracleView {
     pub depth: u64,
     /// Sluggish EMA, for marking collateral rather than trading it.
     pub slow_twap: u64,
+    /// State as of the last refresh. Says nothing about freshness on its own:
+    /// it only changes when someone refreshes, so every consumer checks `ts`
+    /// against `max_staleness_secs` as well.
     pub state: OracleState,
+    /// The oracle's own staleness limit. Consumers use this rather than a
+    /// number of their own, so there is one limit to reason about.
+    pub max_staleness_secs: u32,
 }
 
 impl OracleView {
-    /// Price usable for opening risk. Fails unless the oracle is `Ok`.
-    pub fn require_tradeable(&self) -> Result<u64> {
+    /// Was the price refreshed within the oracle's own staleness limit?
+    ///
+    /// `state` cannot answer this: it is written by `refresh_price`, so when
+    /// every keeper stops it stays `Ok` forever. Freshness has to be judged
+    /// at read time, against the clock.
+    pub fn is_fresh(&self, now: i64) -> bool {
+        self.ts > 0 && now.saturating_sub(self.ts) <= self.max_staleness_secs as i64
+    }
+
+    /// Price usable for opening risk: state `Ok` AND fresh. A stale price
+    /// must never admit new risk, whatever the stored state says.
+    pub fn require_tradeable(&self, now: i64) -> Result<u64> {
+        require!(self.is_fresh(now), InterfaceError::OracleStale);
         require!(self.state.is_tradeable(), InterfaceError::OracleNotTradeable);
         require!(self.price > 0, InterfaceError::OraclePriceZero);
         Ok(self.price)
@@ -311,14 +328,15 @@ impl OracleView {
     /// Price for liquidation and marking. Allowed outside `Ok`, as long as it
     /// is not stale: blocking liquidation would leave rotten positions
     /// accumulating. Never accepts a zero price.
-    pub fn require_markable(&self, now: i64, max_staleness: u32) -> Result<u64> {
+    ///
+    /// A stale oracle is not a dead end: `refresh_price` is permissionless,
+    /// so a closing trader prepends it to the same transaction.
+    pub fn require_markable(&self, now: i64) -> Result<u64> {
         require!(self.price > 0, InterfaceError::OraclePriceZero);
-        require!(
-            now.saturating_sub(self.ts) <= max_staleness as i64,
-            InterfaceError::OracleStale
-        );
+        require!(self.is_fresh(now), InterfaceError::OracleStale);
         Ok(self.price)
     }
+
 
     /// Price for marking the pool's CARD SLEEVE. Never for PnL.
     ///
@@ -371,6 +389,7 @@ pub fn read_oracle(ai: &AccountInfo, oracle_program_id: &Pubkey) -> Result<Oracl
         depth: acc.depth_usdc,
         slow_twap: acc.slow_twap,
         state: acc.state,
+        max_staleness_secs: acc.params.max_staleness_secs,
     })
 }
 
@@ -645,6 +664,7 @@ mod tests {
             depth: 0,
             slow_twap: slow,
             state: OracleState::Ok,
+            max_staleness_secs: 900,
         };
         let par = WAD as u64;
 
@@ -664,9 +684,29 @@ mod tests {
         // it is quoted against would pay for it.
         let par = WAD as u64;
         for (p, s) in [(par, par * 3), (par * 3, par), (par, par), (1, par)] {
-            let v = OracleView { price: p, twap: p, ts: 0, depth: 0, slow_twap: s, state: OracleState::Ok };
+            let v = OracleView { price: p, twap: p, ts: 0, depth: 0, slow_twap: s, state: OracleState::Ok, max_staleness_secs: 900 };
             assert!(v.mark_price() <= v.price);
         }
+    }
+
+    fn view_at(ts: i64, state: OracleState) -> OracleView {
+        OracleView { price: WAD as u64, twap: WAD as u64, ts, depth: 0, slow_twap: WAD as u64, state, max_staleness_secs: 900 }
+    }
+
+    #[test]
+    fn a_stored_ok_state_does_not_make_an_old_price_tradeable() {
+        // The bug this guards: state is only rewritten by refresh_price, so
+        // when every keeper stops it reads Ok forever. Freshness must be
+        // judged against the clock at the moment of use.
+        let v = view_at(1_000, OracleState::Ok);
+        assert!(v.require_tradeable(1_000 + 900).is_ok());
+        assert!(v.require_tradeable(1_000 + 901).is_err(), "stale price admitted new risk");
+        assert!(v.require_markable(1_000 + 901).is_err());
+    }
+
+    #[test]
+    fn a_never_refreshed_oracle_is_not_fresh() {
+        assert!(!view_at(0, OracleState::Ok).is_fresh(100));
     }
 
     #[test]

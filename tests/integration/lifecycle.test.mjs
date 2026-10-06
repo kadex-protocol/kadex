@@ -30,9 +30,11 @@ import {
   balance,
   refresh,
   refreshOver,
+  sleep,
   swapUsdcIn,
   findPosition,
   mustFail,
+  DEFAULT_ORACLE_PARAMS,
   TOKEN_PROGRAM_ID,
 } from "./_harness.mjs";
 
@@ -406,5 +408,31 @@ describe("lifecycle", () => {
 
     const after = await poolState(e.pool);
     assert.equal(BigInt(after.clpSupply.toString()), 0n, "everyone is out");
+  });
+
+  // -------------------------------------------------------------------------
+  // regressions for the audit of 6 Oct 2026
+  // -------------------------------------------------------------------------
+
+  test("a stale oracle admits no new risk, whatever its stored state says", async () => {
+    const quick = { ...DEFAULT_ORACLE_PARAMS, maxStalenessSecs: 3 };
+    const e = await setupProtocol(ctx, { oracleParams: quick });
+    const lp1 = await actor(ctx, e, 140_000n * USDC);
+    const trader = await actor(ctx, e, 10_000n * USDC);
+    await refresh(ctx, e);
+    await deposit(e, lp1, 140_000n * USDC);
+    await sleep(4_500); // nobody refreshes: state still reads ok
+
+    const o = await oracleState(e.oracle);
+    assert.ok("ok" in o.state, "the stored state never changed");
+    const msg = await mustFail(
+      open(e, trader, { nonce: 1, notional: 1_000n * USDC, margin: 250n * USDC }),
+      "opened on a stale price",
+    );
+    assert.match(msg, /OracleStale|stale/i);
+
+    // a trader refreshes in the same breath and is through
+    await refresh(ctx, e);
+    await open(e, trader, { nonce: 2, notional: 1_000n * USDC, margin: 250n * USDC });
   });
 });

@@ -98,7 +98,12 @@ export const DEFAULT_ORACLE_PARAMS = {
  * `usdc` and `fraction` are in native units. 60k against 60k is $1.00 per
  * fraction, which is what every test starts from unless it says otherwise.
  */
-export async function setupOracle({ conn, provider, p }, usdc = 60_000n * USDC, fraction = 60_000n * USDC) {
+export async function setupOracle(
+  { conn, provider, p },
+  usdc = 60_000n * USDC,
+  fraction = 60_000n * USDC,
+  params = DEFAULT_ORACLE_PARAMS,
+) {
   const pool = Keypair.generate();
   const basket = Keypair.generate().publicKey;
   const oracle = findOracle(basket);
@@ -110,7 +115,7 @@ export async function setupOracle({ conn, provider, p }, usdc = 60_000n * USDC, 
     .rpc();
 
   await p.oracle.methods
-    .initialize({ mock: {} }, DEFAULT_ORACLE_PARAMS)
+    .initialize({ mock: {} }, params)
     .accounts({
       admin: provider.wallet.publicKey,
       basket,
@@ -228,9 +233,12 @@ export const DEFAULT_POOL_PARAMS = {
  * before `initialize_pool` runs, because the program never takes authority of
  * an account it did not already own — it only records the addresses.
  */
-export async function setupProtocol(ctx, { usdc = 60_000n * USDC, fraction = 60_000n * USDC } = {}) {
+export async function setupProtocol(
+  ctx,
+  { usdc = 60_000n * USDC, fraction = 60_000n * USDC, oracleParams = DEFAULT_ORACLE_PARAMS } = {},
+) {
   const { conn, payer, provider, p } = ctx;
-  const oracleEnv = await setupOracle(ctx, usdc, fraction);
+  const oracleEnv = await setupOracle(ctx, usdc, fraction, oracleParams);
   await refresh(ctx, oracleEnv);
 
   const usdcMint = await createMint(conn, payer, payer.publicKey, null, 6);

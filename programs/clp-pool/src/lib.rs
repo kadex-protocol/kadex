@@ -569,7 +569,8 @@ macro_rules! oracle_reader {
                     &slab_interface::ORACLE_PROGRAM_ID,
                 )?;
                 let now = Clock::get()?.unix_timestamp;
-                view.require_markable(now, 900)?;
+                // Against the oracle's own staleness limit, not a number of ours.
+                view.require_markable(now)?;
                 // The POOL marks collateral, so it uses the sluggish price.
                 // `perp` keeps using `price` for PnL — a trader's position
                 // must settle at what the market says now, not at a lagging
