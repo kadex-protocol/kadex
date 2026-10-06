@@ -43,6 +43,8 @@ export function findOracle(basket) {
   )[0];
 }
 
+export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 /** A funded wallet and an Anchor provider bound to it. */
 export async function newProvider() {
   const conn = new Connection(RPC_URL, "confirmed");
@@ -74,13 +76,20 @@ export async function funded(conn, sol = 10) {
   return kp;
 }
 
+/**
+ * Production defences, on a clock a test can wait out: the clamp is 5% per
+ * SECOND and the TWAP window two seconds, where production uses 5% per 15s
+ * and 30 minutes. The mechanics are identical; only the time scale differs,
+ * because a local validator cannot warp its clock.
+ */
 export const DEFAULT_ORACLE_PARAMS = {
-  twapWindowSecs: 1800,
+  twapWindowSecs: 2,
   maxTickMove: new anchor.BN(50_000),
   maxStalenessSecs: 900,
   minPoolDepth: new anchor.BN(25_000_000_000),
   maxDivergence: new anchor.BN(150_000),
   slowAlpha: new anchor.BN(10_000),
+  clampPeriodSecs: 1,
 };
 
 /**
@@ -118,6 +127,14 @@ export async function refresh({ provider, p }, { oracle, ammPool }) {
     .refreshPrice()
     .accounts({ caller: provider.wallet.publicKey, oracle, ammPool })
     .rpc();
+}
+
+/** Refresh once a second for `n` seconds, so the clamp can let the price move. */
+export async function refreshOver(ctx, env, n) {
+  for (let i = 0; i < n; i += 1) {
+    await sleep(1_100);
+    await refresh(ctx, env);
+  }
 }
 
 export async function swapUsdcIn({ provider, p }, pool, amount) {

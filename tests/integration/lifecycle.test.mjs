@@ -29,6 +29,7 @@ import {
   actor,
   balance,
   refresh,
+  refreshOver,
   swapUsdcIn,
   findPosition,
   mustFail,
@@ -180,9 +181,9 @@ describe("lifecycle", () => {
 
     const position = await open(env, trader, { nonce: 3, notional, margin: 1_000n * USDC });
 
-    // Push the AMM up; the clamp walks the oracle after it 5% at a time.
+    // Push the AMM up; the clamp lets the oracle follow at 5% per second.
     await swapUsdcIn(ctx, env.ammPool, 20_000n * USDC);
-    for (let i = 0; i < 6; i += 1) await refresh(ctx, env);
+    await refreshOver(ctx, env, 6);
     const price = BigInt((await oracleState(env.oracle)).price.toString());
     assert.ok(price > WAD, `oracle did not move, still ${price}`);
 
@@ -199,6 +200,13 @@ describe("lifecycle", () => {
 
     const p = await poolState(env.pool);
     assert.equal(BigInt(p.marginHeld.toString()), 0n, "liability released");
+
+    // The oracle is still catching up with the AMM, which stops new risk by
+    // design. Let it arrive so the suites after this one can open.
+    for (let i = 0; i < 30 && !("ok" in (await oracleState(env.oracle)).state); i += 1) {
+      await refreshOver(ctx, env, 1);
+    }
+    assert.ok("ok" in (await oracleState(env.oracle)).state, "the oracle never caught up");
   });
 
   test("the lower of the two ceilings is the one enforced", async () => {

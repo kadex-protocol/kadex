@@ -134,6 +134,10 @@ pub enum OracleState {
     Diverged,
     /// Never updated.
     Uninitialized,
+    /// The clamp is holding the published price away from the TWAP: the
+    /// market moved faster than the oracle is allowed to follow. Positions
+    /// mark and close; nothing new opens at a price known to be behind.
+    CatchingUp,
 }
 
 impl OracleState {
@@ -151,7 +155,12 @@ impl OracleState {
 pub struct OracleParams {
     /// TWAP window in seconds. Spec: 1800 (30 min).
     pub twap_window_secs: u32,
-    /// Largest move accepted between two updates. WAD. Spec: 0.05.
+    /// Largest move accepted per `clamp_period_secs` of elapsed time. WAD.
+    /// Spec: 0.05.
+    ///
+    /// Scaled by TIME, not by update. An earlier version allowed this much
+    /// per call, and `refresh_price` is permissionless: twelve calls in one
+    /// transaction moved the price 79.6%.
     pub max_tick_move: u64,
     /// Age at which the oracle goes `Stale`, in seconds. Spec: 900.
     pub max_staleness_secs: u32,
@@ -164,7 +173,13 @@ pub struct OracleParams {
     /// Small on purpose. At 0.01 and a 30s refresh the slow price takes about
     /// fifty minutes to follow a step change, which is the point: see
     /// [`OracleView::mark_price`].
+    ///
+    /// Applied per `clamp_period_secs` of elapsed time, never per call, so
+    /// refreshing more often does not drag it faster.
     pub slow_alpha: u64,
+    /// The period `max_tick_move` and `slow_alpha` are expressed over, in
+    /// seconds. Spec: 15.
+    pub clamp_period_secs: u32,
 }
 
 impl Default for OracleParams {
@@ -175,7 +190,8 @@ impl Default for OracleParams {
             max_staleness_secs: 900,        // 15 min
             min_pool_depth: 25_000_000_000, // $25k in native USDC
             max_divergence: 150_000,        // 15%
-            slow_alpha: 10_000,             // 0.01 -> ~50min to follow a step
+            slow_alpha: 5_000,              // 0.005 per 15s -> ~50min to follow a step
+            clamp_period_secs: 15,
         }
     }
 }
@@ -183,13 +199,23 @@ impl Default for OracleParams {
 /// How many observations the TWAP ring buffer keeps.
 pub const ORACLE_OBSERVATIONS: usize = 32;
 
-/// One reading of the AMM spot price.
+/// A checkpoint of the running price integral.
+///
+/// The TWAP is `(cumulative_now - cumulative_then) / (now - then)`: every
+/// spot price counts for exactly as long as it was in force. Averaging the
+/// raw readings instead let one caller stuff the buffer with copies of a
+/// pushed price. Checkpoints are spaced at least `window / 31` apart, so the
+/// buffer always reaches back a full window however often anyone refreshes.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace)]
 pub struct Observation {
-    /// Spot price in WAD at the time of the reading.
-    pub price: u64,
-    /// Unix timestamp of the reading.
+    /// Unix timestamp of the checkpoint.
     pub ts: i64,
+    /// Sum of `spot * seconds` up to `ts`.
+    pub cumulative: u128,
+    /// Lowest AMM USDC reserve seen from `ts` until the next checkpoint. The
+    /// published depth is the minimum over the window, so liquidity added for
+    /// one transaction cannot buy open interest.
+    pub depth: u64,
 }
 
 /// Which external AMM the oracle reads. `Mock` exists because, as of day 1,
@@ -225,12 +251,18 @@ pub struct OracleAccount {
     pub price: u64,
     /// Raw window TWAP, before the clamp. Diagnostics only.
     pub twap: u64,
-    /// Last spot read from the AMM, unsmoothed. Diagnostics only.
+    /// Last spot read from the AMM, unsmoothed. It enters the TWAP only for
+    /// the time it stays in force, starting at the NEXT refresh: a price
+    /// pushed for one transaction counts for the seconds until somebody
+    /// refreshes again, which is almost nothing.
     pub spot: u64,
+    /// Running integral of `spot * seconds`. See [`Observation`].
+    pub cumulative: u128,
     /// A deliberately sluggish EMA of the price, used ONLY to mark the pool's
     /// card sleeve. See [`OracleView::mark_price`] for why it exists.
     pub slow_twap: u64,
-    /// AMM reserve in USDC. This is the `R` in the depth ceiling.
+    /// AMM USDC reserve, as the MINIMUM over the TWAP window. This is the
+    /// `R` in the depth ceiling. Liquidity counts once it has stayed.
     pub depth_usdc: u64,
 
     pub last_update_ts: i64,

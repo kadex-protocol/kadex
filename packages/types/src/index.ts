@@ -104,7 +104,14 @@ export const findPosition = (market: PublicKey, owner: PublicKey, nonce: bigint)
 // ---------------------------------------------------------------------------
 
 export type MarketState = "active" | "reduceOnly" | "settled";
-export type OracleState = "ok" | "stale" | "shallowDepth" | "diverged" | "uninitialized";
+export type OracleState =
+  | "ok"
+  | "stale"
+  | "shallowDepth"
+  | "diverged"
+  | "uninitialized"
+  /** The clamp is holding the price behind the TWAP: positions close, nothing opens. */
+  | "catchingUp";
 export type Side = "long" | "short";
 export type AmmAdapterKind = "mock" | "meteora" | "orca" | "raydium";
 

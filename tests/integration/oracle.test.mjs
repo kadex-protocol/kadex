@@ -13,7 +13,7 @@
 import { test, before, describe } from "node:test";
 import assert from "node:assert/strict";
 import anchor from "@coral-xyz/anchor";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, Transaction } from "@solana/web3.js";
 import {
   USDC,
   WAD,
@@ -22,6 +22,7 @@ import {
   funded,
   setupOracle,
   refresh,
+  sleep,
   swapUsdcIn,
   removeLiquidity,
   stateName,
@@ -74,9 +75,10 @@ describe("oracle defences", () => {
     );
   });
 
-  test("a sustained push still gets there, but costs many updates", async () => {
-    // The clamp does not make manipulation impossible, it makes it expensive.
-    // Saying that plainly is better than overclaiming.
+  test("a sustained push still gets there, but only as fast as the clock allows", async () => {
+    // The clamp does not make manipulation impossible, it makes it slow: here
+    // 5% per second (production: 5% per 15s). Saying that plainly is better
+    // than overclaiming.
     const env = await setupOracle(ctx);
     await refresh(ctx, env);
     const before = BigInt((await read(env.oracle)).price.toString());
@@ -84,14 +86,54 @@ describe("oracle defences", () => {
 
     await swapUsdcIn(ctx, env.ammPool, 40_000n * USDC);
 
+    const started = Date.now();
     let updates = 0;
     while (updates < 40) {
       const price = BigInt((await read(env.oracle)).price.toString());
       if (price >= target) break;
+      await sleep(1_100);
       await refresh(ctx, env);
       updates += 1;
     }
-    assert.ok(updates >= 8, `a 50% move took only ${updates} updates`);
+    const secs = (Date.now() - started) / 1000;
+    assert.ok(secs >= 8, `a 50% move took only ${secs}s`);
+  });
+
+  test("many refreshes in one transaction move the price no further than one", async () => {
+    // The exploit this replaces, measured on this validator before the fix:
+    // twelve refreshes in one transaction moved the price +79.6% against a 5%
+    // clamp, with the state still ok. Now the second call in a slot is a
+    // no-op, and a spot that has been in force for zero seconds weighs zero.
+    const env = await setupOracle(ctx);
+    await refresh(ctx, env);
+    await sleep(2_500);
+    await refresh(ctx, env);
+    const before = await read(env.oracle);
+
+    await swapUsdcIn(ctx, env.ammPool, 30_000n * USDC);
+    const ix = await ctx.p.oracle.methods
+      .refreshPrice()
+      .accounts({ caller: ctx.provider.wallet.publicKey, oracle: env.oracle, ammPool: env.ammPool })
+      .instruction();
+    const tx = new Transaction();
+    for (let i = 0; i < 12; i += 1) tx.add(ix);
+    await ctx.provider.sendAndConfirm(tx);
+
+    const after = await read(env.oracle);
+    assert.equal(after.price.toString(), before.price.toString(), "the price moved inside one transaction");
+    assert.equal(after.slowTwap.toString(), before.slowTwap.toString(), "the slow mark moved too");
+  });
+
+  test("liquidity added for a moment buys no depth", async () => {
+    const env = await setupOracle(ctx);
+    await refresh(ctx, env);
+    await ctx.p.mockAmm.methods
+      .addLiquidity(new anchor.BN((600_000n * USDC).toString()))
+      .accounts({ caller: ctx.provider.wallet.publicKey, pool: env.ammPool })
+      .rpc();
+    await refresh(ctx, env);
+    const o = await read(env.oracle);
+    assert.equal(BigInt(o.depthUsdc.toString()), 60_000n * USDC, "depth counted liquidity that just arrived");
   });
 
   test("draining the pool below the depth floor stops trading", async () => {
