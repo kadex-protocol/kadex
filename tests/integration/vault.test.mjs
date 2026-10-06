@@ -19,7 +19,13 @@
 import { test, before, describe } from "node:test";
 import assert from "node:assert/strict";
 import anchor from "@coral-xyz/anchor";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+  TransactionInstruction,
+} from "@solana/web3.js";
 import {
   createMint,
   createAccount,
@@ -41,6 +47,67 @@ const VAULT_SEEDS = {
 const VAULT_ID = new PublicKey(IDLS.cardVault.address);
 
 const pda = (seeds) => PublicKey.findProgramAddressSync(seeds, VAULT_ID)[0];
+
+// ── Metaplex Core, the real program, loaded at genesis by with-validator ──
+//
+// Instructions are built by hand from mpl-core 0.12's generated layouts so
+// the test needs no extra SDK: CreateCollectionV1 = 1, CreateV1 = 0.
+const CORE = new PublicKey("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d");
+const str = (x) => {
+  const b = Buffer.from(x, "utf8");
+  const len = Buffer.alloc(4);
+  len.writeUInt32LE(b.length);
+  return Buffer.concat([len, b]);
+};
+
+async function createCoreCollection(provider) {
+  const collection = Keypair.generate();
+  const me = provider.wallet.publicKey;
+  const ix = new TransactionInstruction({
+    programId: CORE,
+    keys: [
+      { pubkey: collection.publicKey, isSigner: true, isWritable: true },
+      { pubkey: CORE, isSigner: false, isWritable: false }, // update authority: payer
+      { pubkey: me, isSigner: true, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([Buffer.from([1]), str("Test Graded Cards"), str("https://example.test/c"), Buffer.from([0])]),
+  });
+  await provider.sendAndConfirm(new Transaction().add(ix), [collection]);
+  return collection.publicKey;
+}
+
+async function createCoreCard(provider, collection, owner) {
+  const asset = Keypair.generate();
+  const me = provider.wallet.publicKey;
+  const ix = new TransactionInstruction({
+    programId: CORE,
+    keys: [
+      { pubkey: asset.publicKey, isSigner: true, isWritable: true },
+      { pubkey: collection, isSigner: false, isWritable: true },
+      { pubkey: me, isSigner: true, isWritable: false }, // collection authority
+      { pubkey: me, isSigner: true, isWritable: true }, // payer
+      { pubkey: owner, isSigner: false, isWritable: false },
+      { pubkey: CORE, isSigner: false, isWritable: false }, // update authority: none
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: CORE, isSigner: false, isWritable: false }, // log wrapper: none
+    ],
+    data: Buffer.concat([
+      Buffer.from([0, 0]), // CreateV1, DataState::AccountState
+      str("1996 #8 Wartortle PSA 5"),
+      str("https://example.test/a"),
+      Buffer.from([0]),
+    ]),
+  });
+  await provider.sendAndConfirm(new Transaction().add(ix), [asset]);
+  return asset.publicKey;
+}
+
+/** BaseAssetV1: key (1 byte), then the owner. */
+async function coreOwner(conn, asset) {
+  const info = await conn.getAccountInfo(asset);
+  return new PublicKey(info.data.subarray(1, 33));
+}
 const findRegistry = () => pda([VAULT_SEEDS.registry]);
 const findCard = (nft) => pda([VAULT_SEEDS.card, nft.toBuffer()]);
 const findVault = (nft) => pda([VAULT_SEEDS.vault, nft.toBuffer()]);
@@ -48,15 +115,16 @@ const findFractionMint = (nft) => pda([VAULT_SEEDS.fractionMint, nft.toBuffer()]
 const findNftEscrow = (nft) => pda([VAULT_SEEDS.nftEscrow, nft.toBuffer()]);
 
 describe("card vault", () => {
-  let ctx, vault, registry;
+  let ctx, vault, registry, collection;
 
   before(async () => {
     ctx = await newProvider();
     vault = new anchor.Program(IDLS.cardVault, ctx.provider);
     registry = findRegistry();
+    collection = await createCoreCollection(ctx.provider);
 
     await vault.methods
-      .initializeRegistry()
+      .initializeRegistry(collection)
       .accounts({ admin: ctx.payer.publicKey, programData: null, registry })
       .rpc();
   });
@@ -340,5 +408,108 @@ describe("card vault", () => {
     await whitelist(nftMint, 75n);
     const after = (await vault.account.registry.fetch(registry)).cardCount;
     assert.equal(after, before + 1);
+  });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Metaplex Core: what Collector Crypt actually mints
+  // ───────────────────────────────────────────────────────────────────────
+
+  async function whitelistCore(asset, valueUsdc) {
+    await vault.methods
+      .whitelistCoreCard(new anchor.BN((valueUsdc * USDC).toString()), 2_500)
+      .accounts({
+        admin: ctx.payer.publicKey,
+        registry,
+        asset,
+        fractionMint: findFractionMint(asset),
+        vault: findVault(asset),
+        card: findCard(asset),
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .rpc();
+  }
+
+  test("a Core card locks under the vault PDA, mints its fractions, and comes back", async () => {
+    const { conn, payer } = ctx;
+    const owner = await funded(conn, 20);
+    const asset = await createCoreCard(ctx.provider, collection, owner.publicKey);
+    assert.ok((await coreOwner(conn, asset)).equals(owner.publicKey));
+
+    await whitelistCore(asset, 1_420n);
+    const fractionMint = findFractionMint(asset);
+    const ownerFractions = await createAccount(conn, payer, fractionMint, owner.publicKey, Keypair.generate());
+
+    await vault.methods
+      .fractionalizeCore()
+      .accounts({
+        depositor: owner.publicKey,
+        registry,
+        asset,
+        collection,
+        card: findCard(asset),
+        vault: findVault(asset),
+        fractionMint,
+        depositorFractions: ownerFractions,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([owner])
+      .rpc();
+
+    assert.ok((await coreOwner(conn, asset)).equals(findVault(asset)), "the vault PDA owns the card");
+    assert.equal(await balance(conn, ownerFractions), 1_420n * USDC);
+
+    await vault.methods
+      .redeemCore()
+      .accounts({
+        redeemer: owner.publicKey,
+        registry,
+        asset,
+        collection,
+        vault: findVault(asset),
+        fractionMint,
+        redeemerFractions: ownerFractions,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([owner])
+      .rpc();
+
+    assert.ok((await coreOwner(conn, asset)).equals(owner.publicKey), "the card came back");
+    assert.equal(await balance(conn, ownerFractions), 0n);
+    assert.equal((await getMint(conn, fractionMint)).supply, 0n);
+  });
+
+  test("a Core card from another collection is refused at the whitelist", async () => {
+    const other = await createCoreCollection(ctx.provider);
+    const asset = await createCoreCard(ctx.provider, other, ctx.payer.publicKey);
+    const msg = await mustFail(whitelistCore(asset, 100n), "whitelisted a card from the wrong collection");
+    assert.match(msg, /WrongCollection|collection/i);
+  });
+
+  test("a Core card cannot be locked by someone who does not own it", async () => {
+    const { conn, payer } = ctx;
+    const owner = await funded(conn, 20);
+    const thief = await funded(conn, 20);
+    const asset = await createCoreCard(ctx.provider, collection, owner.publicKey);
+    await whitelistCore(asset, 500n);
+    const thiefFractions = await createAccount(conn, payer, findFractionMint(asset), thief.publicKey, Keypair.generate());
+    await mustFail(
+      vault.methods
+        .fractionalizeCore()
+        .accounts({
+          depositor: thief.publicKey,
+          registry,
+          asset,
+          collection,
+          card: findCard(asset),
+          vault: findVault(asset),
+          fractionMint: findFractionMint(asset),
+          depositorFractions: thiefFractions,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([thief])
+        .rpc(),
+      "a stranger locked someone else's card",
+    );
+    assert.ok((await coreOwner(conn, asset)).equals(owner.publicKey));
   });
 });

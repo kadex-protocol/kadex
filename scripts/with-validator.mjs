@@ -37,6 +37,13 @@ const RPC_URL = `http://127.0.0.1:${RPC_PORT}`;
 /** Must match Anchor.toml and keys/. */
 const PROGRAMS = ["card_vault", "oracle", "clp_pool", "perp", "mock_amm"];
 
+/**
+ * Metaplex Core, byte for byte as mainnet runs it, so the vault's Core path
+ * is tested against the real program rather than a fake. Dumped with
+ * `solana program dump -u m CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d`.
+ */
+const EXTERNAL = [["CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d", "tests/fixtures/mpl_core.so"]];
+
 // NODE_OPTIONS on this machine carries a stale preload that breaks child node
 // processes; clearing it keeps the harness self-contained.
 const ENV = { ...process.env, NODE_OPTIONS: "", ANCHOR_PROVIDER_URL: RPC_URL };
@@ -108,7 +115,10 @@ async function main() {
 
   const validator = spawn(
     "solana-test-validator",
-    ["--reset", "--quiet", "--ledger", ledger, "--rpc-port", String(RPC_PORT)],
+    [
+      "--reset", "--quiet", "--ledger", ledger, "--rpc-port", String(RPC_PORT),
+      ...EXTERNAL.flatMap(([id, so]) => ["--bpf-program", id, join(ROOT, so)]),
+    ],
     { stdio: ["ignore", "ignore", "pipe"], env: ENV },
   );
   let stderr = "";

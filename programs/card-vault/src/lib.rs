@@ -6,11 +6,25 @@
 //! Core invariant: `fractions_outstanding == fractions_per_card` while the NFT
 //! is locked, and `0` after redemption. Supply never leaves that.
 //!
+//! Two custody paths, one invariant:
+//!
+//! - SPL NFTs (`fractionalize` / `redeem_card`): the token moves into an
+//!   escrow token account owned by the vault PDA.
+//! - Metaplex Core assets (`fractionalize_core` / `redeem_core`): what
+//!   Collector Crypt mints. A Core asset is not a token, so it cannot sit in
+//!   a token account; the vault PDA becomes the asset's OWNER instead, through
+//!   Core's own `TransferV1`, and only a vault signature moves it back.
+//!
 //! This program knows nothing about price, pools or positions. It only
 //! converts an NFT into fractions and back.
 
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::{
+    instruction::{AccountMeta, Instruction},
+    program::invoke_signed,
+};
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
+use core_asset::{read_core_card, CORE_PROGRAM_ID};
 use slab_interface::{require_deployer, seeds};
 
 declare_id!("J8Tef8N4YSfVwAxpBemCZrz3qCxehTeb2cd1jTwoBczW");
@@ -40,7 +54,9 @@ pub mod card_vault {
     ///
     /// Upgrade authority only: the registry is a single PDA, so whoever
     /// created it first used to become the whitelist admin forever.
-    pub fn initialize_registry(ctx: Context<InitializeRegistry>) -> Result<()> {
+    /// `collection` is the Core collection whose cards may be whitelisted —
+    /// Collector Crypt's on mainnet.
+    pub fn initialize_registry(ctx: Context<InitializeRegistry>, collection: Pubkey) -> Result<()> {
         require_deployer(
             &ctx.accounts.program.to_account_info(),
             ctx.accounts.program_data.as_ref().map(|a| a.as_ref()),
@@ -49,6 +65,7 @@ pub mod card_vault {
         )?;
         let r = &mut ctx.accounts.registry;
         r.admin = ctx.accounts.admin.key();
+        r.collection = collection;
         r.card_count = 0;
         r.bump = ctx.bumps.registry;
         Ok(())
@@ -72,6 +89,7 @@ pub mod card_vault {
         c.fractions_per_card = fractions_per_card;
         c.weight_bps = weight_bps;
         c.enabled = true;
+        c.core = false;
         c.bump = ctx.bumps.card;
 
         // The vault account is created here, so it is filled in here. Leaving
@@ -194,6 +212,130 @@ pub mod card_vault {
         Ok(())
     }
 
+    /// Whitelist a Metaplex Core asset. Same record as `whitelist_card`, keyed
+    /// by the asset's address, and only for an asset the registry's
+    /// collection vouches for.
+    pub fn whitelist_core_card(
+        ctx: Context<WhitelistCoreCard>,
+        fractions_per_card: u64,
+        weight_bps: u16,
+    ) -> Result<()> {
+        require!(fractions_per_card > 0, VaultError::ZeroFractions);
+        require!(weight_bps > 0 && weight_bps <= 10_000, VaultError::BadWeight);
+        let card = read_core_card(&ctx.accounts.asset)?;
+        require!(
+            card.in_collection(&ctx.accounts.registry.collection),
+            VaultError::WrongCollection
+        );
+
+        let asset = ctx.accounts.asset.key();
+        let fraction_mint = ctx.accounts.fraction_mint.key();
+        ctx.accounts.card.set_inner(WhitelistedCard {
+            nft_mint: asset,
+            fraction_mint,
+            fractions_per_card,
+            weight_bps,
+            enabled: true,
+            core: true,
+            bump: ctx.bumps.card,
+        });
+        ctx.accounts.vault.set_inner(VaultedCard {
+            nft_mint: asset,
+            fraction_mint,
+            depositor: Pubkey::default(),
+            fractions_minted: 0,
+            locked: false,
+            bump: ctx.bumps.vault,
+        });
+        ctx.accounts.registry.card_count = ctx.accounts.registry.card_count.saturating_add(1);
+        Ok(())
+    }
+
+    /// Lock a Core card and mint its fractions.
+    ///
+    /// The vault PDA becomes the asset's owner, and the program checks the
+    /// chain agrees before minting a single fraction.
+    pub fn fractionalize_core(ctx: Context<FractionalizeCore>) -> Result<()> {
+        require!(ctx.accounts.card.enabled, VaultError::CardDisabled);
+        require!(!ctx.accounts.vault.locked, VaultError::AlreadyLocked);
+        let before = read_core_card(&ctx.accounts.asset)?;
+        require_keys_eq!(before.owner, ctx.accounts.depositor.key(), VaultError::NotOwner);
+        require!(
+            before.in_collection(&ctx.accounts.registry.collection),
+            VaultError::WrongCollection
+        );
+
+        let vault_key = ctx.accounts.vault.key();
+        ctx.accounts.core_transfer(
+            &ctx.accounts.depositor.to_account_info(),
+            &ctx.accounts.depositor.to_account_info(),
+            vault_key,
+            &[],
+        )?;
+        require_keys_eq!(read_core_card(&ctx.accounts.asset)?.owner, vault_key, VaultError::NotOwner);
+
+        let asset = ctx.accounts.asset.key();
+        let bump = ctx.accounts.vault.bump;
+        let fractions = ctx.accounts.card.fractions_per_card;
+        token::mint_to(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.key(),
+                MintTo {
+                    mint: ctx.accounts.fraction_mint.to_account_info(),
+                    to: ctx.accounts.depositor_fractions.to_account_info(),
+                    authority: ctx.accounts.vault.to_account_info(),
+                },
+                &[&[seeds::VAULT, asset.as_ref(), &[bump]]],
+            ),
+            fractions,
+        )?;
+
+        let v = &mut ctx.accounts.vault;
+        v.depositor = ctx.accounts.depositor.key();
+        v.fractions_minted = fractions;
+        v.locked = true;
+        emit!(CardFractionalized { nft_mint: asset, depositor: v.depositor, fractions });
+        Ok(())
+    }
+
+    /// Burn the WHOLE fraction supply and take the Core card back out.
+    pub fn redeem_core(ctx: Context<RedeemCore>) -> Result<()> {
+        let fractions = ctx.accounts.vault.fractions_minted;
+        require!(ctx.accounts.vault.locked, VaultError::NotLocked);
+        require!(
+            ctx.accounts.redeemer_fractions.amount >= fractions,
+            VaultError::InsufficientFractions
+        );
+        token::burn(
+            CpiContext::new(
+                ctx.accounts.token_program.key(),
+                Burn {
+                    mint: ctx.accounts.fraction_mint.to_account_info(),
+                    from: ctx.accounts.redeemer_fractions.to_account_info(),
+                    authority: ctx.accounts.redeemer.to_account_info(),
+                },
+            ),
+            fractions,
+        )?;
+
+        let asset = ctx.accounts.asset.key();
+        let bump = ctx.accounts.vault.bump;
+        let redeemer = ctx.accounts.redeemer.key();
+        ctx.accounts.core_transfer(
+            &ctx.accounts.redeemer.to_account_info(),
+            &ctx.accounts.vault.to_account_info(),
+            redeemer,
+            &[&[seeds::VAULT, asset.as_ref(), &[bump]]],
+        )?;
+        require_keys_eq!(read_core_card(&ctx.accounts.asset)?.owner, redeemer, VaultError::NotOwner);
+
+        let v = &mut ctx.accounts.vault;
+        v.fractions_minted = 0;
+        v.locked = false;
+        emit!(CardRedeemed { nft_mint: asset, redeemer });
+        Ok(())
+    }
+
     /// Disable a card without deleting its record. A disabled card accepts no
     /// new `fractionalize`, but existing holders can still redeem.
     pub fn set_card_enabled(ctx: Context<SetCardEnabled>, enabled: bool) -> Result<()> {
@@ -216,6 +358,8 @@ pub fn fractions_for_value(value_usdc: u64) -> Option<u64> {
 #[derive(InitSpace)]
 pub struct Registry {
     pub admin: Pubkey,
+    /// The Core collection whose cards may be whitelisted.
+    pub collection: Pubkey,
     pub card_count: u32,
     pub bump: u8,
 }
@@ -230,6 +374,9 @@ pub struct WhitelistedCard {
     /// The card's weight in the basket index, in bps.
     pub weight_bps: u16,
     pub enabled: bool,
+    /// A Metaplex Core asset (true) or an SPL NFT (false). Each custody path
+    /// refuses the other's cards.
+    pub core: bool,
     pub bump: u8,
 }
 
@@ -300,6 +447,7 @@ pub struct Fractionalize<'info> {
         seeds = [seeds::CARD, nft_mint.key().as_ref()], bump = card.bump,
         has_one = nft_mint @ VaultError::WrongCard,
         has_one = fraction_mint @ VaultError::WrongFractionMint,
+        constraint = !card.core @ VaultError::WrongCard,
     )]
     pub card: Account<'info, WhitelistedCard>,
     #[account(
@@ -375,6 +523,166 @@ pub struct SetCardEnabled<'info> {
     pub registry: Account<'info, Registry>,
     #[account(mut, seeds = [seeds::CARD, card.nft_mint.as_ref()], bump = card.bump)]
     pub card: Account<'info, WhitelistedCard>,
+}
+
+#[derive(Accounts)]
+pub struct WhitelistCoreCard<'info> {
+    #[account(mut, address = registry.admin @ VaultError::NotAdmin)]
+    pub admin: Signer<'info>,
+    #[account(mut, seeds = [seeds::REGISTRY], bump = registry.bump)]
+    pub registry: Account<'info, Registry>,
+    /// CHECK: parsed by `read_core_card`, which checks the Core program owns it.
+    pub asset: UncheckedAccount<'info>,
+    #[account(
+        init, payer = admin,
+        seeds = [seeds::FRACTION_MINT, asset.key().as_ref()], bump,
+        mint::decimals = FRACTION_DECIMALS,
+        mint::authority = vault,
+    )]
+    pub fraction_mint: Account<'info, Mint>,
+    #[account(
+        init, payer = admin, space = 8 + VaultedCard::INIT_SPACE,
+        seeds = [seeds::VAULT, asset.key().as_ref()], bump
+    )]
+    pub vault: Account<'info, VaultedCard>,
+    #[account(
+        init, payer = admin, space = 8 + WhitelistedCard::INIT_SPACE,
+        seeds = [seeds::CARD, asset.key().as_ref()], bump
+    )]
+    pub card: Account<'info, WhitelistedCard>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+/// The accounts Core's `TransferV1` needs, shared by both Core paths.
+macro_rules! core_transfer {
+    ($t:ty) => {
+        impl<'info> $t {
+            /// Move the asset to `new_owner` through Core itself.
+            ///
+            /// Built by hand rather than with mpl-core's CPI builder, whose
+            /// `AccountInfo` comes from a different solana-program than
+            /// Anchor's. The layout is TransferV1 as mpl-core 0.12 generates
+            /// it: discriminator 14, `compression_proof: None`.
+            pub fn core_transfer(
+                &self,
+                payer: &AccountInfo<'info>,
+                authority: &AccountInfo<'info>,
+                new_owner: Pubkey,
+                signer_seeds: &[&[&[u8]]],
+            ) -> Result<()> {
+                let ix = Instruction {
+                    program_id: CORE_PROGRAM_ID,
+                    accounts: vec![
+                        AccountMeta::new(self.asset.key(), false),
+                        AccountMeta::new_readonly(self.collection.key(), false),
+                        AccountMeta::new(payer.key(), true),
+                        AccountMeta::new_readonly(authority.key(), true),
+                        AccountMeta::new_readonly(new_owner, false),
+                        AccountMeta::new_readonly(self.system_program.key(), false),
+                        AccountMeta::new_readonly(CORE_PROGRAM_ID, false),
+                    ],
+                    data: vec![14, 0],
+                };
+                invoke_signed(
+                    &ix,
+                    &[
+                        self.asset.to_account_info(),
+                        self.collection.to_account_info(),
+                        payer.clone(),
+                        authority.clone(),
+                        self.new_owner_info(new_owner),
+                        self.system_program.to_account_info(),
+                        self.core_program.to_account_info(),
+                    ],
+                    signer_seeds,
+                )?;
+                Ok(())
+            }
+        }
+    };
+}
+
+#[derive(Accounts)]
+pub struct FractionalizeCore<'info> {
+    #[account(mut)]
+    pub depositor: Signer<'info>,
+    #[account(seeds = [seeds::REGISTRY], bump = registry.bump)]
+    pub registry: Account<'info, Registry>,
+    /// CHECK: parsed by `read_core_card`; Core checks it again on transfer.
+    #[account(mut)]
+    pub asset: UncheckedAccount<'info>,
+    /// CHECK: the registry's collection, address-checked.
+    #[account(address = registry.collection @ VaultError::WrongCollection)]
+    pub collection: UncheckedAccount<'info>,
+    #[account(
+        seeds = [seeds::CARD, asset.key().as_ref()], bump = card.bump,
+        has_one = fraction_mint @ VaultError::WrongFractionMint,
+        constraint = card.core @ VaultError::NotACoreAsset,
+    )]
+    pub card: Account<'info, WhitelistedCard>,
+    #[account(mut, seeds = [seeds::VAULT, asset.key().as_ref()], bump = vault.bump)]
+    pub vault: Account<'info, VaultedCard>,
+    #[account(mut)]
+    pub fraction_mint: Account<'info, Mint>,
+    #[account(
+        mut,
+        constraint = depositor_fractions.mint == fraction_mint.key() @ VaultError::WrongFractionMint,
+        constraint = depositor_fractions.owner == depositor.key() @ VaultError::NotOwner,
+    )]
+    pub depositor_fractions: Account<'info, TokenAccount>,
+    /// CHECK: the Metaplex Core program, address-checked.
+    #[account(address = CORE_PROGRAM_ID)]
+    pub core_program: UncheckedAccount<'info>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+core_transfer!(FractionalizeCore<'info>);
+
+impl<'info> FractionalizeCore<'info> {
+    fn new_owner_info(&self, _new_owner: Pubkey) -> AccountInfo<'info> {
+        self.vault.to_account_info()
+    }
+}
+
+#[derive(Accounts)]
+pub struct RedeemCore<'info> {
+    #[account(mut)]
+    pub redeemer: Signer<'info>,
+    #[account(seeds = [seeds::REGISTRY], bump = registry.bump)]
+    pub registry: Account<'info, Registry>,
+    /// CHECK: Core checks it on transfer; the vault PDA must be its owner.
+    #[account(mut)]
+    pub asset: UncheckedAccount<'info>,
+    /// CHECK: the registry's collection, address-checked.
+    #[account(address = registry.collection @ VaultError::WrongCollection)]
+    pub collection: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        seeds = [seeds::VAULT, asset.key().as_ref()], bump = vault.bump,
+        has_one = fraction_mint @ VaultError::WrongFractionMint,
+    )]
+    pub vault: Account<'info, VaultedCard>,
+    #[account(mut)]
+    pub fraction_mint: Account<'info, Mint>,
+    #[account(
+        mut,
+        constraint = redeemer_fractions.mint == fraction_mint.key() @ VaultError::WrongFractionMint,
+        constraint = redeemer_fractions.owner == redeemer.key() @ VaultError::NotOwner,
+    )]
+    pub redeemer_fractions: Account<'info, TokenAccount>,
+    /// CHECK: the Metaplex Core program, address-checked.
+    #[account(address = CORE_PROGRAM_ID)]
+    pub core_program: UncheckedAccount<'info>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+core_transfer!(RedeemCore<'info>);
+
+impl<'info> RedeemCore<'info> {
+    fn new_owner_info(&self, _new_owner: Pubkey) -> AccountInfo<'info> {
+        self.redeemer.to_account_info()
+    }
 }
 
 #[event]
