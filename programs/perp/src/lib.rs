@@ -139,8 +139,10 @@ pub mod perp {
         let idx = ctx.accounts.market.risk().borrow_index(pos.side);
 
         let outcome = r(risk::settle_close(&pos, price, idx))?;
-        let fee = ctx.accounts.close_fee(pos.notional)?;
-        let to_trader = outcome.to_trader.saturating_sub(fee);
+        // Capped at what the trader is owed, so a fee never manufactures debt
+        // and the pool never books a fee it did not receive.
+        let fee = ctx.accounts.close_fee(pos.notional)?.min(outcome.to_trader);
+        let to_trader = outcome.to_trader - fee;
         let book = ctx.accounts.unwind(pos)?;
 
         ctx.accounts.settle(to_trader, fee, outcome.bad_debt, book, pos.margin)?;
@@ -639,8 +641,8 @@ pub struct ClosePosition<'info> {
 settler!(ClosePosition<'info>);
 
 impl<'info> ClosePosition<'info> {
-    /// Closing fee, rounded up, capped at what the trader is actually owed so
-    /// a fee can never manufacture bad debt.
+    /// Closing fee, rounded up. The caller caps it at what the trader is
+    /// owed.
     pub fn close_fee(&self, notional: u64) -> Result<u64> {
         let fee = m(slab_math::apply_bps_ceil(
             notional as u128,
