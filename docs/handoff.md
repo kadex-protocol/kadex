@@ -14,7 +14,7 @@ npm install
 npm run sync-keys        # keys/ -> target/deploy/ — fixed program IDs, don't skip
 npm run build:programs   # NOT `anchor build` — see docs/deploying.md
 cargo test --workspace   # 102 tests, under a second
-npm run test:parity      # 19 Rust <-> TS parity tests
+npm run test:parity      # 21 Rust <-> TS parity tests
 npm run test:integration # 19 on-chain tests, ~7min, boots a validator
 ```
 
@@ -62,7 +62,7 @@ this codebase follows it:
 **The handler decides nothing.** Every rule — both ceilings, the margin
 requirement, the utilization gate — lives in `slab-risk`.
 
-This is not a style preference. It is why 88 tests run in under a second with
+This is not a style preference. It is why 152 tests run in under a second with
 no validator. If rules move into handlers, that goes away and everyone pays
 for it in iteration speed for the remaining ten days.
 

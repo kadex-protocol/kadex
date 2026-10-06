@@ -4,7 +4,16 @@ Status of the twelve. Four are closed in code, three are decisions nobody can
 make for you, three were already structural, one is a communication job, one is
 accepted.
 
-Last reviewed 2 Oct 2026.
+Last reviewed 6 Oct 2026.
+
+> **Audit of 6 Oct 2026.** Two findings were reproduced on a local validator
+> before being fixed: twelve `refresh_price` calls in one transaction moved the
+> oracle **+79.6%** against a 5% clamp, and an LP who deposited $100k and
+> withdrew at once took out **$110,416**, the difference coming from trader
+> margin. Both are regression tests now. The full list and what changed is at
+> the end of this file. Two claims below were false until that audit and are
+> corrected in place: that `refresh_price` was idempotent within a slot (#5),
+> and that the slow mark removed the single-transaction attack (#2).
 
 > **card-vault was unreachable on-chain until 2 Oct.** `whitelist_card` created
 > the vault account without storing its bump, so every `fractionalize` derived
@@ -82,6 +91,11 @@ has to settle at what the market says now, not at a lagging average.
 still moves both. It removes the single-transaction version, which is the one
 that pays. Say that, rather than claiming it is solved.
 
+*Until 6 Oct this paragraph overclaimed.* The EMA stepped once per refresh, so
+a hundred refreshes in one transaction dragged it a hundred steps. It now steps
+by elapsed time, and a second refresh in a slot does nothing, which is what
+makes the sentence above true.
+
 ## 3 — Fraction decimals and supply (VERIFIED)
 
 6 decimals, 1 fraction = $1, matching USDC. Checked rather than asserted:
@@ -118,20 +132,23 @@ Permissionless means anyone *can* call it, not that anyone *will*.
 - interval dropped from 30s to **5s**, and the binding reason is liquidation,
   not staleness — see below
 - documented: run **at least two** keepers, different machines, different
-  payers. A lost race costs one failed transaction; `refresh_price` recomputes
-  from scratch and is idempotent within a slot.
-- if every keeper stops, the oracle ages past `max_staleness_secs` and the
-  market goes `ReduceOnly` by itself. Positions still close and liquidate. The
-  failure mode is "no new risk", not "funds stuck".
+  payers. A second refresh in the same slot is a successful no-op (since 6
+  Oct; before that it was a second clamp step, which was the exploit).
+- if every keeper stops, the price ages past `max_staleness_secs` and every
+  consumer refuses it **at read time**: nothing opens. Close, liquidate,
+  deposit and withdraw also refuse a stale price, but any caller can prepend
+  `refresh_price` to the same transaction, and the reference liquidator does.
+  The failure mode is "no new risk until someone refreshes", not "funds stuck".
+  (Before 6 Oct the stored state never left `Ok` without a refresh, so opens
+  continued at the old price while closes failed: the reverse of this.)
+- `liquidate`, `close_position` and `open_position` accrue borrow themselves,
+  so nothing depends on anybody calling `accrue_borrow`.
 
-**Why 5s and not 30s.** Liquidation uses the clamped oracle price, which moves
-at most 5% per refresh. A 5x position liquidates after a 13.75% move, so the
-oracle needs three refreshes to get there:
-
-```
-keeper every 30s ->  90s of lag
-keeper every  5s ->  15s of lag
-```
+**Why the keeper interval matters less now.** The clamp is 5% per 15
+seconds of elapsed time, not per refresh, so refreshing faster no longer
+speeds the price up — that was the exploit. A 5x position liquidates after a
+13.75% move, about 45 seconds of clamp. A slow keeper adds its interval on top;
+5s keeps that small.
 
 In that window a position is underwater at spot but not yet liquidatable at the
 oracle price. That window is where bad debt comes from:
@@ -247,3 +264,37 @@ not open.
 
 Securities, derivatives and gambling regimes overlap here. Declared in the
 submission, not resolved. Nothing in the backend changes this either way.
+
+---
+
+## Audit, 6 Oct 2026 — what was found and what changed
+
+| # | Finding | Severity | Fix | Proof |
+|---|---|---|---|---|
+| A1 | Repeated `refresh_price` in one transaction stacked clamp steps, stuffed the TWAP and dragged the slow mark (+79.6% measured) | Critical | One update per slot; time-weighted TWAP from a running integral; clamp and EMA scaled by elapsed time; checkpoint spacing | `many_refreshes_*`, validator test |
+| A2 | Deposit priced at NAV, withdrawal paid a raw slice of the vault including trader margin ($110,416 out of $100k measured) | Critical | Margin held outside the sleeve; withdrawals sized at a redeem NAV; deposits priced at an issue NAV that is never lower | `deposit_then_withdraw_*`, validator test |
+| A3 | Opening never checked freshness; stored state stayed `Ok` forever without a refresh | High | `require_tradeable(now)` checks age against the oracle's own limit; one limit everywhere, no hardcoded 900 | interface + validator test |
+| A4 | Depth read from one instant: add liquidity, refresh, open, remove | High | Published depth is the minimum over the window | `liquidity_added_for_a_moment_buys_no_depth` |
+| A5 | Borrow never accrued; positions stamped with stale indices | High | Open, close and liquidate accrue first | validator tests |
+| A6 | LP withdrawals could drain the sleeve open positions needed | High | `check_withdraw` against the solvency ceiling | unit + validator test |
+| A7 | Every `initialize_*` was first-caller-wins; init validated nothing; market could bind any oracle | High | Upgrade-authority check; vault/mint/oracle validation; market only by pool admin with pool oracle; pool binds only the derived market PDA; mock adapter checks its owner | unit + validator tests |
+| A8 | Liquidator only logged | High | Reads state, refreshes if needed, sends `liquidate` | validator smoke test |
+| A9 | NAV used a stale PnL snapshot, counted bad debt twice, counted protocol fees and margin as LP money | Medium | Pool stores the book and marks it live; bad debt shown not deducted; protocol fees outside the sleeve and claimable | unit tests |
+| A10 | Core asset reader existed but nothing used it: Collector Crypt cards could not be deposited | Medium | `whitelist_core_card`, `fractionalize_core`, `redeem_core` through Core's own `TransferV1` | validator tests against the real Core program |
+| A11 | Bad-debt positions paid the liquidator nothing | Medium | Fee paid from the margin, capped at it | unit test |
+| A12 | Close fee could exceed what the trader was owed and was booked anyway | Low | Capped at equity | — |
+| A13 | Oracle `initialize` skipped parameter validation | Low | Same validation as `set_params` | unit test |
+
+**Still open, deliberately:**
+
+- **No index token yet.** Each card has its own fraction mint and a pool takes
+  one. A basket mint that holds the weighted cards is product work, not a fix.
+- **NAV ignores borrow owed but not yet paid**, which understates it slightly
+  until positions close. Conservative for withdrawals; a depositor buys in a
+  little cheap.
+- **`settle_position` refuses rather than pays part** if a winning payout ever
+  exceeds the sleeve. The withdrawal gate and the solvency ceiling are what
+  keep that from happening.
+- **Program keypairs in `keys/`** are fine for devnet and must not be used on
+  mainnet — see `docs/deploying.md`.
+

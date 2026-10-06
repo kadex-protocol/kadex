@@ -9,9 +9,10 @@ card fractions, not from a signed oracle.
 ```sh
 npm install
 npm run sync-keys        # keys/ -> target/deploy/ (fixed program IDs)
-anchor build             # 4 programs + IDLs + TS types
-cargo test --workspace   # 88 invariant tests, < 1s
-node --test tests/parity.test.mjs   # 19 Rust <-> TS parity tests
+npm run build:programs   # 5 programs, deployable binaries + IDLs (docs/deploying.md)
+cargo test --workspace   # 152 invariant tests, < 1s
+node --test tests/parity.test.mjs   # 21 Rust <-> TS parity tests
+npm run test:integration # 49 tests against a local validator
 ```
 
 ## Layout

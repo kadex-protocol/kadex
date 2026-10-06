@@ -53,28 +53,38 @@ The thin side never pays a premium — its multiplier is exactly 1.0.
 ## 5. NAV
 
 ```
-NAV = U + Σ(qᵢ × pᵢ) − trader_PnL − bad_debt − margin_held
+vault       = U + margin_held + protocol_fees_owed
+NAV_redeem  = U + Σ(qᵢ × min(p, slow)) − max(trader_PnL(p), 0)
+NAV_issue   = U + Σ(qᵢ × max(p, slow)) − trader_PnL(p)
 ```
 
-Trader profit leaves the pool one for one. No rounding creates value.
+`U` is the LPs' money and nothing else. Trader margin and the protocol's share
+of fees are in the same vault but **held apart**, so neither can be withdrawn
+by LPs or counted as capacity. `trader_PnL` is marked at today's price from the
+book `perp` pushes on every open and settle — never a stored number.
 
-`margin_held` is there because trader collateral sits in the same vault as the
-LPs' money without being the LPs' money. Counting it would let an LP who
-withdraws while positions are open take value from the LPs who stay. The pool
-learns about arriving margin through `clp_pool::record_open`, which `perp`
-calls by CPI when a position opens — without that call the sleeve and the
-actual vault balance drift apart.
+Value leaves at `NAV_redeem` and CLP is issued at `NAV_issue ≥ NAV_redeem`, so
+no deposit followed by a withdrawal can come out ahead. Bad debt is recorded
+but not deducted: the pool never received that money, so `U` already reflects
+it.
 
-- Test: `clp_pool::tests::trader_profit_reduces_nav_one_for_one`
-- Test: `clp_pool::tests::margin_held_is_a_liability_not_pool_equity`
+Changed 6 Oct 2026. Before, deposits were priced at NAV but withdrawals paid a
+raw slice of the vault, margin included: $100k in and straight out returned
+$110,416 on a validator.
+
+- Test: `clp_pool::tests::deposit_then_withdraw_*`
+- Test: `clp_pool::tests::margin_is_not_lp_money`
+- Test: `lifecycle: deposit then withdraw at once returns no more than went in`
+- Test: `lifecycle: the vault holds exactly sleeve + margin + protocol fees`
 - Test: `lifecycle: what the trader gains, the pool loses, to the unit`
 
 ### The lifecycle is zero-sum
 
-Over a full open-to-close cycle, the trader's change in USDC and the pool's
-change in NAV sum to exactly zero. Every unit the trader walks away with came
-out of the pool's equity; every unit the pool kept — fees and borrow — came out
-of the trader's. That single equality is the economic claim the project rests
+Over a full open-to-close cycle, the trader's change in USDC, the LPs' change
+in NAV and the protocol's fee share sum to exactly zero. Every unit the trader
+walks away with came out of the LPs' equity; every unit the pool kept — LP
+fees and borrow into the sleeve, the protocol's share beside it — came out of
+the trader's. That single equality is the economic claim the project rests
 on, and it is asserted end to end on a live validator.
 
 ## 6. CLP price
@@ -119,9 +129,8 @@ trade insolvent for months.
 allows **closing and liquidating**.
 
 This was changed on 2 Oct. `Settled` originally barred both, which stranded
-every open position's margin permanently — and since `margin_held` is a pool
-liability, it also haircut the LPs forever for money nobody could ever
-collect. A settled market has to be able to unwind.
+every open position's margin permanently. A settled market has to be able to
+unwind; margin is held apart from the sleeve, so redemptions never touch it.
 
 - Test: `clp_pool::tests::state_gates_match_the_spec`
 - Test: `lifecycle: a settled market unwinds and redeems with an equal haircut`
