@@ -544,4 +544,31 @@ describe("lifecycle", () => {
     const pos = await ctx.p.perp.account.position.fetch(pb);
     assert.equal(pos.borrowIdxEntry.toString(), mk.borrowIdxLong.toString(), "stamped with a stale index");
   });
+
+  test("a stranger cannot create a pool, an oracle or a market", async () => {
+    const { Keypair } = await import("@solana/web3.js");
+    const stranger = await (await import("./_harness.mjs")).funded(ctx.conn, 5);
+    const basket = Keypair.generate().publicKey;
+    const msg = await mustFail(
+      ctx.p.oracle.methods
+        .initialize({ mock: {} }, DEFAULT_ORACLE_PARAMS)
+        .accounts({ admin: stranger.publicKey, programData: null, basket, ammPool: env.ammPool })
+        .signers([stranger])
+        .rpc(),
+      "a stranger created an oracle",
+    );
+    assert.match(msg, /NotDeployer|deployer/i);
+  });
+
+  test("the pool binds only the market PDA the perp program derives for it", async () => {
+    const { Keypair } = await import("@solana/web3.js");
+    const msg = await mustFail(
+      ctx.p.clpPool.methods
+        .setPerpMarket(Keypair.generate().publicKey)
+        .accounts({ admin: ctx.provider.wallet.publicKey, pool: env.pool })
+        .rpc(),
+      "the pool bound an arbitrary market",
+    );
+    assert.match(msg, /NotPerpMarket|market/i);
+  });
 });

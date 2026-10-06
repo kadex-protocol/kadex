@@ -39,6 +39,10 @@ declare_id!("5288ShBXsFxqXiGm22FZi1ZrMnmet4i1ZR3bccyAguqp");
 /// The `oracle` program ID, re-exported for callers that pass it explicitly.
 pub const ORACLE_PROGRAM_ID: Pubkey = ID;
 
+/// The perp program. The pool derives its one legitimate market from this,
+/// so `set_perp_market` cannot bind anything else.
+pub const PERP_PROGRAM_ID: Pubkey = pubkey!("BcVwJ91Jd1k7xUNcGYzRygq2ubaCYn7p5MeUZzy1EyLR");
+
 /// The open book, as the pool needs it to mark NAV at today's price.
 ///
 /// An earlier version had `perp` push a PnL *number*, computed at the price
@@ -375,6 +379,14 @@ impl OracleView {
         Ok(self.price)
     }
 
+    /// The HIGH mark of the card sleeve, `max(price, slow_twap)`.
+    ///
+    /// Used only to price CLP being ISSUED. A deposit buys in at the high
+    /// mark and a withdrawal leaves at the low one (`mark_price`), so no
+    /// round trip through the pool can come out ahead of where it went in.
+    pub fn issue_price(&self) -> u64 {
+        self.price.max(self.slow_twap)
+    }
 
     /// Price for marking the pool's CARD SLEEVE. Never for PnL.
     ///
@@ -396,15 +408,6 @@ impl OracleView {
             return self.price;
         }
         self.price.min(self.slow_twap)
-    }
-
-    /// The HIGH mark of the card sleeve, `max(price, slow_twap)`.
-    ///
-    /// Used only to price CLP being ISSUED. A deposit buys in at the high
-    /// mark and a withdrawal leaves at the low one (`mark_price`), so no
-    /// round trip through the pool can come out ahead of where it went in.
-    pub fn issue_price(&self) -> u64 {
-        self.price.max(self.slow_twap)
     }
 
     /// Shape this view takes when handed to `slab-risk`.
@@ -438,6 +441,65 @@ pub fn read_oracle(ai: &AccountInfo, oracle_program_id: &Pubkey) -> Result<Oracl
         state: acc.state,
         max_staleness_secs: acc.params.max_staleness_secs,
     })
+}
+
+// ---------------------------------------------------------------------------
+// who may initialize
+// ---------------------------------------------------------------------------
+
+/// BPF loader v4, which `solana program-v4 deploy` uses.
+pub const LOADER_V4_ID: Pubkey = pubkey!("LoaderV411111111111111111111111111111111111");
+/// The upgradeable (v3) loader, which `solana program deploy` uses.
+pub const LOADER_V3_ID: Pubkey = pubkey!("BPFLoaderUpgradeab1e11111111111111111111111");
+
+/// The key allowed to upgrade `program`, read from the loader itself.
+///
+/// Every `initialize_*` in SLAB creates an account at a fixed PDA, so the
+/// first caller wins it forever. Without this check that caller is whoever
+/// gets there first after deployment, and they choose the vaults, the oracle
+/// and the admin. Tying initialization to the upgrade authority means the
+/// only person who can create these accounts is the person who could have
+/// rewritten the program anyway: no new trust is introduced.
+///
+/// `program_data` is needed for the v3 loader only, where the authority lives
+/// in a separate account; loader v4 keeps it in the program account's header.
+pub fn upgrade_authority(program: &AccountInfo, program_data: Option<&AccountInfo>) -> Result<Pubkey> {
+    let data = program.try_borrow_data()?;
+    if *program.owner == LOADER_V4_ID {
+        // LoaderV4State { slot: u64, authority_or_next_version: Pubkey, status: u64 }
+        require!(data.len() >= 48, InterfaceError::NotDeployer);
+        let status = u64::from_le_bytes(data[40..48].try_into().unwrap());
+        // 2 = Finalized: the field holds the next version, not an authority.
+        require!(status != 2, InterfaceError::NotDeployer);
+        return Ok(Pubkey::new_from_array(data[8..40].try_into().unwrap()));
+    }
+    if *program.owner == LOADER_V3_ID {
+        // UpgradeableLoaderState::Program { programdata_address } = tag 2 + key
+        require!(data.len() >= 36, InterfaceError::NotDeployer);
+        require!(u32::from_le_bytes(data[0..4].try_into().unwrap()) == 2, InterfaceError::NotDeployer);
+        let expected = Pubkey::new_from_array(data[4..36].try_into().unwrap());
+        let pd = program_data.ok_or(error!(InterfaceError::NotDeployer))?;
+        require_keys_eq!(pd.key(), expected, InterfaceError::NotDeployer);
+        let pdata = pd.try_borrow_data()?;
+        // ProgramData { slot: u64, upgrade_authority: Option<Pubkey> } = tag 3
+        require!(pdata.len() >= 45, InterfaceError::NotDeployer);
+        require!(u32::from_le_bytes(pdata[0..4].try_into().unwrap()) == 3, InterfaceError::NotDeployer);
+        require!(pdata[12] == 1, InterfaceError::NotDeployer);
+        return Ok(Pubkey::new_from_array(pdata[13..45].try_into().unwrap()));
+    }
+    err!(InterfaceError::NotDeployer)
+}
+
+/// Fail unless `signer` is the upgrade authority of `program`.
+pub fn require_deployer(
+    program: &AccountInfo,
+    program_data: Option<&AccountInfo>,
+    expected_program_id: &Pubkey,
+    signer: &Pubkey,
+) -> Result<()> {
+    require_keys_eq!(program.key(), *expected_program_id, InterfaceError::NotDeployer);
+    require_keys_eq!(upgrade_authority(program, program_data)?, *signer, InterfaceError::NotDeployer);
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -588,6 +650,8 @@ pub enum InterfaceError {
     UtilizationTooHigh,
     #[msg("Position is not liquidatable yet")]
     NotLiquidatable,
+    #[msg("Only the program's upgrade authority may initialize this")]
+    NotDeployer,
     #[msg("Withdrawal would leave open interest above the pool's capacity")]
     WithdrawBreachesCapacity,
 }
@@ -767,6 +831,58 @@ mod tests {
             let v = OracleView { slow_twap: s, price: p, ..view_at(1, OracleState::Ok) };
             assert!(v.issue_price() >= v.mark_price());
         }
+    }
+
+    fn loader_account(owner: Pubkey, data: Vec<u8>) -> (Pubkey, u64, Vec<u8>, Pubkey) {
+        (crate::ID, 0, data, owner)
+    }
+
+    #[test]
+    fn upgrade_authority_reads_loader_v4_header() {
+        let auth = Pubkey::new_unique();
+        let mut data = vec![0u8; 48];
+        data[8..40].copy_from_slice(auth.as_ref());
+        data[40..48].copy_from_slice(&1u64.to_le_bytes()); // Deployed
+        let (key, mut lamports, mut data, owner) = loader_account(LOADER_V4_ID, data);
+        let ai = AccountInfo::new(&key, false, false, &mut lamports, &mut data, &owner, true);
+        assert_eq!(upgrade_authority(&ai, None).unwrap(), auth);
+        assert!(require_deployer(&ai, None, &crate::ID, &auth).is_ok());
+        assert!(require_deployer(&ai, None, &crate::ID, &Pubkey::new_unique()).is_err());
+    }
+
+    #[test]
+    fn a_finalized_program_has_no_deployer() {
+        let mut data = vec![0u8; 48];
+        data[40..48].copy_from_slice(&2u64.to_le_bytes());
+        let (key, mut lamports, mut data, owner) = loader_account(LOADER_V4_ID, data);
+        let ai = AccountInfo::new(&key, false, false, &mut lamports, &mut data, &owner, true);
+        assert!(upgrade_authority(&ai, None).is_err());
+    }
+
+    #[test]
+    fn upgrade_authority_reads_loader_v3_program_data() {
+        let auth = Pubkey::new_unique();
+        let pd_key = Pubkey::new_unique();
+        let mut prog = vec![0u8; 36];
+        prog[0..4].copy_from_slice(&2u32.to_le_bytes());
+        prog[4..36].copy_from_slice(pd_key.as_ref());
+        let mut pd = vec![0u8; 45];
+        pd[0..4].copy_from_slice(&3u32.to_le_bytes());
+        pd[12] = 1;
+        pd[13..45].copy_from_slice(auth.as_ref());
+        let (key, mut l1, mut prog, owner) = loader_account(LOADER_V3_ID, prog);
+        let mut l2 = 0u64;
+        let prog_ai = AccountInfo::new(&key, false, false, &mut l1, &mut prog, &owner, true);
+        let pd_ai = AccountInfo::new(&pd_key, false, false, &mut l2, &mut pd, &owner, false);
+        assert_eq!(upgrade_authority(&prog_ai, Some(&pd_ai)).unwrap(), auth);
+        assert!(upgrade_authority(&prog_ai, None).is_err(), "v3 needs program data");
+    }
+
+    #[test]
+    fn the_perp_id_here_matches_the_perp_program() {
+        // perp's declare_id! cannot be imported here without a cycle, so the
+        // string is pinned in both places and checked in perp's tests too.
+        assert_eq!(PERP_PROGRAM_ID.to_string(), "BcVwJ91Jd1k7xUNcGYzRygq2ubaCYn7p5MeUZzy1EyLR");
     }
 
     #[test]

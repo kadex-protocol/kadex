@@ -16,7 +16,7 @@
 
 use anchor_lang::prelude::*;
 use slab_interface::{
-    m, seeds, AmmAdapter, Observation, OracleAccount, OracleParams, OracleState,
+    m, require_deployer, seeds, AmmAdapter, Observation, OracleAccount, OracleParams, OracleState,
     ORACLE_OBSERVATIONS,
 };
 use slab_math::{div_wad_floor, mul_wad_floor, WAD};
@@ -32,12 +32,18 @@ use errors::OracleError;
 pub mod oracle {
     use super::*;
 
-    /// Create a basket's oracle. Admin only, once.
+    /// Create a basket's oracle. Upgrade authority only, once per basket.
     pub fn initialize(
         ctx: Context<Initialize>,
         adapter: AmmAdapter,
         params: OracleParams,
     ) -> Result<()> {
+        require_deployer(
+            &ctx.accounts.program.to_account_info(),
+            ctx.accounts.program_data.as_ref().map(|a| a.as_ref()),
+            &crate::ID,
+            &ctx.accounts.admin.key(),
+        )?;
         validate_params(&params)?;
         let o = &mut ctx.accounts.oracle;
         o.basket = ctx.accounts.basket.key();
@@ -339,8 +345,16 @@ pub fn evaluate_state(o: &OracleAccount, now: i64) -> Result<OracleState> {
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
+    /// Must be this program's upgrade authority.
     #[account(mut)]
     pub admin: Signer<'info>,
+    /// CHECK: this program's own account; its loader header names the
+    /// upgrade authority. Address-checked.
+    #[account(address = crate::ID)]
+    pub program: UncheckedAccount<'info>,
+    /// CHECK: v3-loader program data. Verified against `program` in
+    /// `require_deployer`; absent under loader v4.
+    pub program_data: Option<UncheckedAccount<'info>>,
     /// CHECK: basket identifier; used only as a seed and a label.
     pub basket: UncheckedAccount<'info>,
     /// CHECK: external AMM pool. Validated by the adapter in `refresh_price`.

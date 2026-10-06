@@ -147,7 +147,13 @@ async function main() {
   }
   console.log("[validator] ready");
 
-  const child = spawn(command[0], command.slice(1), { stdio: "inherit", env: ENV, cwd: ROOT });
+  // The deployer is the programs' upgrade authority, and so the only key that
+  // may initialize them. Tests act as it for every admin step.
+  const child = spawn(command[0], command.slice(1), {
+    stdio: "inherit",
+    env: { ...ENV, SLAB_DEPLOYER: deployer },
+    cwd: ROOT,
+  });
   const code = await new Promise((r) => child.on("exit", r));
 
   cleanup();

@@ -57,7 +57,7 @@ describe("card vault", () => {
 
     await vault.methods
       .initializeRegistry()
-      .accounts({ admin: ctx.payer.publicKey, registry })
+      .accounts({ admin: ctx.payer.publicKey, programData: null, registry })
       .rpc();
   });
 

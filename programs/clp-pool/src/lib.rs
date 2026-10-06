@@ -28,9 +28,11 @@
 //! This program validates accounts, moves tokens, and stores state.
 
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::program_option::COption;
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
 use slab_interface::{
-    m, r, read_oracle, seeds, BookSnapshot, MarketState, PoolParams, ORACLE_PROGRAM_ID,
+    m, r, read_oracle, require_deployer, seeds, BookSnapshot, MarketState, PoolParams,
+    ORACLE_PROGRAM_ID, PERP_PROGRAM_ID,
 };
 use slab_math::{
     assets_for_shares, card_weight, clp_price, mul_div_floor, mul_wad_floor, nav,
@@ -47,9 +49,21 @@ use errors::PoolError;
 pub mod clp_pool {
     use super::*;
 
-    /// Create the pool. Once, by the admin.
+    /// Create the pool. Upgrade authority only, once per USDC mint.
+    ///
+    /// Everything the pool will ever trust is checked here, because nothing
+    /// can rebind it later: the vaults must belong to the pool PDA, the CLP
+    /// mint must be the pool's alone and empty, and the oracle must be real.
     pub fn initialize_pool(ctx: Context<InitializePool>, params: PoolParams) -> Result<()> {
+        require_deployer(
+            &ctx.accounts.program.to_account_info(),
+            ctx.accounts.program_data.as_ref().map(|a| a.as_ref()),
+            &crate::ID,
+            &ctx.accounts.admin.key(),
+        )?;
         validate_params(&params)?;
+        ctx.accounts.validate_accounts()?;
+
         let p = &mut ctx.accounts.pool;
         p.admin = ctx.accounts.admin.key();
         p.usdc_mint = ctx.accounts.usdc_mint.key();
@@ -282,7 +296,14 @@ pub mod clp_pool {
     }
 
     /// Bind the perp market allowed to touch the pool's risk accounting.
+    ///
+    /// Only the one PDA the perp program derives for THIS pool is accepted,
+    /// and `perp::initialize_market` only creates it with this pool's oracle.
     pub fn set_perp_market(ctx: Context<AdminOnly>, market: Pubkey) -> Result<()> {
+        let pool_key = ctx.accounts.pool.key();
+        let (expected, _) =
+            Pubkey::find_program_address(&[seeds::MARKET, pool_key.as_ref()], &PERP_PROGRAM_ID);
+        require_keys_eq!(market, expected, PoolError::NotPerpMarket);
         ctx.accounts.pool.perp_market = market;
         Ok(())
     }
@@ -580,18 +601,21 @@ pub struct Pool {
 
 #[derive(Accounts)]
 pub struct InitializePool<'info> {
+    /// Must be this program's upgrade authority.
     #[account(mut)]
     pub admin: Signer<'info>,
+    /// CHECK: this program's own account; its loader header names the
+    /// upgrade authority. Address-checked.
+    #[account(address = crate::ID)]
+    pub program: UncheckedAccount<'info>,
+    /// CHECK: v3-loader program data, verified in `require_deployer`.
+    pub program_data: Option<UncheckedAccount<'info>>,
     pub usdc_mint: Account<'info, Mint>,
-    /// CHECK: CLP mint, authority handed to the pool PDA by the admin.
-    pub clp_mint: UncheckedAccount<'info>,
-    /// CHECK: token account holding the liquid sleeve.
-    pub usdc_vault: UncheckedAccount<'info>,
-    /// CHECK: the basket's fraction mint.
-    pub fraction_mint: UncheckedAccount<'info>,
-    /// CHECK: token account holding the card sleeve.
-    pub fraction_vault: UncheckedAccount<'info>,
-    /// CHECK: oracle account; ownership verified on every read.
+    pub clp_mint: Account<'info, Mint>,
+    pub usdc_vault: Account<'info, TokenAccount>,
+    pub fraction_mint: Account<'info, Mint>,
+    pub fraction_vault: Account<'info, TokenAccount>,
+    /// CHECK: deserialized through `read_oracle`, which checks the owner.
     pub oracle: UncheckedAccount<'info>,
     #[account(
         init, payer = admin, space = 8 + Pool::INIT_SPACE,
@@ -599,6 +623,34 @@ pub struct InitializePool<'info> {
     )]
     pub pool: Account<'info, Pool>,
     pub system_program: Program<'info, System>,
+}
+
+impl<'info> InitializePool<'info> {
+    /// The accounts the pool will trust forever, checked once.
+    pub fn validate_accounts(&self) -> Result<()> {
+        let pool = self.pool.key();
+        // CLP: minted by the pool alone, starting empty, unfreezable.
+        require!(
+            self.clp_mint.mint_authority == COption::Some(pool),
+            PoolError::WrongMint
+        );
+        require!(self.clp_mint.freeze_authority.is_none(), PoolError::WrongMint);
+        require!(self.clp_mint.supply == 0, PoolError::WrongMint);
+        require!(self.clp_mint.decimals == self.usdc_mint.decimals, PoolError::WrongMint);
+        // Vaults: the right mints, owned by the pool, with nobody else able
+        // to move or close them.
+        for (vault, mint) in [
+            (&self.usdc_vault, self.usdc_mint.key()),
+            (&self.fraction_vault, self.fraction_mint.key()),
+        ] {
+            require_keys_eq!(vault.mint, mint, PoolError::WrongMint);
+            require_keys_eq!(vault.owner, pool, PoolError::WrongVault);
+            require!(vault.delegate.is_none(), PoolError::WrongVault);
+            require!(vault.close_authority.is_none(), PoolError::WrongVault);
+        }
+        read_oracle(&self.oracle.to_account_info(), &ORACLE_PROGRAM_ID)?;
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]

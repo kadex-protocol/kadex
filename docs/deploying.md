@@ -51,6 +51,26 @@ is upgraded and `solana program deploy target/deploy/oracle.so` works on a v3
 binary, delete `scripts/bin/` and the `REQUIRED_ARCH` check in
 `scripts/build.mjs`.
 
+## Who initializes
+
+Every `initialize_*` (oracle, pool, card registry) checks that the signer is
+the program's **upgrade authority**, read from the loader: loader v4 keeps it in
+the program account header; for the v3 loader pass the `program_data` account.
+The market is created by the pool's admin and only with the pool's oracle, and
+the pool binds only the market PDA the perp program derives for it.
+
+So deploy and initialize with the same key, and initialize **before** handing
+the upgrade authority anywhere else.
+
+## Program keypairs
+
+`keys/` holds the program-ID keypairs, committed so every machine deploys to
+the same addresses. That is fine for localnet and devnet. **Do not use them on
+mainnet:** once the repository is public, anyone holding these files can deploy
+to these addresses on any cluster where they are still free. Generate fresh
+keypairs for mainnet, keep them out of git, and update `declare_id!`,
+`Anchor.toml` and `PROGRAM_IDS` together.
+
 ## Verifying before you deploy
 
 ```sh

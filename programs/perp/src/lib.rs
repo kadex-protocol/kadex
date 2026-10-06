@@ -36,7 +36,9 @@ use errors::PerpError;
 pub mod perp {
     use super::*;
 
-    /// Create the market for a pool and an oracle.
+    /// Create the market for a pool. Only the pool's admin, and only with
+    /// the pool's own oracle: the market PDA is one per pool, so whoever
+    /// created it first used to choose the price source forever.
     pub fn initialize_market(ctx: Context<InitializeMarket>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         let mk = &mut ctx.accounts.market;
@@ -295,11 +297,11 @@ impl Position {
 
 #[derive(Accounts)]
 pub struct InitializeMarket<'info> {
-    #[account(mut)]
+    #[account(mut, address = pool.admin @ PerpError::NotOwner)]
     pub admin: Signer<'info>,
-    /// CHECK: pool identity only; its fields are read where they are needed.
-    pub pool: UncheckedAccount<'info>,
-    /// CHECK: oracle account; ownership checked on every read.
+    pub pool: Account<'info, Pool>,
+    /// CHECK: must be the pool's oracle; ownership checked on every read.
+    #[account(address = pool.oracle @ PerpError::WrongOracle)]
     pub oracle: UncheckedAccount<'info>,
     #[account(
         init, payer = admin, space = 8 + Market::INIT_SPACE,
@@ -507,6 +509,12 @@ mod tests {
             "the thin-handler guard only found {seen:?}; it has stopped \
              parsing the #[program] module and is no longer checking anything"
         );
+    }
+
+    #[test]
+    fn the_interface_names_this_program() {
+        // clp-pool derives the one market it will bind from this constant.
+        assert_eq!(slab_interface::PERP_PROGRAM_ID, crate::ID);
     }
 
     #[test]

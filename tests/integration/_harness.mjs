@@ -11,6 +11,7 @@
  */
 
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 import anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 
@@ -43,12 +44,25 @@ export function findOracle(basket) {
   )[0];
 }
 
+/**
+ * The programs' upgrade authority, handed over by `with-validator.mjs`.
+ *
+ * Every `initialize_*` is restricted to it, so the provider every suite uses
+ * IS the deployer: it creates pools and oracles and performs admin steps.
+ * Strangers and attackers are separate `funded()` keypairs.
+ */
+function deployer() {
+  const path = process.env.SLAB_DEPLOYER;
+  if (!path) throw new Error("SLAB_DEPLOYER unset: run through scripts/with-validator.mjs");
+  return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(path, "utf8"))));
+}
+
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** A funded wallet and an Anchor provider bound to it. */
 export async function newProvider() {
   const conn = new Connection(RPC_URL, "confirmed");
-  const payer = Keypair.generate();
+  const payer = deployer();
   const sig = await conn.requestAirdrop(payer.publicKey, 100 * LAMPORTS_PER_SOL);
   await conn.confirmTransaction(sig, "confirmed");
   const wallet = new anchor.Wallet(payer);
@@ -118,6 +132,7 @@ export async function setupOracle(
     .initialize({ mock: {} }, params)
     .accounts({
       admin: provider.wallet.publicKey,
+      programData: null,
       basket,
       ammPool: pool.publicKey,
       oracle,
@@ -254,6 +269,7 @@ export async function setupProtocol(
     .initializePool(DEFAULT_POOL_PARAMS)
     .accounts({
       admin: provider.wallet.publicKey,
+      programData: null,
       usdcMint,
       clpMint,
       usdcVault,

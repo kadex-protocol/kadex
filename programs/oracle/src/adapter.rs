@@ -40,7 +40,29 @@ pub fn read_reserves(adapter: AmmAdapter, ai: &AccountInfo) -> Result<Reserves> 
     }
 }
 
+#[cfg(test)]
+mod mock_tests {
+    use super::*;
+
+    #[test]
+    fn mock_reserves_are_refused_from_an_account_the_mock_amm_does_not_own() {
+        let lamports = &mut 0u64;
+        let mut bytes = [0u8; MOCK_POOL_LEN];
+        bytes[8..16].copy_from_slice(&1_000_000u64.to_le_bytes());
+        bytes[16..24].copy_from_slice(&1u64.to_le_bytes());
+        let key = Pubkey::default();
+        let forger = Pubkey::new_unique();
+        let ai = AccountInfo::new(&key, false, false, lamports, &mut bytes, &forger, false);
+        assert!(read_reserves(AmmAdapter::Mock, &ai).is_err());
+    }
+}
+
+/// The mock AMM program. Reserves are only believed from an account it owns:
+/// anyone can write two u64s into an account of their own.
+pub const MOCK_AMM_PROGRAM_ID: Pubkey = pubkey!("AUPEWRMXpNvN42nCA6ovZRt4eYcaySyRhewxnTa6ygJi");
+
 fn read_mock(ai: &AccountInfo) -> Result<Reserves> {
+    require_keys_eq!(*ai.owner, MOCK_AMM_PROGRAM_ID, OracleError::AdapterBadAccount);
     let data = ai.try_borrow_data()?;
     require!(data.len() >= MOCK_POOL_LEN, OracleError::AdapterBadAccount);
     let usdc = u64::from_le_bytes(

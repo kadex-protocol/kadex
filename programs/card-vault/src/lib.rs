@@ -11,7 +11,7 @@
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
-use slab_interface::seeds;
+use slab_interface::{require_deployer, seeds};
 
 declare_id!("J8Tef8N4YSfVwAxpBemCZrz3qCxehTeb2cd1jTwoBczW");
 
@@ -37,7 +37,16 @@ pub mod card_vault {
     use super::*;
 
     /// Create the global registry. Once, by the admin.
+    ///
+    /// Upgrade authority only: the registry is a single PDA, so whoever
+    /// created it first used to become the whitelist admin forever.
     pub fn initialize_registry(ctx: Context<InitializeRegistry>) -> Result<()> {
+        require_deployer(
+            &ctx.accounts.program.to_account_info(),
+            ctx.accounts.program_data.as_ref().map(|a| a.as_ref()),
+            &crate::ID,
+            &ctx.accounts.admin.key(),
+        )?;
         let r = &mut ctx.accounts.registry;
         r.admin = ctx.accounts.admin.key();
         r.card_count = 0;
@@ -237,8 +246,14 @@ pub struct VaultedCard {
 
 #[derive(Accounts)]
 pub struct InitializeRegistry<'info> {
+    /// Must be this program's upgrade authority.
     #[account(mut)]
     pub admin: Signer<'info>,
+    /// CHECK: this program's own account. Address-checked.
+    #[account(address = crate::ID)]
+    pub program: UncheckedAccount<'info>,
+    /// CHECK: v3-loader program data, verified in `require_deployer`.
+    pub program_data: Option<UncheckedAccount<'info>>,
     #[account(
         init, payer = admin, space = 8 + Registry::INIT_SPACE,
         seeds = [seeds::REGISTRY], bump
