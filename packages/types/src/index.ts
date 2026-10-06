@@ -171,8 +171,15 @@ export interface PoolView {
   usdcSleeve: bigint;
   cardSleeveValue: bigint;
   clpSupply: bigint;
+  /**
+   * Unrealized trader PnL, marked by the reader at today's oracle price from
+   * the pool's stored book. Positive: traders ahead, LPs behind.
+   */
   traderPnl: bigint;
+  /** Losses past a position's margin. Shown, not deducted: the sleeve already reflects them. */
   badDebt: bigint;
+  /** Trader margin in the vault, held apart from the sleeve. Not LP money. */
+  marginHeld: bigint;
   accruedFeesLp: bigint;
   accruedFeesProtocol: bigint;
   params: PoolParams;

@@ -49,15 +49,44 @@ describe("lifecycle", () => {
   const marketState = (market) => ctx.p.perp.account.market.fetch(market);
   const oracleState = (oracle) => ctx.p.oracle.account.oracleAccount.fetch(oracle);
 
-  /** Mirrors `Pool::nav` exactly, margin_held included. */
+  /**
+   * Mirrors `Pool::nav_redeem`: the sleeve (LP money only — margin and the
+   * protocol's fees are held apart), cards at the low mark, minus traders'
+   * unrealized gains marked at today's price.
+   */
   async function nav(e) {
     const p = await poolState(e.pool);
     const o = await oracleState(e.oracle);
     const price = BigInt(o.price.toString());
-    const cards = (BigInt(p.fractionBalance.toString()) * price) / WAD;
-    const assets = BigInt(p.usdcSleeve.toString()) + cards;
-    const liabilities = BigInt(p.badDebt.toString()) + BigInt(p.marginHeld.toString());
-    return assets - liabilities - BigInt(p.traderPnl.toString());
+    const slow = BigInt(o.slowTwap.toString());
+    const low = slow > 0n && slow < price ? slow : price;
+    const cards = (BigInt(p.fractionBalance.toString()) * low) / WAD;
+    const b = p.book;
+    const pnl =
+      (BigInt(b.unitsLong.toString()) * price) / WAD - BigInt(b.oiLong.toString()) +
+      (BigInt(b.oiShort.toString()) - (BigInt(b.unitsShort.toString()) * price) / WAD);
+    return BigInt(p.usdcSleeve.toString()) + cards - (pnl > 0n ? pnl : 0n);
+  }
+
+  const protocolFees = async (e) => BigInt((await poolState(e.pool)).accruedFeesProtocol.toString());
+
+  async function withdraw(e, who, shares) {
+    return ctx.p.clpPool.methods
+      .withdraw(big(shares))
+      .accounts({
+        owner: who.kp.publicKey,
+        pool: e.pool,
+        oracle: e.oracle,
+        clpMint: e.clpMint,
+        usdcVault: e.usdcVault,
+        fractionVault: e.fractionVault,
+        ownerClp: who.clp,
+        ownerUsdc: who.usdc,
+        ownerFractions: who.fractions,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([who.kp])
+      .rpc();
   }
 
   async function deposit(e, who, amount) {
@@ -154,21 +183,35 @@ describe("lifecycle", () => {
     );
 
     const p = await poolState(env.pool);
-    assert.equal(BigInt(p.marginHeld.toString()), margin, "margin booked as a liability");
+    assert.equal(BigInt(p.marginHeld.toString()), margin, "margin held apart from the sleeve");
 
     await close(env, trader, position);
   });
 
-  test("margin is a liability, so opening moves NAV only by the fee", async () => {
+  test("margin is not LP money, so opening moves NAV only by the LPs' fee share", async () => {
     const trader = await actor(ctx, env, 10_000n * USDC);
     const notional = 4_000n * USDC;
     const fee = (notional * 10n) / 10_000n;
+    const lpShare = (fee * 7_500n) / 10_000n;
 
     const navBefore = await nav(env);
+    const sleeveBefore = BigInt((await poolState(env.pool)).usdcSleeve.toString());
     const position = await open(env, trader, { nonce: 2, notional, margin: 1_000n * USDC });
     const navAfter = await nav(env);
+    const sleeveAfter = BigInt((await poolState(env.pool)).usdcSleeve.toString());
 
-    assert.equal(navAfter - navBefore, fee, "collateral is not the LPs' money");
+    assert.equal(sleeveAfter - sleeveBefore, lpShare, "the margin did not join the sleeve");
+    assert.equal(navAfter - navBefore, lpShare, "collateral is not the LPs' money");
+    await close(env, trader, position);
+  });
+
+  test("the vault holds exactly sleeve + margin + protocol fees", async () => {
+    const trader = await actor(ctx, env, 10_000n * USDC);
+    const position = await open(env, trader, { nonce: 20, notional: 4_000n * USDC, margin: 1_000n * USDC });
+    const p = await poolState(env.pool);
+    const books =
+      BigInt(p.usdcSleeve.toString()) + BigInt(p.marginHeld.toString()) + BigInt(p.accruedFeesProtocol.toString());
+    assert.equal(await balance(ctx.conn, env.usdcVault), books);
     await close(env, trader, position);
   });
 
@@ -179,6 +222,7 @@ describe("lifecycle", () => {
     const notional = 4_000n * USDC;
 
     const navStart = await nav(env);
+    const feesStart = await protocolFees(env);
     const traderStart = await balance(ctx.conn, trader.usdc);
 
     const position = await open(env, trader, { nonce: 3, notional, margin: 1_000n * USDC });
@@ -193,11 +237,17 @@ describe("lifecycle", () => {
 
     const traderDelta = (await balance(ctx.conn, trader.usdc)) - traderStart;
     const navDelta = (await nav(env)) - navStart;
+    const feeDelta = (await protocolFees(env)) - feesStart;
 
-    // Over the full cycle the two sides net to zero. Every unit the trader
-    // walks away with came out of the pool's equity; every unit the pool kept,
-    // fees and borrow, came out of the trader's.
-    assert.equal(traderDelta + navDelta, 0n, `not zero-sum: trader ${traderDelta}, pool ${navDelta}`);
+    // Over the full cycle the three parties net to zero. Every unit the
+    // trader walks away with came out of the LPs' equity; every unit the pool
+    // kept — LP fees and borrow to the sleeve, the protocol's share outside
+    // it — came out of the trader's.
+    assert.equal(
+      traderDelta + navDelta + feeDelta,
+      0n,
+      `not zero-sum: trader ${traderDelta}, LPs ${navDelta}, protocol ${feeDelta}`,
+    );
     assert.ok(traderDelta > 0n, `trader ended ${traderDelta}, expected a gain on a rising index`);
 
     const p = await poolState(env.pool);
@@ -413,6 +463,22 @@ describe("lifecycle", () => {
   // -------------------------------------------------------------------------
   // regressions for the audit of 6 Oct 2026
   // -------------------------------------------------------------------------
+
+  test("deposit then withdraw at once returns no more than went in", async () => {
+    // The validator-proven exploit: with $25k of trader margin in the vault,
+    // $100k in and straight out returned $110,416.
+    const e = await setupProtocol(ctx);
+    const seed = await actor(ctx, e, 140_000n * USDC);
+    await deposit(e, seed, 140_000n * USDC);
+    const trader = await actor(ctx, e, 30_000n * USDC);
+    await open(e, trader, { nonce: 1, notional: 2_000n * USDC, margin: 25_000n * USDC });
+
+    const atk = await actor(ctx, e, 100_000n * USDC);
+    await deposit(e, atk, 100_000n * USDC);
+    await withdraw(e, atk, await balance(ctx.conn, atk.clp));
+    const out = await balance(ctx.conn, atk.usdc);
+    assert.ok(out <= 100_000n * USDC, `round trip returned ${out}`);
+  });
 
   test("a stale oracle admits no new risk, whatever its stored state says", async () => {
     const quick = { ...DEFAULT_ORACLE_PARAMS, maxStalenessSecs: 3 };

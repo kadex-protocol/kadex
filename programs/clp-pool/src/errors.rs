@@ -36,4 +36,6 @@ pub enum PoolError {
     NotOwner,
     #[msg("Deposit would push the card sleeve past its target share")]
     SleeveTargetExceeded,
+    #[msg("Pool NAV is zero: it owes more than it holds and takes no deposits")]
+    Insolvent,
 }

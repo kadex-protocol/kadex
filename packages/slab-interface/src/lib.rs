@@ -39,6 +39,44 @@ declare_id!("5288ShBXsFxqXiGm22FZi1ZrMnmet4i1ZR3bccyAguqp");
 /// The `oracle` program ID, re-exported for callers that pass it explicitly.
 pub const ORACLE_PROGRAM_ID: Pubkey = ID;
 
+/// The open book, as the pool needs it to mark NAV at today's price.
+///
+/// An earlier version had `perp` push a PnL *number*, computed at the price
+/// of the last close. Between closes it went stale, and NAV with it: opens
+/// and price moves were invisible to every deposit and withdrawal. Storing
+/// the book instead lets the pool mark it at whatever the oracle says now.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq, InitSpace)]
+pub struct BookSnapshot {
+    pub oi_long: u64,
+    pub oi_short: u64,
+    pub units_long: u128,
+    pub units_short: u128,
+}
+
+impl BookSnapshot {
+    pub fn of(m: &slab_risk::MarketRisk) -> Self {
+        Self { oi_long: m.oi_long, oi_short: m.oi_short, units_long: m.units_long, units_short: m.units_short }
+    }
+
+    /// Unrealized trader PnL at `price`. Positive: traders ahead, pool behind.
+    pub fn unrealized_pnl(&self, price: u64) -> core::result::Result<i128, slab_risk::RiskError> {
+        slab_risk::MarketRisk {
+            oi_long: self.oi_long,
+            oi_short: self.oi_short,
+            units_long: self.units_long,
+            units_short: self.units_short,
+            borrow_idx_long: 0,
+            borrow_idx_short: 0,
+            last_accrual_ts: 0,
+        }
+        .unrealized_pnl(price)
+    }
+
+    pub fn oi_total(&self) -> u64 {
+        self.oi_long.saturating_add(self.oi_short)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // PDA seeds — FROZEN
 // ---------------------------------------------------------------------------
@@ -358,6 +396,15 @@ impl OracleView {
             return self.price;
         }
         self.price.min(self.slow_twap)
+    }
+
+    /// The HIGH mark of the card sleeve, `max(price, slow_twap)`.
+    ///
+    /// Used only to price CLP being ISSUED. A deposit buys in at the high
+    /// mark and a withdrawal leaves at the low one (`mark_price`), so no
+    /// round trip through the pool can come out ahead of where it went in.
+    pub fn issue_price(&self) -> u64 {
+        self.price.max(self.slow_twap)
     }
 
     /// Shape this view takes when handed to `slab-risk`.
@@ -707,6 +754,15 @@ mod tests {
     #[test]
     fn a_never_refreshed_oracle_is_not_fresh() {
         assert!(!view_at(0, OracleState::Ok).is_fresh(100));
+    }
+
+    #[test]
+    fn issuing_marks_high_and_redeeming_marks_low() {
+        let par = WAD as u64;
+        for (p, s) in [(par, par * 2), (par * 2, par), (par, par)] {
+            let v = OracleView { slow_twap: s, price: p, ..view_at(1, OracleState::Ok) };
+            assert!(v.issue_price() >= v.mark_price());
+        }
     }
 
     #[test]

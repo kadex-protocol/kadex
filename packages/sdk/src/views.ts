@@ -86,9 +86,19 @@ export function deriveBorrowRates(
   };
 }
 
+/**
+ * NAV as the program prices a withdrawal (`Pool::nav_redeem`): the sleeve is
+ * LP money only, traders' unrealized gains are owed now, their unrealized
+ * losses count only once realised, and bad debt is already in the sleeve.
+ */
+export function navRedeem(pool: PoolView): bigint {
+  const gains = pool.traderPnl > 0n ? pool.traderPnl : 0n;
+  return m.nav(pool.usdcSleeve, pool.cardSleeveValue, gains, 0n);
+}
+
 /** NAV, CLP price and sleeve composition. */
 export function derivePool(pool: PoolView) {
-  const nav = m.nav(pool.usdcSleeve, pool.cardSleeveValue, pool.traderPnl, pool.badDebt);
+  const nav = navRedeem(pool);
   const total = pool.usdcSleeve + pool.cardSleeveValue;
   return {
     nav,
@@ -98,10 +108,17 @@ export function derivePool(pool: PoolView) {
   };
 }
 
-/** What leaves each sleeve on a redemption. Always both. */
+/**
+ * What leaves each sleeve on a redemption (`Pool::redeem_split`): the shares'
+ * value at NAV, split in the proportion the sleeves are held in. Always both.
+ * `cardFractions` is the card sleeve's share in USDC value, as `cardSleeveValue` is.
+ */
 export function deriveWithdraw(pool: PoolView, shares: bigint) {
+  const assets = pool.usdcSleeve + pool.cardSleeveValue;
+  if (pool.clpSupply === 0n || assets === 0n) return { usdc: 0n, cardFractions: 0n };
+  const value = m.assetsForShares(shares, navRedeem(pool), pool.clpSupply);
   return {
-    usdc: m.proportionalShare(pool.usdcSleeve, shares, pool.clpSupply),
-    cardFractions: m.proportionalShare(pool.cardSleeveValue, shares, pool.clpSupply),
+    usdc: (pool.usdcSleeve * value) / assets,
+    cardFractions: (pool.cardSleeveValue * value) / assets,
   };
 }

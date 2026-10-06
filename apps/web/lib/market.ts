@@ -64,6 +64,7 @@ const SAMPLE_POOL: PoolView = {
   clpSupply: 200_000n * USDC,
   traderPnl: 0n,
   badDebt: 0n,
+  marginHeld: 0n,
   accruedFeesLp: 0n,
   accruedFeesProtocol: 0n,
   state: "active",

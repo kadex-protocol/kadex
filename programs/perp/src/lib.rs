@@ -24,7 +24,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use clp_pool::Pool;
-use slab_interface::{m, r, read_oracle, seeds, OracleView, Side, ORACLE_PROGRAM_ID};
+use slab_interface::{m, r, read_oracle, seeds, BookSnapshot, OracleView, Side, ORACLE_PROGRAM_ID};
 use slab_risk::{self as risk, Gates, MarketRisk, PositionRisk};
 
 declare_id!("BcVwJ91Jd1k7xUNcGYzRygq2ubaCYn7p5MeUZzy1EyLR");
@@ -83,18 +83,18 @@ pub mod perp {
             pool.params.open_close_fee_bps as u128,
         ))
         .and_then(|v| m(slab_math::to_u64(v)))?;
-        ctx.accounts.collect(margin + fee)?;
-        ctx.accounts.record_open(margin, fee)?;
+        ctx.accounts.collect(margin.checked_add(fee).ok_or(error!(PerpError::MathFailure))?)?;
 
         let mk = &mut ctx.accounts.market;
         let mut state = mk.risk();
         r(state.add_position(side.into(), notional, approval.entry_price))?;
         mk.set_risk(state);
         mk.open_positions = mk.open_positions.saturating_add(1);
+        ctx.accounts.record_open(margin, fee, BookSnapshot::of(&state))?;
 
         ctx.accounts.position.set_inner(Position {
             owner: ctx.accounts.trader.key(),
-            market: mk.key(),
+            market: ctx.accounts.market.key(),
             side,
             notional,
             margin,
@@ -140,16 +140,16 @@ pub mod perp {
 
         let outcome = r(risk::settle_close(&pos, price, idx))?;
         let fee = ctx.accounts.close_fee(pos.notional)?;
-        let snapshot = ctx.accounts.unwind(pos, price)?;
+        let to_trader = outcome.to_trader.saturating_sub(fee);
+        let book = ctx.accounts.unwind(pos)?;
 
-        ctx.accounts
-            .settle(outcome.to_trader.saturating_sub(fee), fee, outcome.bad_debt, snapshot, pos.margin)?;
+        ctx.accounts.settle(to_trader, fee, outcome.bad_debt, book, pos.margin)?;
 
         emit!(PositionClosed {
             position: ctx.accounts.position.key(),
             owner: ctx.accounts.owner.key(),
             price,
-            to_trader: outcome.to_trader.saturating_sub(fee),
+            to_trader,
             fee,
             bad_debt: outcome.bad_debt,
         });
@@ -174,9 +174,9 @@ pub mod perp {
         );
 
         let outcome = r(risk::settle_liquidation(&pos, price, idx, &params))?;
-        let snapshot = ctx.accounts.unwind(pos, price)?;
+        let book = ctx.accounts.unwind(pos)?;
         ctx.accounts
-            .settle(outcome.liquidator_fee, 0, outcome.bad_debt, snapshot, pos.margin)?;
+            .settle(outcome.liquidator_fee, 0, outcome.bad_debt, book, pos.margin)?;
 
         emit!(PositionLiquidated {
             position: ctx.accounts.position.key(),
@@ -358,7 +358,7 @@ impl<'info> OpenPosition<'info> {
     }
 
     /// Tell the pool that margin and fee landed in its vault.
-    pub fn record_open(&self, margin: u64, fee: u64) -> Result<()> {
+    pub fn record_open(&self, margin: u64, fee: u64, book: BookSnapshot) -> Result<()> {
         let pool_key = self.pool.key();
         let seeds = self.market.signer_seeds(&pool_key);
         clp_pool::cpi::record_open(
@@ -372,6 +372,7 @@ impl<'info> OpenPosition<'info> {
             ),
             margin,
             fee,
+            book,
         )
     }
 
@@ -560,24 +561,24 @@ macro_rules! settler {
                 accrue_market(&mut self.market, &self.pool, now, depth)
             }
 
-            /// Remove the position from the book and return the resulting
-            /// whole-book PnL, which the pool stores as its snapshot.
-            pub fn unwind(&mut self, pos: slab_risk::PositionRisk, price: u64) -> Result<i128> {
+            /// Remove the position from the book and return the book as it
+            /// now stands, which the pool stores and marks itself.
+            pub fn unwind(&mut self, pos: slab_risk::PositionRisk) -> Result<BookSnapshot> {
                 let mk = &mut self.market;
                 let mut state = mk.risk();
                 r(state.remove_position(pos.side, pos.notional, pos.entry_price))?;
                 mk.set_risk(state);
                 mk.open_positions = mk.open_positions.saturating_sub(1);
-                r(state.unrealized_pnl(price))
+                Ok(BookSnapshot::of(&state))
             }
 
             /// The one door value leaves the pool through.
             pub fn settle(
                 &self,
-                to_trader: u64,
+                to_recipient: u64,
                 fee: u64,
                 bad_debt: u64,
-                trader_pnl_now: i128,
+                book: BookSnapshot,
                 margin_released: u64,
             ) -> Result<()> {
                 let pool_key = self.pool.key();
@@ -594,10 +595,10 @@ macro_rules! settler {
                         },
                         &[&seeds],
                     ),
-                    to_trader,
+                    to_recipient,
                     fee,
                     bad_debt,
-                    trader_pnl_now,
+                    book,
                     margin_released,
                 )
             }

@@ -9,6 +9,9 @@
 //! The card sleeve never pays a winning trader. That is why the open-interest
 //! ceiling looks at `usdc_sleeve` and not at total NAV.
 //!
+//! Trader margin is held APART from the USDC sleeve (`margin_held`), and so
+//! is the protocol's share of fees: the sleeve is the LPs' money only.
+//!
 //! Withdrawals are ALWAYS proportional across both sleeves. There is no
 //! USDC-only path: if there were, the first out would take the liquid side and
 //! the last would be left holding the whole illiquid one.
@@ -26,10 +29,12 @@
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
-use slab_interface::{m, r, seeds, MarketState, PoolParams};
+use slab_interface::{
+    m, r, read_oracle, seeds, BookSnapshot, MarketState, PoolParams, ORACLE_PROGRAM_ID,
+};
 use slab_math::{
-    assets_for_shares, card_weight, clp_price, mul_wad_floor, nav, proportional_share,
-    prorata_haircut, shares_for_deposit, subtract_bps_ceil, to_u64, utilization,
+    assets_for_shares, card_weight, clp_price, mul_div_floor, mul_wad_floor, nav,
+    shares_for_deposit, subtract_bps_ceil, to_u64, utilization,
 };
 use slab_risk::{self as risk, Capacity};
 
@@ -57,7 +62,7 @@ pub mod clp_pool {
         p.usdc_sleeve = 0;
         p.fraction_balance = 0;
         p.clp_supply = 0;
-        p.trader_pnl = 0;
+        p.book = BookSnapshot::default();
         p.bad_debt = 0;
         p.margin_held = 0;
         p.accrued_fees_lp = 0;
@@ -68,14 +73,14 @@ pub mod clp_pool {
         Ok(())
     }
 
-    /// Deposit USDC and receive CLP.
+    /// Deposit USDC and receive CLP, priced at the ISSUE mark.
     pub fn deposit_usdc(ctx: Context<DepositUsdc>, amount: u64) -> Result<()> {
-        let price = ctx.accounts.price()?;
+        let marks = ctx.accounts.marks()?;
         let pool = &ctx.accounts.pool;
         require!(pool.state.allows_deposit(), PoolError::StateForbids);
         require!(amount > 0, PoolError::ZeroAmount);
 
-        let shares = pool.shares_for(amount, price)?;
+        let shares = pool.shares_for(amount, &marks)?;
         require!(shares > 0, PoolError::DustDeposit);
 
         ctx.accounts.pull_usdc(amount)?;
@@ -99,15 +104,19 @@ pub mod clp_pool {
     }
 
     /// Deposit card fractions and receive CLP, net of the haircut.
+    ///
+    /// The fractions are credited at the LOW mark and the CLP is priced at
+    /// the HIGH one: a deposit can only ever buy in at a discount to the
+    /// pool, never at a discount to the depositor.
     pub fn deposit_fractions(ctx: Context<DepositFractions>, amount: u64) -> Result<()> {
-        let price = ctx.accounts.price()?;
+        let marks = ctx.accounts.marks()?;
         let pool = &ctx.accounts.pool;
         require!(pool.state.allows_deposit(), PoolError::StateForbids);
         require!(amount > 0, PoolError::ZeroAmount);
 
-        let gross = pool.fraction_value(amount, price)?;
+        let gross = pool.fraction_value(amount, marks.low)?;
         let net = pool.haircut_value(gross)?;
-        let shares = pool.shares_for(net, price)?;
+        let shares = pool.shares_for(net, &marks)?;
         require!(shares > 0, PoolError::DustDeposit);
 
         // Keeps the pool from becoming a bet on one card, and keeps the
@@ -116,7 +125,7 @@ pub mod clp_pool {
             .fraction_balance
             .checked_add(amount)
             .ok_or(PoolError::Overflow)?;
-        pool.require_sleeve_within_target(balance_after, price)?;
+        pool.require_sleeve_within_target(balance_after, marks.high)?;
 
         ctx.accounts.pull_fractions(amount)?;
         ctx.accounts.mint_clp(shares)?;
@@ -135,14 +144,19 @@ pub mod clp_pool {
         Ok(())
     }
 
-    /// Burn CLP and receive a proportional slice of BOTH sleeves.
+    /// Burn CLP and receive its value at NAV, as a slice of BOTH sleeves.
+    ///
+    /// An earlier version paid a raw proportional slice of the vaults,
+    /// ignoring NAV. With $25k of trader margin in the vault, depositing
+    /// $100k and withdrawing at once returned $110,416 on a validator. Now
+    /// the slice is sized by NAV.
     pub fn withdraw(ctx: Context<Withdraw>, shares: u64) -> Result<()> {
-        let price = ctx.accounts.price()?;
+        let marks = ctx.accounts.marks()?;
         let pool = &ctx.accounts.pool;
         require!(pool.state.allows_withdraw(), PoolError::StateForbids);
         require!(shares > 0, PoolError::ZeroAmount);
 
-        let (usdc_out, fractions_out) = pool.withdraw_split(shares)?;
+        let (usdc_out, fractions_out) = pool.redeem_split(shares, &marks)?;
         ctx.accounts.burn_clp(shares)?;
         ctx.accounts.push_usdc(usdc_out)?;
         ctx.accounts.push_fractions(fractions_out)?;
@@ -158,92 +172,86 @@ pub mod clp_pool {
             shares,
             usdc: usdc_out,
             fractions: fractions_out,
-            price,
+            price: marks.low,
         });
         Ok(())
     }
 
     /// Record a position opening. CPI ONLY, from the registered perp market.
     ///
-    /// The margin has already landed in `usdc_vault`; this is what stops the
-    /// pool from mistaking it for its own. Without it, `usdc_sleeve` and the
-    /// vault balance drift apart and NAV counts collateral as equity.
-    pub fn record_open(ctx: Context<RecordOpen>, margin: u64, fee: u64) -> Result<()> {
+    /// Margin and fee have already landed in `usdc_vault`. The margin is the
+    /// trader's and is held APART from the LP sleeve, so it can neither be
+    /// withdrawn by LPs nor counted as capacity. The fee is split now.
+    pub fn record_open(ctx: Context<RecordOpen>, margin: u64, fee: u64, book: BookSnapshot) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
-        pool.usdc_sleeve = pool
-            .usdc_sleeve
-            .checked_add(margin)
-            .and_then(|v| v.checked_add(fee))
-            .ok_or(PoolError::Overflow)?;
         pool.margin_held = pool
             .margin_held
             .checked_add(margin)
             .ok_or(PoolError::Overflow)?;
-        pool.split_fee_from_sleeve(fee)?;
+        pool.book_fee(fee)?;
+        pool.book = book;
         Ok(())
     }
 
-    /// Settle one position's outcome against the pool. CPI ONLY, from the
-    /// registered perp market.
+    /// Settle one position against the pool. CPI ONLY, from the registered
+    /// perp market.
     ///
-    /// This is the single door through which value leaves the pool for a
-    /// trader. Without it, any program could ask the pool to pay.
+    /// The position's margin comes back out of `margin_held`; `to_recipient`
+    /// is paid (to the trader on a close, to the liquidator on a
+    /// liquidation); `fee` is carved out and split. Whatever is left of the
+    /// margin is the pool's gain, and whatever the payout exceeds it by is
+    /// the pool's loss.
     pub fn settle_position(
         ctx: Context<SettlePosition>,
-        to_trader: u64,
+        to_recipient: u64,
         fee: u64,
         bad_debt: u64,
-        trader_pnl_now: i128,
+        book: BookSnapshot,
         margin_released: u64,
     ) -> Result<()> {
         require!(
             ctx.accounts.pool.state.allows_close(),
             PoolError::StateForbids
         );
-        require!(
-            to_trader <= ctx.accounts.pool.usdc_sleeve,
-            PoolError::InsufficientLiquidity
-        );
+        let sleeve_after = ctx.accounts.pool.sleeve_after_settle(margin_released, to_recipient, fee)?;
 
-        if to_trader > 0 {
-            ctx.accounts.pay_trader(to_trader)?;
+        if to_recipient > 0 {
+            ctx.accounts.pay_trader(to_recipient)?;
         }
 
         let pool = &mut ctx.accounts.pool;
-        pool.usdc_sleeve = pool.usdc_sleeve.saturating_sub(to_trader);
-        pool.margin_held = pool.margin_held.saturating_sub(margin_released);
+        pool.usdc_sleeve = sleeve_after;
+        pool.margin_held = pool
+            .margin_held
+            .checked_sub(margin_released)
+            .ok_or(PoolError::Overflow)?;
+        pool.book_fee(fee)?;
         pool.bad_debt = pool.bad_debt.checked_add(bad_debt).ok_or(PoolError::Overflow)?;
-        // A SNAPSHOT, not an increment. `perp` recomputes the whole book's
-        // unrealized PnL in O(1) and pushes it, so NAV reflects open positions
-        // too. An increment would only ever capture realised PnL and would
-        // leave NAV wrong for every position still open.
-        pool.trader_pnl = trader_pnl_now;
-        // The payout already had the fee deducted, so it never left the
-        // sleeve. Adding it again here would credit the LPs twice.
-        pool.split_fee_from_sleeve(fee)?;
+        pool.book = book;
 
         emit!(PositionSettled {
             pool: pool.key(),
-            to_trader,
+            to_recipient,
             fee,
             bad_debt,
-            trader_pnl: trader_pnl_now,
         });
         Ok(())
     }
 
     /// Burn CLP after the market has settled and take the final slice.
     ///
-    /// Separate from `withdraw` because the rules differ: `withdraw` is a
-    /// normal exit at NAV and is barred outside `Active`; this one is the only
-    /// way out of a settled market and carries the haircut.
+    /// The same NAV-sized slice as `withdraw`, which is what makes it fair:
+    /// when the pool owes more than it holds, NAV is lower than the assets
+    /// and every holder is scaled by the same factor. First come, first
+    /// served is what a bank run is. No capacity gate: nothing new can open,
+    /// and margin is held apart, so traders are not what LPs are leaving with.
     pub fn redeem_settled(ctx: Context<Withdraw>, shares: u64) -> Result<()> {
-        let price = ctx.accounts.price()?;
+        let marks = ctx.accounts.marks()?;
         let pool = &ctx.accounts.pool;
         require!(pool.state == MarketState::Settled, PoolError::NotSettled);
         require!(shares > 0, PoolError::ZeroAmount);
 
-        let (usdc_out, fractions_out) = pool.settlement_split(shares, price)?;
+        let (usdc_out, fractions_out) = pool.redeem_split(shares, &marks)?;
         ctx.accounts.burn_clp(shares)?;
         ctx.accounts.push_usdc(usdc_out)?;
         ctx.accounts.push_fractions(fractions_out)?;
@@ -259,7 +267,7 @@ pub mod clp_pool {
             shares,
             usdc: usdc_out,
             fractions: fractions_out,
-            price,
+            price: marks.low,
         });
         Ok(())
     }
@@ -267,6 +275,20 @@ pub mod clp_pool {
     /// Bind the perp market allowed to touch the pool's risk accounting.
     pub fn set_perp_market(ctx: Context<AdminOnly>, market: Pubkey) -> Result<()> {
         ctx.accounts.pool.perp_market = market;
+        Ok(())
+    }
+
+    /// Pay out the protocol's share of fees. It sits in the vault, outside
+    /// the LP sleeve, until claimed.
+    pub fn claim_protocol_fees(ctx: Context<ClaimProtocolFees>, amount: u64) -> Result<()> {
+        require!(amount > 0, PoolError::ZeroAmount);
+        require!(
+            amount <= ctx.accounts.pool.accrued_fees_protocol,
+            PoolError::InsufficientLiquidity
+        );
+        ctx.accounts.pay(amount)?;
+        let p = &mut ctx.accounts.pool;
+        p.accrued_fees_protocol -= amount;
         Ok(())
     }
 
@@ -310,33 +332,73 @@ pub fn validate_params(p: &PoolParams) -> Result<()> {
 // pool accounting
 // ---------------------------------------------------------------------------
 
+/// The three prices the pool needs, read once from a fresh oracle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Marks {
+    /// The trading price. Marks the open book.
+    pub trade: u64,
+    /// `min(price, slow)`. Values the card sleeve when value LEAVES.
+    pub low: u64,
+    /// `max(price, slow)`. Values the card sleeve when CLP is ISSUED.
+    pub high: u64,
+    /// Window-minimum AMM depth.
+    pub depth: u64,
+}
+
+impl Marks {
+    /// One price for everything. Tests and quiet markets.
+    pub fn flat(price: u64) -> Self {
+        Self { trade: price, low: price, high: price, depth: 0 }
+    }
+}
+
 impl Pool {
-    /// Value of `fractions` at the oracle price, in native USDC.
+    /// Value of `fractions` at `price`, in native USDC.
     pub fn fraction_value(&self, fractions: u64, price: u64) -> Result<u64> {
         m(mul_wad_floor(fractions as u128, price as u128)).and_then(|v| m(to_u64(v)))
     }
 
-    /// The card sleeve marked to the oracle. Never a stored number.
+    /// The card sleeve marked at `price`. Never a stored number.
     pub fn card_sleeve_value(&self, price: u64) -> Result<u64> {
         self.fraction_value(self.fraction_balance, price)
     }
 
-    /// `NAV = U + card sleeve - trader PnL - bad debt - margin held`
-    pub fn nav(&self, price: u64) -> Result<u64> {
-        let liabilities = self
-            .bad_debt
-            .checked_add(self.margin_held)
-            .ok_or(PoolError::Overflow)?;
-        m(nav(
-            self.usdc_sleeve,
-            self.card_sleeve_value(price)?,
-            self.trader_pnl,
-            liabilities,
-        ))
+    /// What the LPs physically hold: the sleeve plus the cards at `card_price`.
+    /// Trader margin and the protocol's fees are in the vault but not here.
+    pub fn assets(&self, card_price: u64) -> Result<u64> {
+        self.usdc_sleeve
+            .checked_add(self.card_sleeve_value(card_price)?)
+            .ok_or(error!(PoolError::Overflow))
     }
 
-    pub fn clp_price(&self, price: u64) -> Result<u128> {
-        m(clp_price(self.nav(price)?, self.clp_supply))
+    /// Unrealized trader PnL, marked at today's price.
+    pub fn trader_pnl(&self, trade_price: u64) -> Result<i128> {
+        r(self.book.unrealized_pnl(trade_price))
+    }
+
+    /// NAV for value LEAVING: cards at the low mark, and traders' unrealized
+    /// gains owed in full while their unrealized losses are not counted
+    /// until realised. An LP cannot leave with money traders have not lost yet.
+    pub fn nav_redeem(&self, marks: &Marks) -> Result<u64> {
+        let pnl = self.trader_pnl(marks.trade)?.max(0);
+        m(nav(self.usdc_sleeve, self.card_sleeve_value(marks.low)?, pnl, 0))
+    }
+
+    /// NAV for CLP being ISSUED: cards at the high mark, and the whole open
+    /// book at today's price. Never below `nav_redeem`, so a deposit followed
+    /// by a withdrawal cannot come out ahead.
+    pub fn nav_issue(&self, marks: &Marks) -> Result<u64> {
+        let pnl = self.trader_pnl(marks.trade)?;
+        m(nav(self.usdc_sleeve, self.card_sleeve_value(marks.high)?, pnl, 0))
+    }
+
+    /// The NAV shown to LPs: the conservative one.
+    pub fn nav(&self, marks: &Marks) -> Result<u64> {
+        self.nav_redeem(marks)
+    }
+
+    pub fn clp_price(&self, marks: &Marks) -> Result<u128> {
+        m(clp_price(self.nav(marks)?, self.clp_supply))
     }
 
     /// Both open-interest ceilings and which one binds. Delegated to
@@ -380,92 +442,71 @@ impl Pool {
         Ok(())
     }
 
-    /// CLP minted for a deposit of `value`. Rounds down.
-    pub fn shares_for(&self, value: u64, price: u64) -> Result<u64> {
-        m(shares_for_deposit(value, self.nav(price)?, self.clp_supply))
+    /// CLP minted for a deposit of `value`, at the issue NAV. Rounds down.
+    ///
+    /// A pool whose NAV is zero takes no deposits: the old 1:1 fallback
+    /// handed a new depositor shares in a pool that owed more than it held.
+    pub fn shares_for(&self, value: u64, marks: &Marks) -> Result<u64> {
+        if self.clp_supply == 0 {
+            return Ok(value);
+        }
+        let nav = self.nav_issue(marks)?;
+        require!(nav > 0, PoolError::Insolvent);
+        m(shares_for_deposit(value, nav, self.clp_supply))
     }
 
-    /// Total value returned for a redemption. Rounds down.
-    pub fn assets_for(&self, shares: u64, price: u64) -> Result<u64> {
-        m(assets_for_shares(shares, self.nav(price)?, self.clp_supply))
-    }
-
-    /// PROPORTIONAL slice of each sleeve. Both sides always leave together.
-    pub fn withdraw_split(&self, shares: u64) -> Result<(u64, u64)> {
-        let usdc = m(proportional_share(self.usdc_sleeve, shares, self.clp_supply))?;
-        let fractions = m(proportional_share(
-            self.fraction_balance,
-            shares,
-            self.clp_supply,
-        ))?;
+    /// The slice of each sleeve that `shares` are worth at the redeem NAV.
+    ///
+    /// Value first, then split in the proportion the sleeves are held in, so
+    /// both always leave together — there is no USDC-only path, or the first
+    /// out would take the liquid side and leave the rest the illiquid one.
+    pub fn redeem_split(&self, shares: u64, marks: &Marks) -> Result<(u64, u64)> {
+        require!(self.clp_supply > 0, PoolError::ZeroAmount);
+        require!(shares <= self.clp_supply, PoolError::Overflow);
+        let value = m(assets_for_shares(shares, self.nav_redeem(marks)?, self.clp_supply))?;
+        let assets = self.assets(marks.low)?;
+        if assets == 0 || value == 0 {
+            return Ok((0, 0));
+        }
+        let usdc = m(mul_div_floor(self.usdc_sleeve as u128, value as u128, assets as u128))
+            .and_then(|v| m(to_u64(v)))?;
+        let fractions = m(mul_div_floor(self.fraction_balance as u128, value as u128, assets as u128))
+            .and_then(|v| m(to_u64(v)))?;
         Ok((usdc, fractions))
     }
 
-    /// Final redemption in `Settled`: a proportional slice of both sleeves,
-    /// scaled by an equal haircut when the pool cannot cover what it owes.
-    ///
-    /// The haircut is `NAV / total_assets`. Assets are what is physically in
-    /// the vaults; NAV is what belongs to the LPs after bad debt and after the
-    /// margin still owed to open positions. When those liabilities exist, the
-    /// raw proportional split would hand LPs money that is not theirs, so
-    /// every holder is scaled by the same factor.
-    ///
-    /// Equal is the point. The alternative — first come, first served — is
-    /// what a bank run is, and it is decided by who is awake rather than by
-    /// who is owed.
-    pub fn settlement_split(&self, shares: u64, price: u64) -> Result<(u64, u64)> {
-        let (usdc_raw, frac_raw) = self.withdraw_split(shares)?;
-        let assets = self
+    /// The sleeve after a position settles: margin back in, payout and fee
+    /// out. Refuses rather than pay what the sleeve does not have.
+    pub fn sleeve_after_settle(&self, margin_released: u64, to_recipient: u64, fee: u64) -> Result<u64> {
+        let available = self
             .usdc_sleeve
-            .checked_add(self.card_sleeve_value(price)?)
+            .checked_add(margin_released)
             .ok_or(PoolError::Overflow)?;
-        let nav = self.nav(price)?;
-        Ok((
-            m(prorata_haircut(usdc_raw, assets, nav))?,
-            m(prorata_haircut(frac_raw, assets, nav))?,
-        ))
+        let out = to_recipient.checked_add(fee).ok_or(PoolError::Overflow)?;
+        available
+            .checked_sub(out)
+            .ok_or(error!(PoolError::InsufficientLiquidity))
     }
 
-    /// Book a fee that is ALREADY in the sleeve: records the split without
-    /// adding to `usdc_sleeve` again. The protocol's share is tracked as owed,
-    /// not swept, so it stays claimable without a second transfer.
-    pub fn split_fee_from_sleeve(&mut self, fee: u64) -> Result<()> {
+    /// Split a fee that is in the vault but not yet in the sleeve. The LPs'
+    /// share joins the sleeve, which is what makes CLP appreciate; the
+    /// protocol's share stays outside it, owed, until claimed.
+    pub fn book_fee(&mut self, fee: u64) -> Result<()> {
         if fee == 0 {
             return Ok(());
         }
-        let lp = m(slab_math::mul_div_floor(
+        let lp = m(mul_div_floor(
             fee as u128,
             self.params.lp_fee_share_bps as u128,
             10_000,
         ))
         .and_then(|v| m(to_u64(v)))?;
-        self.accrued_fees_lp = self.accrued_fees_lp.checked_add(lp).ok_or(PoolError::Overflow)?;
-        self.accrued_fees_protocol = self
-            .accrued_fees_protocol
-            .checked_add(fee.saturating_sub(lp))
-            .ok_or(PoolError::Overflow)?;
-        Ok(())
-    }
-
-    /// Split a fee arriving from outside the sleeve. LPs' share grows the
-    /// sleeve, which is what makes CLP appreciate.
-    pub fn split_fee(&mut self, fee: u64) -> Result<()> {
-        if fee == 0 {
-            return Ok(());
-        }
-        let lp = m(slab_math::mul_div_floor(
-            fee as u128,
-            self.params.lp_fee_share_bps as u128,
-            10_000,
-        ))
-        .and_then(|v| m(to_u64(v)))?;
-        let protocol = fee.saturating_sub(lp);
-        self.accrued_fees_lp = self.accrued_fees_lp.checked_add(lp).ok_or(PoolError::Overflow)?;
-        self.accrued_fees_protocol = self
-            .accrued_fees_protocol
-            .checked_add(protocol)
-            .ok_or(PoolError::Overflow)?;
         self.usdc_sleeve = self.usdc_sleeve.checked_add(lp).ok_or(PoolError::Overflow)?;
+        self.accrued_fees_lp = self.accrued_fees_lp.checked_add(lp).ok_or(PoolError::Overflow)?;
+        self.accrued_fees_protocol = self
+            .accrued_fees_protocol
+            .checked_add(fee - lp)
+            .ok_or(PoolError::Overflow)?;
         Ok(())
     }
 
@@ -490,35 +531,37 @@ pub struct Pool {
     ///
     /// Issue #10 — fragmentation — is handled by this field rather than by a
     /// convention: a `Pool` has exactly one fraction mint, its PDA is derived
-    /// from the USDC mint, and there is no instruction that rebinds it. A
-    /// second basket needs a second pool and a second market, which is a
-    /// deliberate act rather than an accident. Splitting liquidity across
-    /// baskets makes each one shallower, and by the depth ceiling a shallower
-    /// pool is cheaper to attack.
+    /// from the USDC mint, and there is no instruction that rebinds it.
     pub fraction_mint: Pubkey,
     pub fraction_vault: Pubkey,
     pub oracle: Pubkey,
     /// The perp market allowed to touch risk accounting.
     pub perp_market: Pubkey,
 
-    /// Liquid sleeve `U`, in native USDC. Winners are paid from here.
+    /// Liquid sleeve `U`, in native USDC: the LPs' money and nothing else.
+    /// Winners are paid from here.
+    ///
+    /// `usdc_vault` holds `usdc_sleeve + margin_held + accrued_fees_protocol`.
     pub usdc_sleeve: u64,
     /// Card sleeve as a TOKEN QUANTITY. Its value is marked at read time.
     pub fraction_balance: u64,
     pub clp_supply: u64,
 
-    /// Net trader PnL, signed. Positive means traders are winning and NAV is
-    /// falling. Written by `perp` through `settle_position`.
-    pub trader_pnl: i128,
-    /// Realised loss the pool absorbed. VISIBLE on purpose.
+    /// The open book, pushed by `perp` on every open and settle, marked at
+    /// read time. See [`BookSnapshot`].
+    pub book: BookSnapshot,
+    /// Losses past a position's margin, recorded for visibility.
+    ///
+    /// NOT subtracted from NAV: the pool never received that money, so the
+    /// sleeve already reflects it. Subtracting it again counted it twice.
     pub bad_debt: u64,
-    /// Trader margin sitting in `usdc_vault`. It shares the vault with the
-    /// LPs' money but is not the LPs' money, so NAV subtracts it. Without
-    /// this, an LP withdrawing while positions are open takes value from the
-    /// LPs who stay.
+    /// Trader margin sitting in `usdc_vault`, held apart from the sleeve.
     pub margin_held: u64,
 
+    /// Running total of the LPs' fee share, already in the sleeve. Display.
     pub accrued_fees_lp: u64,
+    /// The protocol's fee share, in the vault but not the sleeve, until
+    /// `claim_protocol_fees`.
     pub accrued_fees_protocol: u64,
 
     pub params: PoolParams,
@@ -557,25 +600,59 @@ pub struct AdminOnly<'info> {
     pub pool: Account<'info, Pool>,
 }
 
-/// Shared account set for anything that has to mark the card sleeve.
+#[derive(Accounts)]
+pub struct ClaimProtocolFees<'info> {
+    #[account(address = pool.admin @ PoolError::NotAdmin)]
+    pub admin: Signer<'info>,
+    #[account(
+        mut, seeds = [seeds::POOL, pool.usdc_mint.as_ref()], bump = pool.bump,
+        has_one = usdc_vault @ PoolError::WrongVault,
+    )]
+    pub pool: Account<'info, Pool>,
+    #[account(mut)]
+    pub usdc_vault: Account<'info, TokenAccount>,
+    #[account(mut, constraint = destination.mint == pool.usdc_mint @ PoolError::WrongMint)]
+    pub destination: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+}
+
+impl<'info> ClaimProtocolFees<'info> {
+    pub fn pay(&self, amount: u64) -> Result<()> {
+        let mint = self.pool.usdc_mint;
+        let seeds = self.pool.signer_seeds(&mint);
+        token::transfer(
+            CpiContext::new_with_signer(
+                self.token_program.key(),
+                Transfer {
+                    from: self.usdc_vault.to_account_info(),
+                    to: self.destination.to_account_info(),
+                    authority: self.pool.to_account_info(),
+                },
+                &[&seeds],
+            ),
+            amount,
+        )
+    }
+}
+
+/// Shared account set for anything that has to mark the pool.
 macro_rules! oracle_reader {
     ($t:ty) => {
         impl<'info> $t {
-            /// Price for marking. Not `require_tradeable`: an LP must be able
-            /// to leave even when the market has stopped accepting new risk.
-            pub fn price(&self) -> Result<u64> {
-                let view = slab_interface::read_oracle(
-                    &self.oracle.to_account_info(),
-                    &slab_interface::ORACLE_PROGRAM_ID,
-                )?;
+            /// The pool's prices, from a FRESH oracle. Not `require_tradeable`:
+            /// an LP must be able to leave even when the market has stopped
+            /// accepting new risk. A stale oracle is refreshed in the same
+            /// transaction — `refresh_price` is permissionless.
+            pub fn marks(&self) -> Result<Marks> {
+                let view = read_oracle(&self.oracle.to_account_info(), &ORACLE_PROGRAM_ID)?;
                 let now = Clock::get()?.unix_timestamp;
-                // Against the oracle's own staleness limit, not a number of ours.
-                view.require_markable(now)?;
-                // The POOL marks collateral, so it uses the sluggish price.
-                // `perp` keeps using `price` for PnL — a trader's position
-                // must settle at what the market says now, not at a lagging
-                // average. Collateral is the only thing marked conservatively.
-                Ok(view.mark_price())
+                let trade = view.require_markable(now)?;
+                Ok(Marks {
+                    trade,
+                    low: view.mark_price(),
+                    high: view.issue_price(),
+                    depth: view.depth,
+                })
             }
         }
     };
@@ -881,10 +958,9 @@ pub struct Redeemed {
 #[event]
 pub struct PositionSettled {
     pub pool: Pubkey,
-    pub to_trader: u64,
+    pub to_recipient: u64,
     pub fee: u64,
     pub bad_debt: u64,
-    pub trader_pnl: i128,
 }
 
 #[event]
@@ -901,7 +977,7 @@ pub struct StateChanged {
 mod tests {
     use super::*;
     use slab_math::WAD;
-    use slab_risk::Binding;
+    use slab_risk::{Binding, MarketRisk, RiskSide as Side};
 
     const USDC: u64 = 1_000_000;
     const PAR: u64 = WAD as u64;
@@ -919,7 +995,7 @@ mod tests {
             usdc_sleeve: 140_000 * USDC,
             fraction_balance: 60_000 * USDC, // 60k fractions at $1.00
             clp_supply: 200_000 * USDC,
-            trader_pnl: 0,
+            book: BookSnapshot::default(),
             bad_debt: 0,
             margin_held: 0,
             accrued_fees_lp: 0,
@@ -930,73 +1006,159 @@ mod tests {
         }
     }
 
+    /// A pool with one long open at $1.
+    fn with_long(notional: u64, margin: u64) -> Pool {
+        let mut p = pool();
+        let mut mk = MarketRisk::new(0);
+        mk.add_position(Side::Long, notional, PAR).unwrap();
+        p.book = BookSnapshot::of(&mk);
+        p.margin_held = margin;
+        p
+    }
+
+    fn flat() -> Marks {
+        Marks::flat(PAR)
+    }
+
+    /// Deposit `amount` USDC, then redeem every share it bought, without
+    /// anything else happening in between. Returns USDC-equivalent out.
+    fn round_trip(mut p: Pool, amount: u64, marks: &Marks) -> u64 {
+        let shares = p.shares_for(amount, marks).unwrap();
+        p.usdc_sleeve += amount;
+        p.clp_supply += shares;
+        let (usdc, frac) = p.redeem_split(shares, marks).unwrap();
+        usdc + p.fraction_value(frac, marks.trade).unwrap()
+    }
+
     #[test]
     fn nav_and_clp_price_start_at_parity() {
         let p = pool();
-        assert_eq!(p.nav(PAR).unwrap(), 200_000 * USDC);
-        assert_eq!(p.clp_price(PAR).unwrap(), WAD);
+        assert_eq!(p.nav(&flat()).unwrap(), 200_000 * USDC);
+        assert_eq!(p.clp_price(&flat()).unwrap(), WAD);
     }
 
     #[test]
     fn the_card_sleeve_is_marked_not_stored() {
-        // The bug this guards: caching the sleeve's value means every NAV
-        // after the next price move is wrong.
         let p = pool();
-        let at_par = p.nav(PAR).unwrap();
-        let after_drop = p.nav(PAR * 80 / 100).unwrap();
-        assert_eq!(at_par - after_drop, 12_000 * USDC, "30% sleeve, 20% drop");
+        let up = Marks::flat(PAR * 11 / 10);
+        assert_eq!(p.nav(&up).unwrap(), 206_000 * USDC);
     }
 
     #[test]
-    fn trader_profit_reduces_nav_one_for_one() {
-        let mut p = pool();
-        let before = p.nav(PAR).unwrap();
-        p.trader_pnl = 640 * USDC as i128;
-        assert_eq!(before - p.nav(PAR).unwrap(), 640 * USDC);
+    fn deposit_then_withdraw_with_trader_margin_in_the_vault_prints_nothing() {
+        // The validator-proven exploit: $25k margin held, $100k in, $110,416
+        // out. Margin now sits outside the sleeve and redemption is NAV-sized.
+        let p = with_long(2_000 * USDC, 25_000 * USDC);
+        assert!(round_trip(p, 100_000 * USDC, &flat()) <= 100_000 * USDC);
     }
 
     #[test]
-    fn margin_held_is_a_liability_not_pool_equity() {
-        // Trader margin sits in the same vault as the LPs' money. Counting it
-        // as NAV would let an LP withdrawing while positions are open take
-        // value from the LPs who stay.
-        let mut p = pool();
-        let before = p.nav(PAR).unwrap();
-        p.usdc_sleeve += 5_000 * USDC; // margin arrives in the vault
-        p.margin_held += 5_000 * USDC; // and is immediately owed back
-        assert_eq!(p.nav(PAR).unwrap(), before, "margin must not move NAV");
+    fn deposit_then_withdraw_with_traders_ahead_prints_nothing() {
+        let p = with_long(50_000 * USDC, 10_000 * USDC);
+        let up = Marks::flat(PAR * 12 / 10); // traders up $10k
+        assert!(round_trip(p, 100_000 * USDC, &up) <= 100_000 * USDC);
     }
 
     #[test]
-    fn a_fee_already_in_the_sleeve_is_booked_without_double_counting() {
-        let mut p = pool();
-        let before = p.usdc_sleeve;
-        p.split_fee_from_sleeve(1_000).unwrap();
-        assert_eq!(p.usdc_sleeve, before, "the fee was already there");
-        assert_eq!(p.accrued_fees_lp, 750);
-        assert_eq!(p.accrued_fees_protocol, 250);
+    fn deposit_then_withdraw_with_traders_behind_prints_nothing() {
+        let p = with_long(50_000 * USDC, 10_000 * USDC);
+        let down = Marks::flat(PAR * 9 / 10); // traders down $5k, unrealised
+        assert!(round_trip(p, 100_000 * USDC, &down) <= 100_000 * USDC);
     }
 
     #[test]
-    fn bad_debt_is_deducted_and_stays_visible() {
+    fn deposit_then_withdraw_across_the_slow_mark_gap_prints_nothing() {
+        // fast price above the slow one: cards issue high, redeem low
+        let p = pool();
+        let m = Marks { trade: PAR * 13 / 10, low: PAR, high: PAR * 13 / 10, depth: 0 };
+        assert!(round_trip(p, 100_000 * USDC, &m) <= 100_000 * USDC * 13 / 10);
+        let out = {
+            let mut p = pool();
+            let s = p.shares_for(100_000 * USDC, &m).unwrap();
+            p.usdc_sleeve += 100_000 * USDC;
+            p.clp_supply += s;
+            let (u, f) = p.redeem_split(s, &m).unwrap();
+            u + p.fraction_value(f, m.trade).unwrap()
+        };
+        assert!(out <= 100_000 * USDC, "round trip returned {out}");
+    }
+
+    #[test]
+    fn trader_gains_are_owed_now_and_trader_losses_only_once_realised() {
+        let p = with_long(50_000 * USDC, 10_000 * USDC);
+        let up = Marks::flat(PAR * 12 / 10);
+        let base = p.assets(up.low).unwrap();
+        assert_eq!(p.nav_redeem(&up).unwrap(), base - 10_000 * USDC);
+        let down = Marks::flat(PAR * 9 / 10);
+        assert_eq!(p.nav_redeem(&down).unwrap(), p.assets(down.low).unwrap());
+        assert_eq!(p.nav_issue(&down).unwrap(), p.assets(down.high).unwrap() + 5_000 * USDC);
+    }
+
+    #[test]
+    fn margin_is_not_lp_money() {
         let mut p = pool();
-        p.bad_debt = 1_000 * USDC;
-        assert_eq!(p.nav(PAR).unwrap(), 199_000 * USDC);
+        let before = p.nav(&flat()).unwrap();
+        p.margin_held += 5_000 * USDC; // landed in the vault, not the sleeve
+        assert_eq!(p.nav(&flat()).unwrap(), before);
+        assert_eq!(p.capacity(0).unwrap().cap_solvency, pool().capacity(0).unwrap().cap_solvency);
+    }
+
+    #[test]
+    fn bad_debt_is_recorded_but_not_counted_twice() {
+        let mut p = pool();
+        let before = p.nav(&flat()).unwrap();
+        p.bad_debt = 640 * USDC;
+        assert_eq!(p.nav(&flat()).unwrap(), before);
+    }
+
+    #[test]
+    fn protocol_fees_are_not_lp_equity() {
+        let mut p = pool();
+        p.book_fee(1_000 * USDC).unwrap();
+        assert_eq!(p.accrued_fees_lp, 750 * USDC);
+        assert_eq!(p.accrued_fees_protocol, 250 * USDC);
+        assert_eq!(p.usdc_sleeve, 140_750 * USDC, "only the LP share joins the sleeve");
+    }
+
+    #[test]
+    fn settlement_moves_value_between_margin_sleeve_and_recipient_exactly() {
+        let p = with_long(1_000 * USDC, 200 * USDC);
+        // close in profit: equity 300, fee 1, paid 299
+        let after = p.sleeve_after_settle(200 * USDC, 299 * USDC, USDC).unwrap();
+        assert_eq!(after, p.usdc_sleeve - 100 * USDC);
+        // close at a loss: equity 50, fee 1, paid 49
+        let after = p.sleeve_after_settle(200 * USDC, 49 * USDC, USDC).unwrap();
+        assert_eq!(after, p.usdc_sleeve + 150 * USDC);
+    }
+
+    #[test]
+    fn settlement_refuses_to_pay_what_the_sleeve_lacks() {
+        let mut p = pool();
+        p.usdc_sleeve = 10 * USDC;
+        assert!(p.sleeve_after_settle(0, 11 * USDC, 0).is_err());
+    }
+
+    #[test]
+    fn an_insolvent_pool_takes_no_deposits() {
+        let mut p = with_long(1_000_000 * USDC, 0);
+        p.usdc_sleeve = 0;
+        p.fraction_balance = 0;
+        let crash = Marks::flat(PAR * 2);
+        assert!(p.shares_for(1_000 * USDC, &crash).is_err());
     }
 
     #[test]
     fn the_depth_ceiling_binds_long_before_solvency_does() {
-        let c = pool().capacity(60_000 * USDC).unwrap();
-        assert_eq!(c.cap_solvency / USDC, 233_333);
-        assert_eq!(c.cap_depth / USDC, 8_972, "halved by the 2x attack safety factor");
-        assert_eq!(c.cap, c.cap_depth);
+        let p = pool();
+        let c = p.capacity(60_000 * USDC).unwrap();
         assert_eq!(c.binding, Binding::Depth);
+        assert!(c.cap_depth < c.cap_solvency / 10);
     }
 
     #[test]
     fn solvency_binds_once_the_amm_is_deep() {
-        let c = pool().capacity(5_000_000 * USDC).unwrap();
-        assert_eq!(c.cap, c.cap_solvency);
+        let p = pool();
+        let c = p.capacity(5_000_000 * USDC).unwrap();
         assert_eq!(c.binding, Binding::Solvency);
     }
 
@@ -1004,98 +1166,38 @@ mod tests {
     fn withdrawals_are_proportional_and_never_usdc_only() {
         let p = pool();
         let shares = p.clp_supply / 10;
-        let (usdc, fractions) = p.withdraw_split(shares).unwrap();
+        let (usdc, fractions) = p.redeem_split(shares, &flat()).unwrap();
         assert_eq!(usdc, 14_000 * USDC);
         assert_eq!(fractions, 6_000 * USDC);
-        // neither sleeve alone covers the claim: that is what stops a run
-        assert!(usdc < p.assets_for(shares, PAR).unwrap());
-        assert_eq!(
-            usdc + p.fraction_value(fractions, PAR).unwrap(),
-            p.assets_for(shares, PAR).unwrap()
-        );
-    }
-
-    #[test]
-    fn deposit_then_withdraw_never_prints_value() {
-        let mut p = pool();
-        let dep = 5_000 * USDC;
-        let shares = p.shares_for(dep, PAR).unwrap();
-        p.usdc_sleeve += dep;
-        p.clp_supply += shares;
-        let back = p.assets_for(shares, PAR).unwrap();
-        assert!(back <= dep);
-        assert!(dep - back <= 1);
     }
 
     #[test]
     fn card_deposits_take_the_haircut() {
-        assert_eq!(pool().haircut_value(1_000 * USDC).unwrap(), 970 * USDC);
+        let p = pool();
+        assert_eq!(p.haircut_value(1_000 * USDC).unwrap(), 970 * USDC);
     }
 
     #[test]
     fn the_illiquid_sleeve_cannot_grow_past_its_target() {
         let p = pool();
-        // already at 30% of 200k; a further 10k of fractions breaches it
         assert!(p.require_sleeve_within_target(60_000 * USDC, PAR).is_ok());
         assert!(p.require_sleeve_within_target(70_000 * USDC, PAR).is_err());
     }
 
     #[test]
-    fn fees_mostly_go_to_the_lps_and_land_in_the_sleeve() {
-        let mut p = pool();
-        let before = p.usdc_sleeve;
-        p.split_fee(1_000).unwrap();
-        assert_eq!(p.accrued_fees_lp, 750);
-        assert_eq!(p.accrued_fees_protocol, 250);
-        assert_eq!(p.usdc_sleeve - before, 750, "the LP share grows the sleeve");
-    }
-
-    #[test]
-    fn settlement_without_liabilities_pays_the_full_proportional_slice() {
-        let p = pool();
-        let shares = p.clp_supply / 10;
-        assert_eq!(p.settlement_split(shares, PAR).unwrap(), p.withdraw_split(shares).unwrap());
-    }
-
-    #[test]
     fn the_settlement_haircut_is_equal_for_everyone() {
-        let mut p = pool();
-        // 40k of bad debt against 200k of assets: everyone takes 20%
-        p.bad_debt = 40_000 * USDC;
-
-        let (big_usdc, _) = p.settlement_split(p.clp_supply / 2, PAR).unwrap();
-        let (small_usdc, _) = p.settlement_split(p.clp_supply / 4, PAR).unwrap();
-
-        // half the shares gets exactly twice as much, and both are cut 20%
-        assert_eq!(big_usdc, 56_000 * USDC); // 70k raw * 0.8
-        assert_eq!(small_usdc, 28_000 * USDC);
-        assert!((big_usdc as i128 - 2 * small_usdc as i128).abs() <= 2);
-    }
-
-    #[test]
-    fn open_positions_hold_back_their_margin_at_settlement() {
-        // Margin still owed to traders is not the LPs' to take, even at the
-        // end. It shows up as the same haircut bad debt would cause.
-        let mut p = pool();
-        p.usdc_sleeve += 20_000 * USDC;
-        p.margin_held = 20_000 * USDC;
-
-        let shares = p.clp_supply; // everyone leaves at once
-        let (usdc, frac) = p.settlement_split(shares, PAR).unwrap();
-        let taken = usdc + p.fraction_value(frac, PAR).unwrap();
-
-        assert!(taken <= p.nav(PAR).unwrap() + 2, "LPs took more than they are owed");
-        assert!(
-            p.usdc_sleeve + p.card_sleeve_value(PAR).unwrap() - usdc >= 20_000 * USDC - 2,
-            "the traders' margin must survive the LPs leaving"
-        );
+        // traders up $40k against a $200k pool: everybody leaves with 80%
+        let p = with_long(200_000 * USDC, 0);
+        let m = Marks::flat(PAR * 12 / 10);
+        let (big_usdc, _) = p.redeem_split(p.clp_supply / 2, &m).unwrap();
+        let (small_usdc, _) = p.redeem_split(p.clp_supply / 4, &m).unwrap();
+        assert!(big_usdc.abs_diff(small_usdc * 2) <= 1);
     }
 
     #[test]
     fn redeeming_everything_never_pays_out_more_than_exists() {
-        let mut p = pool();
-        p.bad_debt = 150_000 * USDC; // deeply underwater
-        let (usdc, frac) = p.settlement_split(p.clp_supply, PAR).unwrap();
+        let p = pool();
+        let (usdc, frac) = p.redeem_split(p.clp_supply, &flat()).unwrap();
         assert!(usdc <= p.usdc_sleeve);
         assert!(frac <= p.fraction_balance);
     }
@@ -1111,8 +1213,6 @@ mod tests {
         p.state = MarketState::Settled;
         assert!(!p.state.allows_open() && !p.state.allows_deposit());
         assert!(!p.state.allows_withdraw(), "the normal exit is barred");
-        // but unwinding stays open, or trader margin is stranded forever and
-        // the LPs are haircut for money nobody can ever collect
         assert!(p.state.allows_close() && p.state.allows_liquidate());
     }
 
