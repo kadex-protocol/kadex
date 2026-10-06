@@ -1,6 +1,7 @@
 "use client";
 
 import { CONSTITUENTS, fmtBps, fmtPct, fmtPrice, fmtUsd } from "@/lib/market";
+import Link from "next/link";
 import { useMarket } from "@/lib/useMarket";
 import { Thumb } from "@/components/Slab";
 
@@ -9,13 +10,11 @@ export default function IndexPage() {
 
   return (
     <div className="page">
-      <section className="hero" style={{ minHeight: 320 }}>
-        <div className="hero-copy">
-          <p className="kicker">02 / Index</p>
-          <h1 className="display">The Culture Index.</h1>
-          <p className="lede">What the index holds, and the rules it holds it by.</p>
-        </div>
-      </section>
+      <header className="page-head">
+        <Link href="/" className="link">← Back to trade</Link>
+        <h1 className="display" style={{ marginTop: 14 }}>The Culture Index</h1>
+        <p className="lede">What the index holds, and the rules it holds it by.</p>
+      </header>
 
       <div className="stats">
         <div className="stat">
@@ -75,7 +74,7 @@ export default function IndexPage() {
         </div>
       </section>
 
-      <div className="grid-2">
+      <div className="layout even">
         <section className="panel prose">
           <h2 className="title">Methodology</h2>
 

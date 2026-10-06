@@ -12,7 +12,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { CONSTITUENTS, fmtBps, fmtUsd } from "@/lib/market";
-import { Thumb } from "@/components/Slab";
+import { Slab, Thumb } from "@/components/Slab";
 import { useWallet } from "@/lib/wallet";
 
 /** Mirrors `fractions_for_value`: 1 fraction = $1, both 6 decimals, so 1:1. */
@@ -40,121 +40,86 @@ export default function VaultPage() {
 
   return (
     <div className="page">
-      <section className="hero" style={{ minHeight: 320 }}>
-        <div className="hero-copy">
-          <p className="kicker">04 / Vault</p>
-          <h1 className="display">Put a card in.</h1>
-          <p className="lede">
-            A graded collectible becomes fractions you can trade, lend or redeem.
-          </p>
-        </div>
-      </section>
+      <header className="page-head">
+        <h1 className="display">Vault a card</h1>
+        <p className="lede">
+          Lock a graded collectible and receive fractions you can hold, trade or deposit to earn —
+          without selling the card.
+        </p>
+      </header>
 
-      <div className="trade-layout">
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <section className="panel prose">
-            <h2 className="title" style={{ marginBottom: 6 }}>How it works</h2>
-            {STEPS.map(([h, body], i) => (
-              <div key={h}>
-                <h3>
-                  {i + 1} · {h}
-                </h3>
-                <p>{body}</p>
-              </div>
-            ))}
-          </section>
-
+      <div className="layout">
+        <div className="col">
           <section className="panel">
             <div className="panel-head">
-              <div>
-                <h2 className="title">Whitelisted cards</h2>
-                <p className="sub">Only these can be vaulted.</p>
-              </div>
+              <h2 className="title sm">1 · Choose a card</h2>
+              <span className="sub">Only whitelisted cards can be vaulted</span>
             </div>
-            <div className="t-wrap">
-              <table className="t">
-                <thead>
-                  <tr>
-                    <th>Card</th>
-                    <th>Reference</th>
-                    <th className="r">Index weight</th>
-                    <th className="r">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {CONSTITUENTS.map((c) => (
-                    <tr key={c.id}>
-                      <td>
-                        <span className="asset">
-                          <Thumb art={c.art} />
-                          <span>
-                            <span className="nm">{c.name}</span>
-                            <span className="id">{c.year} · {c.grade}</span>
-                          </span>
-                        </span>
-                      </td>
-                      <td className="n">{c.ref}</td>
-                      <td className="r n">{fmtBps(c.weightBps)}</td>
-                      <td className="r">
-                        <span className="dot" style={{ background: "var(--up)" }} />
-                        Enabled
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="picker" role="radiogroup" aria-label="Card to vault">
+              {CONSTITUENTS.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={c.id === selected}
+                  className="pick"
+                  onClick={() => setSelected(c.id)}
+                >
+                  <Slab item={c} />
+                  <span className="nm">{c.name}</span>
+                  <span className="id">{c.grade} · {fmtBps(c.weightBps)} of index</span>
+                </button>
+              ))}
             </div>
+          </section>
+
+          <section className="panel faq">
+            <h2 className="title sm" style={{ marginBottom: 6 }}>How vaulting works</h2>
+            {STEPS.map(([h, body], i) => (
+              <details className="acc" key={h} open={i === 3}>
+                <summary>{i + 1} · {h}</summary>
+                <p>{body}</p>
+              </details>
+            ))}
           </section>
         </div>
 
         <aside className="panel ticket">
-          <div>
-            <p className="kicker" style={{ margin: 0 }}>Vault / Deposit</p>
-            <h2 className="title" style={{ marginTop: 8 }}>Fractionalise</h2>
-            <p className="sub">Lock a card, mint its fractions.</p>
+          <h2 className="sr-only">Vault this card</h2>
+          <div className="asset chosen">
+            <Thumb art={card.art} />
+            <span>
+              <span className="nm">{card.name}</span>
+              <span className="id">{card.year} · {card.grade} · {card.ref}</span>
+            </span>
           </div>
 
-          <label className="field">
-            <span>Card</span>
-            <select value={selected} onChange={(e) => setSelected(e.target.value)}>
-              {CONSTITUENTS.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} · {c.ref}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="token-input">
+            <div className="ti-top">
+              <span>2 · Appraised value</span>
+              <span>Set at whitelisting</span>
+            </div>
+            <div className="ti-row">
+              <input
+                inputMode="decimal"
+                autoComplete="off"
+                placeholder="0.00"
+                aria-label="Appraised value in USDC"
+                value={appraisal}
+                onChange={(e) => setAppraisal(e.target.value.replace(/[^0-9.,]/g, ""))}
+              />
+              <span className="token">USDC</span>
+            </div>
+          </div>
 
-          <label className="field">
-            <span>Appraised value · USDC</span>
-            <input
-              inputMode="decimal"
-              autoComplete="off"
-              placeholder="—"
-              value={appraisal}
-              onChange={(e) => setAppraisal(e.target.value.replace(/[^0-9.,]/g, ""))}
-            />
-          </label>
-
-          <p className="hint" style={{ marginTop: -6 }}>
-            {connected ? "Set at whitelisting, not at deposit" : "Connect a wallet to continue"}
-          </p>
-
-          {value > 0n && (
-            <>
-              <hr className="sep" />
-              <div className="rows">
-                <div><span>Card</span><b>{card.name}</b></div>
-                <div><span>Grade</span><b>{card.grade}</b></div>
-                <div><span>Fractions minted</span><b>{fmtUsd(fractionsForValue(value), 2)}</b></div>
-                <div className="hi"><span>To redeem, burn</span><b>{fmtUsd(fractionsForValue(value), 2)}</b></div>
-              </div>
-            </>
-          )}
+          <div className="rows">
+            <div><span>You receive</span><b>{value > 0n ? `${fmtUsd(fractionsForValue(value), 2)} fractions` : "—"}</b></div>
+            <div className={value > 0n ? "hi" : undefined}><span>To get the card back, burn</span><b>{value > 0n ? fmtUsd(fractionsForValue(value), 2) : "—"}</b></div>
+          </div>
 
           {connected ? (
             <button className="btn block" disabled={value <= 0n}>
-              {value > 0n ? "Vault this card" : "Enter an appraisal"}
+              {value > 0n ? "3 · Vault this card" : "Enter the appraisal"}
             </button>
           ) : (
             <button className="btn block" onClick={() => void connect()} disabled={status === "connecting"}>
@@ -166,15 +131,12 @@ export default function VaultPage() {
             The card stays locked until every fraction is burned.
           </p>
 
-          <hr className="sep" />
-          <p className="sub">
-            Got fractions already? <Link href="/pool" className="link">Deposit them →</Link>
+          <p className="sub" style={{ margin: 0 }}>
+            Already have fractions? <Link href="/pool" className="link">Deposit them to earn →</Link>
           </p>
 
           <p className="fine">
-            {connected
-              ? "Vaulting requires the programs to be deployed. Nothing is signed or settled here yet."
-              : "Visual concept only"}
+            Vaulting requires the programs to be deployed. Nothing is signed or settled here yet.
           </p>
         </aside>
       </div>

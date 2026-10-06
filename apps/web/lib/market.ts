@@ -248,8 +248,9 @@ export interface Balances {
 
 /** Nothing, until a wallet is connected and the programs are live. */
 export async function loadBalances(owner: PublicKey | null): Promise<Balances> {
-  if (!owner) return { usdc: 0n, fractions: 0n, clp: 0n };
-  return { usdc: 0n, fractions: 0n, clp: 0n };
+  if (!owner || !IS_SAMPLE) return { usdc: 0n, fractions: 0n, clp: 0n };
+  // Sample only, behind the preview flag — the same wallet the portfolio shows.
+  return { usdc: 5_240n * USDC, fractions: SAMPLE_CARDS[0]!.held, clp: SAMPLE_CLP };
 }
 
 export type DepositKind = "usdc" | "fractions";
@@ -415,8 +416,30 @@ const SAMPLE_POSITIONS: PositionRow[] = [
   { constituentId: "004", side: "long", notional: 3_160n * 1_000_000n, margin: 632n * 1_000_000n, entryPrice: 1_045_500n, markPrice: 1_031_120n, pnl: -43_400_000n, pnlPct: -1.37, leverage: 5 },
 ];
 
+/** A card the wallet has vaulted, and how many of its fractions it still holds. */
+export interface CardHolding {
+  constituentId: string;
+  /** Fractions minted when the card went in. Burning all of them returns it. */
+  minted: bigint;
+  /** Fractions still in this wallet. */
+  held: bigint;
+  /** Fractions this wallet has put into the CLP pool. */
+  inPool: bigint;
+}
+
+const SAMPLE_CARDS: CardHolding[] = [
+  { constituentId: "001", minted: 4_200n * USDC, held: 3_000n * USDC, inPool: 1_200n * USDC },
+  { constituentId: "002", minted: 1_850n * USDC, held: 1_850n * USDC, inPool: 0n },
+];
+
+const SAMPLE_CLP = 1_164n * USDC;
+
 export interface Portfolio {
   rows: PositionRow[];
+  cards: CardHolding[];
+  /** CLP shares held, and what they redeem for at current NAV. */
+  clp: bigint;
+  clpValue: bigint;
   totalValue: bigint;
   totalPnl: bigint;
   longNotional: bigint;
@@ -425,12 +448,18 @@ export interface Portfolio {
 }
 
 export async function loadPortfolio(owner: PublicKey | null): Promise<Portfolio> {
-  const rows = owner && IS_SAMPLE ? SAMPLE_POSITIONS : [];
+  const sample = owner !== null && IS_SAMPLE;
+  const rows = sample ? SAMPLE_POSITIONS : [];
+  const clp = sample ? SAMPLE_CLP : 0n;
+  const { poolStats } = await loadMarket();
   const sum = (f: (r: PositionRow) => bigint) => rows.reduce((a, r) => a + f(r), 0n);
   const cash = rows.length ? 5_240n * 1_000_000n : 0n;
   const margin = sum((r) => r.margin);
   return {
     rows,
+    cards: sample ? SAMPLE_CARDS : [],
+    clp,
+    clpValue: (clp * poolStats.clpPrice) / WAD,
     totalValue: margin + cash + sum((r) => r.pnl),
     totalPnl: sum((r) => r.pnl),
     longNotional: sum((r) => (r.side === "long" ? r.notional : 0n)),

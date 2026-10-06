@@ -13,30 +13,33 @@
  *   no audience.
  *
  *   ROLE 4, the dealer hedging stock. "Short" reads as betting against the
- *   hobby. "Protect inventory" reads as prudence, and it is the same trade.
- *   Hedge mode sizes in inventory value rather than notional and leads with
- *   the monthly cost, because that is the premium being decided on.
+ *   hobby. "Hedge" reads as prudence, and it is the same trade. It sits as a
+ *   third tab beside Long and Short, sizes in inventory value rather than
+ *   notional, and leads with the monthly cost — the premium being decided on.
  *
  * Nothing here pretends to trade. A button reporting success it cannot verify
  * is worse than one admitting what it cannot do.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Side } from "@slab/types";
 import { useWallet } from "@/lib/wallet";
-import { borrowSpread, fmtPrice, fmtUsd, quote, type MarketSnapshot } from "@/lib/market";
+import { borrowSpread, fmtPrice, fmtUsd, loadBalances, quote, type Balances, type MarketSnapshot } from "@/lib/market";
 
-type Mode = "speculate" | "hedge";
+type Tab = "long" | "short" | "hedge";
 
 export function TradeTicket({ snapshot }: { snapshot: MarketSnapshot }) {
   const { status, publicKey, connect, error } = useWallet();
-  const [mode, setMode] = useState<Mode>("speculate");
-  const [side, setSide] = useState<Side>("long");
+  const [tab, setTab] = useState<Tab>("long");
   const [amount, setAmount] = useState("");
   const [coverPct, setCoverPct] = useState(60);
+  const [balances, setBalances] = useState<Balances | null>(null);
 
   const spread = useMemo(() => borrowSpread(snapshot), [snapshot]);
   const connected = status === "connected" && publicKey !== null;
+  const hedge = tab === "hedge";
+
+  useEffect(() => { loadBalances(publicKey).then(setBalances); }, [publicKey]);
 
   const typed = useMemo(() => {
     const n = Number(amount.replace(/,/g, ""));
@@ -46,70 +49,56 @@ export function TradeTicket({ snapshot }: { snapshot: MarketSnapshot }) {
 
   // In hedge mode the number typed is inventory value; the position is the
   // slice of it being covered, and it is always a short.
-  const effectiveSide: Side = mode === "hedge" ? "short" : side;
-  const notional = mode === "hedge" ? (typed * BigInt(coverPct)) / 100n : typed;
+  const side: Side = tab === "long" ? "long" : "short";
+  const notional = hedge ? (typed * BigInt(coverPct)) / 100n : typed;
 
-  const q = useMemo(
-    () => quote(snapshot, effectiveSide, notional),
-    [snapshot, effectiveSide, notional],
-  );
+  const q = useMemo(() => quote(snapshot, side, notional), [snapshot, side, notional]);
 
   const hasAmount = notional > 0n;
   const blocked = q.problem !== null;
+  const dash = (v: string) => (hasAmount ? v : "—");
 
   // What the cover costs per month, which is the number a dealer decides on.
   const monthlyCost =
-    (notional * BigInt(Math.round(spread[effectiveSide === "long" ? "longMonthly" : "shortMonthly"] * 1e6))) /
-    1_000_000n;
+    (notional * BigInt(Math.round(spread[side === "long" ? "longMonthly" : "shortMonthly"] * 1e6))) / 1_000_000n;
 
   return (
     <aside className="panel ticket" aria-labelledby="ticket-h">
-      <div className="seg" role="group" aria-label="What you are doing">
-        <button type="button" aria-pressed={mode === "speculate"} onClick={() => setMode("speculate")}>
-          Speculate
-        </button>
-        <button type="button" aria-pressed={mode === "hedge"} onClick={() => setMode("hedge")}>
-          Hedge stock
-        </button>
+      <h2 className="sr-only" id="ticket-h">Open a position</h2>
+
+      <div className="seg big" role="group" aria-label="What you want to do">
+        <button type="button" className="l" aria-pressed={tab === "long"} onClick={() => setTab("long")}>Long</button>
+        <button type="button" className="s" aria-pressed={tab === "short"} onClick={() => setTab("short")}>Short</button>
+        <button type="button" aria-pressed={hedge} onClick={() => setTab("hedge")}>Hedge</button>
       </div>
 
-      <div>
-        <p className="kicker" style={{ margin: 0 }}>
-          {mode === "hedge" ? "Inventory cover" : "SLAB Index / 001"}
-        </p>
-        <h2 className="title" id="ticket-h" style={{ marginTop: 8 }}>
-          {mode === "hedge" ? "Protect your stock" : "Trade the index"}
-        </h2>
-        <p className="sub">
-          {mode === "hedge"
-            ? "If the market falls you lose on the shelf and gain here. That is the trade."
-            : "Long or short perpetual exposure to the basket."}
-        </p>
-      </div>
+      <p className="sub" style={{ margin: 0 }}>
+        {tab === "long"
+          ? "You profit if the index rises."
+          : tab === "short"
+            ? "You profit if the index falls."
+            : "Dealers: a short sized on your stock. If the market falls you lose on the shelf and gain here."}
+      </p>
 
-      {mode === "speculate" && (
-        <div className="seg" role="group" aria-label="Direction">
-          <button type="button" className="l" aria-pressed={side === "long"} onClick={() => setSide("long")}>
-            Long
-          </button>
-          <button type="button" className="s" aria-pressed={side === "short"} onClick={() => setSide("short")}>
-            Short
-          </button>
+      <div className="token-input">
+        <div className="ti-top">
+          <span>{hedge ? "Inventory value" : "Position size"}</span>
+          <span>Balance {balances ? fmtUsd(balances.usdc, 2) : "—"}</span>
         </div>
-      )}
+        <div className="ti-row">
+          <input
+            inputMode="decimal"
+            autoComplete="off"
+            placeholder="0.00"
+            aria-label={hedge ? "Inventory value in USDC" : "Position size in USDC"}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,]/g, ""))}
+          />
+          <span className="token">USDC</span>
+        </div>
+      </div>
 
-      <label className="field">
-        <span>{mode === "hedge" ? "Inventory value · USDC" : "Amount · USDC"}</span>
-        <input
-          inputMode="decimal"
-          autoComplete="off"
-          placeholder="—"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,]/g, ""))}
-        />
-      </label>
-
-      {mode === "hedge" && (
+      {hedge && (
         <label className="field">
           <span>Cover · {coverPct}% of inventory</span>
           <input
@@ -124,105 +113,29 @@ export function TradeTicket({ snapshot }: { snapshot: MarketSnapshot }) {
         </label>
       )}
 
-      <p className={`hint${blocked && hasAmount ? " bad" : ""}`} style={{ marginTop: -6 }}>
-        {!connected
-          ? "Connect a wallet to continue"
-          : blocked && hasAmount
-            ? q.problem
-            : hasAmount
-              ? `Margin ${fmtUsd(q.margin, 2)} USDC · fee ${fmtUsd(q.fee, 2)}`
-              : mode === "hedge"
-                ? "Enter what your stock is worth"
-                : "Enter a notional to see margin and liquidation"}
-      </p>
-
-      {hasAmount && (
-        <>
-          <hr className="sep" />
-          <div className="rows">
-            {mode === "hedge" && (
-              <>
-                <div>
-                  <span>Position opened</span>
-                  <b>Short {fmtUsd(notional)} USDC</b>
-                </div>
-                <div className="hi">
-                  <span>Cost of cover</span>
-                  <b>{fmtUsd(monthlyCost, 2)} / month</b>
-                </div>
-              </>
-            )}
-            <div>
-              <span>Entry price</span>
-              <b>{fmtPrice(q.entryPrice)}</b>
-            </div>
-            <div>
-              <span>Liquidation</span>
-              <b>{fmtPrice(q.liquidationPrice)}</b>
-            </div>
-          </div>
-        </>
-      )}
-
-      <hr className="sep" />
-
-      {/* Role 5. Always visible, amount or no amount. */}
-      <div>
-        <p className="kicker" style={{ margin: "0 0 11px" }}>
-          Borrow · per month
-        </p>
-        <div className="rows">
-          <div>
-            <span>
-              <span className="dot" style={{ background: "var(--up)" }} />
-              Long
-            </span>
-            <b className={spread.crowded === "long" ? "down" : undefined}>
-              {spread.longMonthly.toFixed(2)}%
-            </b>
-          </div>
-          <div>
-            <span>
-              <span className="dot" style={{ background: "var(--down)" }} />
-              Short
-            </span>
-            <b className={spread.crowded === "short" ? "down" : undefined}>
-              {spread.shortMonthly.toFixed(2)}%
-            </b>
-          </div>
-          <div className="hi">
-            <span>Spread</span>
-            <b>{spread.spread.toFixed(2)}%</b>
-          </div>
-        </div>
-        {spread.spread > 0.5 && (
-          <p className="hint">
-            The book is {spread.crowded}. Taking the {spread.paidSide} side is paid{" "}
-            {spread.spread.toFixed(2)}% a month to balance it.
-          </p>
-        )}
-      </div>
-
-      <hr className="sep" />
+      {blocked && hasAmount && <p className="hint bad" style={{ margin: 0 }}>{q.problem}</p>}
 
       <div className="rows">
+        {hedge && <div><span>Position opened</span><b>{dash(`Short ${fmtUsd(notional)}`)}</b></div>}
+        {hedge && <div className="hi"><span>Cost of cover</span><b>{dash(`${fmtUsd(monthlyCost, 2)} / month`)}</b></div>}
+        <div><span>Margin required</span><b>{dash(fmtUsd(q.margin, 2))}</b></div>
+        <div><span>Entry price</span><b>{dash(fmtPrice(q.entryPrice))}</b></div>
+        <div className={hasAmount ? "hi" : undefined}><span>Liquidation price</span><b>{dash(fmtPrice(q.liquidationPrice))}</b></div>
+        <div><span>Open fee</span><b>{dash(fmtUsd(q.fee, 2))}</b></div>
+        {/* Role 5. Both rates, always, amount or no amount. */}
         <div>
-          <span>Capacity left</span>
-          <b>{fmtUsd(snapshot.capacity.free)} USDC</b>
-        </div>
-        <div>
-          <span>Binding limit</span>
-          <b>{snapshot.capacity.binding}</b>
+          <span>Borrow / month</span>
+          <b>
+            <span className={spread.crowded === "long" ? "down" : "up"}>L {spread.longMonthly.toFixed(2)}%</span>
+            {" · "}
+            <span className={spread.crowded === "short" ? "down" : "up"}>S {spread.shortMonthly.toFixed(2)}%</span>
+          </b>
         </div>
       </div>
 
       {connected ? (
         <button className="btn block" disabled={!hasAmount || blocked} title={q.problem ?? undefined}>
-          {hasAmount
-            ? mode === "hedge"
-              ? "Open cover"
-              : `Open ${effectiveSide}`
-            : "Enter an amount"}
+          {!hasAmount ? "Enter an amount" : hedge ? "Open cover" : `Open ${side}`}
         </button>
       ) : (
         <button className="btn block" onClick={() => void connect()} disabled={status === "connecting"}>
@@ -230,16 +143,25 @@ export function TradeTicket({ snapshot }: { snapshot: MarketSnapshot }) {
         </button>
       )}
 
-      {error && (
-        <p className="hint bad" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <p className="hint bad" role="alert" style={{ margin: 0 }}>{error}</p>}
+
+      <details className="acc">
+        <summary>Market details</summary>
+        <div className="rows">
+          <div><span>Spread</span><b>{spread.spread.toFixed(2)}% / month</b></div>
+          <div><span>Capacity left</span><b>{fmtUsd(snapshot.capacity.free)} USDC</b></div>
+          <div><span>Binding limit</span><b>{snapshot.capacity.binding}</b></div>
+        </div>
+        {spread.spread > 0.5 && (
+          <p className="hint">
+            The book is {spread.crowded}. Taking the {spread.paidSide} side is paid{" "}
+            {spread.spread.toFixed(2)}% a month to balance it.
+          </p>
+        )}
+      </details>
 
       <p className="fine">
-        {connected
-          ? "Order routing requires the programs to be deployed. Nothing is signed or settled here yet."
-          : "Visual concept only"}
+        Order routing requires the programs to be deployed. Nothing is signed or settled here yet.
       </p>
     </aside>
   );
