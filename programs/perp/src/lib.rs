@@ -59,11 +59,12 @@ pub mod perp {
         margin: u64,
     ) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
-        let pool = &ctx.accounts.pool;
-        let params = pool.params.risk();
         let oracle = ctx.accounts.oracle_view()?;
         // A stale price never admits risk, whatever the stored state says.
         oracle.require_tradeable(now)?;
+        ctx.accounts.accrue(now, oracle.depth)?;
+        let pool = &ctx.accounts.pool;
+        let params = pool.params.risk();
 
         // One call. Every rule that can refuse this order refuses in there.
         let approval = r(risk::check_open(
@@ -120,21 +121,20 @@ pub mod perp {
 
     /// Advance both borrow indices. PERMISSIONLESS: without an actor nobody
     /// pays rent, so anyone may call it.
+    ///
+    /// Open, close and liquidate all accrue first on their own, so nothing
+    /// depends on anyone calling this. It exists so the indices the UI shows
+    /// stay current on a quiet market.
     pub fn accrue_borrow(ctx: Context<AccrueBorrow>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
-        let params = ctx.accounts.pool.params.risk();
         let depth = ctx.accounts.oracle_view()?.depth;
-        let cap = r(risk::capacity(ctx.accounts.pool.usdc_sleeve, depth, &params))?.cap;
-        let mk = &mut ctx.accounts.market;
-        let mut state = mk.risk();
-        r(risk::accrue(&mut state, now, cap, &params))?;
-        mk.set_risk(state);
-        Ok(())
+        accrue_market(&mut ctx.accounts.market, &ctx.accounts.pool, now, depth)
     }
 
     /// Close your own position and take what is left of the margin.
     pub fn close_position(ctx: Context<ClosePosition>) -> Result<()> {
-        let price = ctx.accounts.mark_price()?;
+        let (price, depth) = ctx.accounts.mark_price()?;
+        ctx.accounts.accrue_now(depth)?;
         let pos = ctx.accounts.position.risk();
         let idx = ctx.accounts.market.risk().borrow_index(pos.side);
 
@@ -162,7 +162,8 @@ pub mod perp {
     /// transaction, so somebody has to be paid for it. The maintenance margin
     /// exists precisely so there is still something left to pay them with.
     pub fn liquidate(ctx: Context<Liquidate>) -> Result<()> {
-        let price = ctx.accounts.mark_price()?;
+        let (price, depth) = ctx.accounts.mark_price()?;
+        ctx.accounts.accrue_now(depth)?;
         let params = ctx.accounts.pool.params.risk();
         let pos = ctx.accounts.position.risk();
         let idx = ctx.accounts.market.risk().borrow_index(pos.side);
@@ -210,6 +211,22 @@ pub struct Market {
     pub last_accrual_ts: i64,
     pub open_positions: u32,
     pub bump: u8,
+}
+
+/// Bring both borrow indices up to `now`, at the utilization that held
+/// since the last accrual.
+///
+/// Every instruction that reads or stamps an index calls this first. Before,
+/// none did and nothing called `accrue_borrow`, so borrow was never charged;
+/// and if it had been, a position opened a second ago would have been stamped
+/// with a stale index and charged for time before it existed.
+pub fn accrue_market(mk: &mut Account<Market>, pool: &Pool, now: i64, depth: u64) -> Result<()> {
+    let params = pool.params.risk();
+    let cap = r(risk::capacity(pool.usdc_sleeve, depth, &params))?.cap;
+    let mut state = mk.risk();
+    r(risk::accrue(&mut state, now, cap, &params))?;
+    mk.set_risk(state);
+    Ok(())
 }
 
 impl Market {
@@ -336,6 +353,10 @@ pub struct OpenPosition<'info> {
 }
 
 impl<'info> OpenPosition<'info> {
+    pub fn accrue(&mut self, now: i64, depth: u64) -> Result<()> {
+        accrue_market(&mut self.market, &self.pool, now, depth)
+    }
+
     /// Tell the pool that margin and fee landed in its vault.
     pub fn record_open(&self, margin: u64, fee: u64) -> Result<()> {
         let pool_key = self.pool.key();
@@ -525,13 +546,18 @@ macro_rules! settler {
             /// Stale is still refused, against the oracle's own limit: a
             /// closing trader prepends `refresh_price`, which is permissionless
             /// and a no-op if someone already refreshed this slot.
-            pub fn mark_price(&self) -> Result<u64> {
+            pub fn mark_price(&self) -> Result<(u64, u64)> {
                 let view = read_oracle(
                     &self.oracle.to_account_info(),
                     &ORACLE_PROGRAM_ID,
                 )?;
                 let now = Clock::get()?.unix_timestamp;
-                view.require_markable(now)
+                Ok((view.require_markable(now)?, view.depth))
+            }
+
+            pub fn accrue_now(&mut self, depth: u64) -> Result<()> {
+                let now = Clock::get()?.unix_timestamp;
+                accrue_market(&mut self.market, &self.pool, now, depth)
             }
 
             /// Remove the position from the book and return the resulting

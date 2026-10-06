@@ -435,4 +435,32 @@ describe("lifecycle", () => {
     await refresh(ctx, e);
     await open(e, trader, { nonce: 2, notional: 1_000n * USDC, margin: 250n * USDC });
   });
+
+  test("borrow is charged without anybody calling accrue_borrow", async () => {
+    const e = await setupProtocol(ctx);
+    const lp1 = await actor(ctx, e, 140_000n * USDC);
+    await deposit(e, lp1, 140_000n * USDC);
+    const trader = await actor(ctx, e, 10_000n * USDC);
+    const position = await open(e, trader, { nonce: 1, notional: 4_000n * USDC, margin: 1_000n * USDC });
+    const stamped = BigInt((await ctx.p.perp.account.position.fetch(position)).borrowIdxEntry.toString());
+
+    await refreshOver(ctx, e, 3);
+    await close(e, trader, position);
+    const idx = BigInt((await marketState(e.market)).borrowIdxLong.toString());
+    assert.ok(idx > stamped, "the close did not accrue borrow");
+  });
+
+  test("a position is stamped with an index accrued to the moment it opens", async () => {
+    const e = await setupProtocol(ctx);
+    const lp1 = await actor(ctx, e, 140_000n * USDC);
+    await deposit(e, lp1, 140_000n * USDC);
+    const a = await actor(ctx, e, 10_000n * USDC);
+    await open(e, a, { nonce: 1, notional: 4_000n * USDC, margin: 1_000n * USDC });
+    await refreshOver(ctx, e, 3);
+    const b = await actor(ctx, e, 10_000n * USDC);
+    const pb = await open(e, b, { nonce: 1, notional: 1_000n * USDC, margin: 250n * USDC });
+    const mk = await marketState(e.market);
+    const pos = await ctx.p.perp.account.position.fetch(pb);
+    assert.equal(pos.borrowIdxEntry.toString(), mk.borrowIdxLong.toString(), "stamped with a stale index");
+  });
 });
