@@ -9,15 +9,24 @@
  * behind a tooltip.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { gates } from "@slab/types";
 import { useWallet } from "@/lib/wallet";
 import { useMarket } from "@/lib/useMarket";
 import {
   fmtPct, fmtPrice, fmtUsd, loadBalances, quoteDeposit, quoteWithdraw,
-  type Balances, type DepositKind,
+  IS_SAMPLE, type Balances, type DepositKind,
 } from "@/lib/market";
+import { CLUSTER } from "@/lib/cluster";
+import { explainTxError, sendPoolAction, type PoolAction } from "@/lib/poolTx";
+
+type TicketSide = "deposit" | "withdraw";
+interface Receipt {
+  side: TicketSide;
+  ok: boolean;
+  text: string;
+}
 
 const toRaw = (text: string) => {
   const n = Number(text.replace(/,/g, ""));
@@ -27,15 +36,20 @@ const clean = (text: string) => text.replace(/[^0-9.,]/g, "");
 const portion = (balance: bigint, percent: number) => (Number((balance * BigInt(percent)) / 100n) / 1e6).toString();
 
 export default function PoolPage() {
-  const { status, publicKey, connect } = useWallet();
-  const { data, loading } = useMarket();
+  const { status, publicKey, connect, signTransaction } = useWallet();
+  const { data, loading, error, reload } = useMarket();
   const [kind, setKind] = useState<DepositKind>("usdc");
   const [payAmount, setPayAmount] = useState("");
   const [burnAmount, setBurnAmount] = useState("");
   const [balances, setBalances] = useState<Balances | null>(null);
+  const [sending, setSending] = useState<TicketSide | null>(null);
+  const [receipt, setReceipt] = useState<Receipt | null>(null);
 
   const connected = status === "connected" && publicKey !== null;
-  useEffect(() => { loadBalances(publicKey).then(setBalances); }, [publicKey]);
+  const reloadBalances = useCallback(() => {
+    loadBalances(publicKey).then(setBalances).catch(() => setBalances(null));
+  }, [publicKey]);
+  useEffect(reloadBalances, [reloadBalances]);
 
   const pay = useMemo(() => toRaw(payAmount), [payAmount]);
   const burn = useMemo(() => toRaw(burnAmount), [burnAmount]);
@@ -48,6 +62,28 @@ export default function PoolPage() {
   const payBalance = balances ? (kind === "usdc" ? balances.usdc : balances.fractions) : null;
   const clpBalance = balances ? balances.clp : null;
   const closed = data ? `The pool is ${data.pool.state} and is not accepting this.` : null;
+  const submit = async (side: TicketSide, action: PoolAction) => {
+    if (!publicKey) return;
+    if (!CLUSTER) {
+      setReceipt({ side, ok: false, text: "Preview only: no cluster is configured, so nothing was sent." });
+      return;
+    }
+    setSending(side);
+    setReceipt(null);
+    try {
+      const signature = await sendPoolAction(CLUSTER, publicKey, signTransaction, action);
+      setReceipt({ side, ok: true, text: `Confirmed · ${signature.slice(0, 8)}…${signature.slice(-8)}` });
+      if (side === "deposit") setPayAmount("");
+      else setBurnAmount("");
+      reload();
+      reloadBalances();
+    } catch (e) {
+      setReceipt({ side, ok: false, text: explainTxError(e) });
+    } finally {
+      setSending(null);
+    }
+  };
+
   const rate = data ? `1 CLP = ${fmtPrice(data.poolStats.clpPrice)} USDC` : "";
 
   const held = data && balances && balances.clp > 0n ? quoteWithdraw(data, balances.clp).totalValue : 0n;
@@ -62,6 +98,12 @@ export default function PoolPage() {
           Pool value <b>{data ? `${fmtUsd(data.poolStats.nav)} $` : "—"}</b>
         </p>
       </header>
+
+      {error && (
+        <div className="empty" role="alert">
+          <p>Could not read the pool. {error}</p>
+        </div>
+      )}
 
       <div className="pstats">
         <section className="panel pstat">
@@ -159,13 +201,20 @@ export default function PoolPage() {
           </div>
 
           {connected ? (
-            <button className="btn block" disabled={!paying || !!dep?.problem || !g?.canDeposit || loading}>
-              {paying ? "Deposit" : "Enter an amount"}
+            <button
+              className="btn block"
+              disabled={!paying || !!dep?.problem || !g?.canDeposit || loading || sending !== null}
+              onClick={() => void submit("deposit", { kind: kind === "usdc" ? "depositUsdc" : "depositFractions", amount: pay })}
+            >
+              {sending === "deposit" ? "Confirm in your wallet…" : paying ? "Deposit" : "Enter an amount"}
             </button>
           ) : (
             <button className="btn block" onClick={() => void connect()} disabled={status === "connecting"}>
               {status === "connecting" ? "Connecting…" : "Connect wallet"}
             </button>
+          )}
+          {receipt?.side === "deposit" && (
+            <p className={`hint ${receipt.ok ? "good" : "bad"}`} role="status" style={{ margin: 0 }}>{receipt.text}</p>
           )}
 
           <p className="sub" style={{ margin: 0 }}>
@@ -237,19 +286,28 @@ export default function PoolPage() {
           </div>
 
           {connected ? (
-            <button className="btn block" disabled={!burning || !!red?.problem || !g?.canWithdraw || loading}>
-              {burning ? "Withdraw" : "Enter an amount"}
+            <button
+              className="btn block"
+              disabled={!burning || !!red?.problem || !g?.canWithdraw || loading || sending !== null}
+              onClick={() => void submit("withdraw", { kind: "withdraw", amount: burn })}
+            >
+              {sending === "withdraw" ? "Confirm in your wallet…" : burning ? "Withdraw" : "Enter an amount"}
             </button>
           ) : (
             <button className="btn block" onClick={() => void connect()} disabled={status === "connecting"}>
               {status === "connecting" ? "Connecting…" : "Connect wallet"}
             </button>
           )}
+          {receipt?.side === "withdraw" && (
+            <p className={`hint ${receipt.ok ? "good" : "bad"}`} role="status" style={{ margin: 0 }}>{receipt.text}</p>
+          )}
         </section>
       </div>
 
       <p className="fine earn-fine">
-        Deposits require the programs to be deployed. Nothing is signed or settled here yet.
+        {IS_SAMPLE
+          ? "Deposits require the programs to be deployed. Nothing is signed or settled here yet."
+          : `Reading and settling on ${CLUSTER?.rpcUrl}.`}
       </p>
 
       <div className="earn2">

@@ -13,17 +13,20 @@
  * not placeholders.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { loadMarket, type MarketSnapshot } from "./market";
 
 export interface MarketQuery {
   data: MarketSnapshot | null;
   loading: boolean;
   error: string | null;
+  reload(): void;
 }
 
 export function useMarket(): MarketQuery {
-  const [state, setState] = useState<MarketQuery>({ data: null, loading: true, error: null });
+  const [state, setState] = useState<Omit<MarketQuery, "reload">>({ data: null, loading: true, error: null });
+  const [version, setVersion] = useState(0);
+  const reload = useCallback(() => setVersion((v) => v + 1), []);
 
   useEffect(() => {
     let live = true;
@@ -40,7 +43,7 @@ export function useMarket(): MarketQuery {
     return () => {
       live = false;
     };
-  }, []);
+  }, [version]);
 
-  return state;
+  return { ...state, reload };
 }

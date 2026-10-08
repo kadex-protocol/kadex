@@ -13,13 +13,14 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, type Transaction } from "@solana/web3.js";
 
 interface InjectedProvider {
   isPhantom?: boolean;
   publicKey?: { toBytes(): Uint8Array } | null;
   connect(opts?: { onlyIfTrusted?: boolean }): Promise<{ publicKey: { toBytes(): Uint8Array } }>;
   disconnect(): Promise<void>;
+  signTransaction(tx: Transaction): Promise<Transaction>;
   on?(event: string, handler: () => void): void;
 }
 
@@ -30,6 +31,7 @@ interface WalletState {
   publicKey: PublicKey | null;
   connect(): Promise<void>;
   disconnect(): Promise<void>;
+  signTransaction(tx: Transaction): Promise<Transaction>;
   error: string | null;
 }
 
@@ -38,6 +40,9 @@ const Ctx = createContext<WalletState>({
   publicKey: null,
   connect: async () => {},
   disconnect: async () => {},
+  signTransaction: async () => {
+    throw new Error("No wallet connected.");
+  },
   error: null,
 });
 
@@ -98,9 +103,15 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     setStatus("disconnected");
   }, []);
 
+  const signTransaction = useCallback(async (tx: Transaction) => {
+    const p = injected();
+    if (!p) throw new Error("No Solana wallet found in this browser.");
+    return p.signTransaction(tx);
+  }, []);
+
   const value = useMemo(
-    () => ({ status, publicKey, connect, disconnect, error }),
-    [status, publicKey, connect, disconnect, error],
+    () => ({ status, publicKey, connect, disconnect, signTransaction, error }),
+    [status, publicKey, connect, disconnect, signTransaction, error],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -21,12 +21,18 @@ import {
   deriveCapacity,
   derivePool,
   derivePosition,
-  deriveWithdraw,
+  marketView,
+  marksOf,
   math,
+  navIssue,
+  navRedeem,
+  oracleView,
+  poolView,
 } from "@slab/sdk";
+import { readChain, readTokenBalances } from "./chain";
+import { CLUSTER } from "./cluster";
 
-/** Flips to false the moment this is pointed at a cluster. */
-export const IS_SAMPLE = true;
+export const IS_SAMPLE = CLUSTER === null;
 
 const USDC = 1_000_000n;
 const ZERO = new PublicKey("11111111111111111111111111111111");
@@ -119,7 +125,12 @@ export interface MarketSnapshot {
   /** Both ceilings and which one binds. */
   capacity: ReturnType<typeof deriveCapacity>;
   borrow: ReturnType<typeof deriveBorrowRates>;
+  marks: { low: bigint; high: bigint };
+  fractionBalance: bigint;
+  navIssue: bigint;
 }
+
+const RAY = 1_000_000_000_000n;
 
 /**
  * One read of everything the market screen needs.
@@ -128,9 +139,34 @@ export interface MarketSnapshot {
  * the application does not change.
  */
 export async function loadMarket(): Promise<MarketSnapshot> {
+  if (CLUSTER) {
+    const chain = await readChain(CLUSTER);
+    const marks = marksOf(chain.oracle);
+    const market: MarketView = chain.market
+      ? marketView(chain.pool.perpMarket, chain.market)
+      : { address: chain.pool.perpMarket, oiLong: 0n, oiShort: 0n, borrowIdxLong: RAY, borrowIdxShort: RAY, lastAccrualTs: 0n, openPositions: 0 };
+    return snapshotOf(
+      poolView(chain.poolAddress, chain.pool, marks),
+      oracleView(chain.pool.oracle, chain.oracle, chain.now),
+      market,
+      marks,
+      chain.pool.fractionBalance,
+      navIssue(chain.pool, marks),
+    );
+  }
   const pool = SAMPLE_POOL;
-  const oracle = SAMPLE_ORACLE;
-  const market = SAMPLE_MARKET;
+  const flat = { low: SAMPLE_ORACLE.price, high: SAMPLE_ORACLE.price };
+  return snapshotOf(pool, SAMPLE_ORACLE, SAMPLE_MARKET, flat, pool.cardSleeveValue, navRedeem(pool));
+}
+
+function snapshotOf(
+  pool: PoolView,
+  oracle: OracleView,
+  market: MarketView,
+  marks: MarketSnapshot["marks"],
+  fractionBalance: bigint,
+  issueNav: bigint,
+): MarketSnapshot {
   const capacity = deriveCapacity(pool, oracle, market);
   return {
     pool,
@@ -139,6 +175,9 @@ export async function loadMarket(): Promise<MarketSnapshot> {
     poolStats: derivePool(pool),
     capacity,
     borrow: deriveBorrowRates(pool, market, capacity.cap),
+    marks,
+    fractionBalance,
+    navIssue: issueNav,
   };
 }
 
@@ -285,7 +324,8 @@ export interface Balances {
 
 /** Nothing, until a wallet is connected and the programs are live. */
 export async function loadBalances(owner: PublicKey | null): Promise<Balances> {
-  if (!owner || !IS_SAMPLE) return { usdc: 0n, fractions: 0n, clp: 0n };
+  if (!owner) return { usdc: 0n, fractions: 0n, clp: 0n };
+  if (CLUSTER) return readTokenBalances(CLUSTER, owner);
   // Sample only, behind the preview flag — the same wallet the portfolio shows.
   return { usdc: 5_240n * USDC, fractions: SAMPLE_CARDS[0]!.held, clp: SAMPLE_CLP };
 }
@@ -316,7 +356,7 @@ export function quoteDeposit(
   kind: DepositKind,
   amount: bigint,
 ): DepositQuote {
-  const { pool, poolStats, oracle } = snapshot;
+  const { pool, marks } = snapshot;
   const empty: DepositQuote = {
     netValue: 0n,
     haircut: 0n,
@@ -326,14 +366,13 @@ export function quoteDeposit(
   };
   if (amount <= 0n) return empty;
 
-  // 1 fraction = $1 at parity; the oracle price moves that.
-  const gross = kind === "usdc" ? amount : (amount * oracle.price) / WAD;
+  const gross = kind === "usdc" ? amount : math.mulWadFloor(amount, marks.low);
   const haircutBps = kind === "usdc" ? 0n : BigInt(pool.params.depositHaircutBps);
   // The program rounds the deduction up, against the depositor.
   const haircut = (gross * haircutBps + 9_999n) / 10_000n;
   const netValue = gross - haircut;
 
-  const shares = math.sharesForDeposit(netValue, poolStats.nav, pool.clpSupply);
+  const shares = math.sharesForDeposit(netValue, snapshot.navIssue, pool.clpSupply);
   const supplyAfter = pool.clpSupply + shares;
 
   let problem: string | null = null;
@@ -344,7 +383,7 @@ export function quoteDeposit(
   } else if (kind === "fractions") {
     // require_sleeve_within_target, checked here so the button can explain
     // itself rather than the transaction failing.
-    const cardsAfter = ((pool.cardSleeveValue / (oracle.price || WAD)) * WAD + amount * oracle.price) / WAD;
+    const cardsAfter = math.mulWadFloor(snapshot.fractionBalance + amount, marks.high);
     const totalAfter = cardsAfter + pool.usdcSleeve;
     const weight = totalAfter === 0n ? 0n : (cardsAfter * WAD) / totalAfter;
     if (weight > pool.params.cardSleeveTarget) {
@@ -376,22 +415,28 @@ export interface WithdrawQuote {
  * the liquid side and stranding everyone else with the illiquid one.
  */
 export function quoteWithdraw(snapshot: MarketSnapshot, shares: bigint): WithdrawQuote {
-  const { pool, oracle } = snapshot;
+  const { pool, marks, market } = snapshot;
   if (shares <= 0n) return { usdc: 0n, fractions: 0n, totalValue: 0n, problem: null };
 
   if (shares > pool.clpSupply) {
     return { usdc: 0n, fractions: 0n, totalValue: 0n, problem: "More CLP than exists." };
   }
 
-  const split = deriveWithdraw(pool, shares);
-  return {
-    usdc: split.usdc,
-    fractions: split.cardFractions,
-    totalValue: split.usdc + split.cardFractions,
-    problem: gates(pool.state).canWithdraw
-      ? null
-      : `The pool is ${pool.state} and is not accepting redemptions.`,
-  };
+  const assets = pool.usdcSleeve + pool.cardSleeveValue;
+  const value = math.assetsForShares(shares, navRedeem(pool), pool.clpSupply);
+  const usdc = assets === 0n ? 0n : (pool.usdcSleeve * value) / assets;
+  const fractions = assets === 0n ? 0n : (snapshot.fractionBalance * value) / assets;
+
+  const oiTotal = market.oiLong + market.oiShort;
+  const sleeveAfter = pool.usdcSleeve - usdc;
+  let problem: string | null = null;
+  if (!gates(pool.state).canWithdraw) {
+    problem = `The pool is ${pool.state} and is not accepting redemptions.`;
+  } else if (oiTotal > 0n && oiTotal > math.oiCapSolvency(sleeveAfter, pool.params.phi, pool.params.deltaMax)) {
+    problem = "Open positions are backed by this liquidity. Withdraw less for now.";
+  }
+
+  return { usdc, fractions, totalValue: usdc + math.mulWadFloor(fractions, marks.low), problem };
 }
 
 
