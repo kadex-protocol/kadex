@@ -44,6 +44,9 @@ const PROGRAMS = ["card_vault", "oracle", "clp_pool", "perp", "mock_amm"];
  */
 const EXTERNAL = [["CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d", "tests/fixtures/mpl_core.so"]];
 
+// A live Collector Crypt card, exported from mainnet with getAccountInfo.
+const ACCOUNTS = [["CvsHTsAjWdaxViomzmfzqkVFsNkps6Jzs8d24jjMzP43", "tests/fixtures/cc_wartortle_account.json"]];
+
 // NODE_OPTIONS on this machine carries a stale preload that breaks child node
 // processes; clearing it keeps the harness self-contained.
 const ENV = { ...process.env, NODE_OPTIONS: "", ANCHOR_PROVIDER_URL: RPC_URL };
@@ -118,6 +121,7 @@ async function main() {
     [
       "--reset", "--quiet", "--ledger", ledger, "--rpc-port", String(RPC_PORT),
       ...EXTERNAL.flatMap(([id, so]) => ["--bpf-program", id, join(ROOT, so)]),
+      ...ACCOUNTS.flatMap(([id, file]) => ["--account", id, join(ROOT, file)]),
     ],
     { stdio: ["ignore", "ignore", "pipe"], env: ENV },
   );
