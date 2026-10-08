@@ -10,3 +10,5 @@ packages/*/dist/
 target/
 test-ledger/
 tsconfig.tsbuildinfo
+
+.next.stale-*/
