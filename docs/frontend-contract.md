@@ -93,13 +93,47 @@ Never show a bare "error". The state says why:
 | oracle `diverged` | "Price diverged from the external reference. Market on hold." |
 | `settled` | "Market closed. Final redemption available." |
 
+## Reading accounts and sending LP transactions
+
+`@slab/sdk` decodes `Pool`, `OracleAccount` and `Market` and builds the three
+LP instructions. Each decoder checks the account size and discriminator and
+throws if either is off, so a layout change stops the screen instead of
+feeding it garbage.
+
+```ts
+import { decodePool, decodeOracle, marksOf, poolView, depositUsdcIx, withdrawIx } from "@slab/sdk";
+
+const pool = decodePool(poolInfo.data);
+const marks = marksOf(decodeOracle(oracleInfo.data));   // trade, low, high
+const view = poolView(poolAddress, pool, marks);        // the PoolView the screen renders
+```
+
+A deposit is priced at the high mark and a withdrawal at the low one, so a
+quote has to use `navIssue` for CLP minted and `navRedeem` for CLP burned.
+`tests/integration/sdk.test.mjs` holds both to what the program pays out.
+
+## Pointing the web app at a cluster
+
+With neither variable set the app runs on sample data and says so.
+
+```
+NEXT_PUBLIC_SLAB_RPC_URL=http://127.0.0.1:8899
+NEXT_PUBLIC_SLAB_USDC_MINT=<the mint the pool was initialized with>
+```
+
+`npm run dev:chain -- <your wallet>` boots a validator, deploys, seeds the
+pool with 140,000 USDC and 40,000 fractions, funds that wallet with SOL, USDC
+and fractions, writes `apps/web/.env.local` and keeps the oracle fresh. Set
+`SLAB_ENV_FILE` to write the file somewhere else, which is what running it
+from WSL against a Windows checkout needs.
+
+The pool page then reads the chain and sends `deposit_usdc`,
+`deposit_fractions` and `withdraw`, creating the destination token accounts
+and prepending `refresh_price` when the oracle is past half its staleness
+limit. The wallet signs; the app sends through its own RPC.
+
 ## What does not exist yet
 
-- `deposit`, `withdraw`, `close_position` and `liquidate` instructions.
-  `open_position` is complete and can be called today.
-- real account fetching (the SDK has the shapes, the fetch is missing)
-- `apps/web` is empty
-
-Start with: scaffold, wallet adapter, PDA derivation, screens driven by mocked
-data in the shapes of `PoolView`, `OracleView`, `MarketView` and
-`PositionView`. When the handlers land, only the fetch changes.
+- trade, portfolio and vault screens still run on sample data: positions are
+  not fetched and `open_position` / `close_position` are not sent from the app
+- price history: nothing on-chain records it
