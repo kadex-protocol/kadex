@@ -12,29 +12,6 @@ import { TiltSlab } from "@/components/TiltSlab";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Could not reach Collector Crypt.");
 
-function Rail({ title, cards }: { title: string; cards: VaultCard[] }) {
-  if (cards.length === 0) return null;
-  return (
-    <section className="panel crail">
-      <h2 className="title sm">{title}</h2>
-      <div className="vgrid sheet rail">
-        {cards.map((c) => {
-          const t = titleParts(c);
-          return (
-            <Link key={c.nftAddress} href={`/vault/${c.nftAddress}`} className="vcard">
-              <span className="v-grade">{t.grade}</span>
-              <b className="v-value">${fmtUsd(c.insuredValueUsdc)}</b>
-              <div className="v-shot"><TiltSlab src={c.frontImage} still /></div>
-              <span className="v-kick">{t.kicker}</span>
-              <span className="v-name">{t.title}</span>
-            </Link>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
 function Strip({ title, cards }: { title: string; cards: VaultCard[] }) {
   const track = useRef<HTMLDivElement>(null);
   if (cards.length === 0) return null;
@@ -139,28 +116,32 @@ export default function CardPage() {
       </nav>
 
       <div className="cdetail">
-        <section className="panel cview">
-          <div className="cview-shot stagebox">
-            {card ? (
-              <CardStage front={card.frontImage} back={card.backImage} showBack={back} onFace={setBack} />
-            ) : (
-              <span className="vblank" />
-            )}
-          </div>
-          {faces.length > 1 && (
-            <div className="cview-nav">
-              <button className="btn" type="button" aria-label="Previous photo" onClick={() => setBack((b) => !b)}>←</button>
-              <span className="v-faces">
-                {faces.map((src, i) => (
-                  <span key={src} data-on={back === (i === 1)} onClick={() => setBack(i === 1)}>
-                    <img src={src} alt="" loading="lazy" />
-                  </span>
-                ))}
-              </span>
-              <button className="btn" type="button" aria-label="Next photo" onClick={() => setBack((b) => !b)}>→</button>
+        <div className="ccol">
+          <section className="panel cview">
+            <div className="cview-shot stagebox">
+              {card ? (
+                <CardStage front={card.frontImage} back={card.backImage} showBack={back} onFace={setBack} />
+              ) : (
+                <span className="vblank" />
+              )}
             </div>
-          )}
-        </section>
+            {faces.length > 1 && (
+              <div className="cview-nav">
+                <button className="btn" type="button" aria-label="Previous photo" onClick={() => setBack((b) => !b)}>←</button>
+                <span className="v-faces">
+                  {faces.map((src, i) => (
+                    <span key={src} data-on={back === (i === 1)} onClick={() => setBack(i === 1)}>
+                      <img src={src} alt="" loading="lazy" />
+                    </span>
+                  ))}
+                </span>
+                <button className="btn" type="button" aria-label="Next photo" onClick={() => setBack((b) => !b)}>→</button>
+              </div>
+            )}
+          </section>
+          <Strip title="Similar cards" cards={similar} />
+          <Strip title="More from this owner" cards={sameOwner} />
+        </div>
 
         <div className="panel cinfo">
           <h1 className="ctitle">{card ? card.name : "Loading card…"}</h1>
@@ -241,9 +222,6 @@ export default function CardPage() {
           </p>
         </div>
       </div>
-
-      <Rail title="Similar cards" cards={similar} />
-      <Strip title="More from this owner" cards={sameOwner} />
     </div>
   );
 }
