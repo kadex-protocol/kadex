@@ -43,14 +43,16 @@ type Mode = "line" | "candles";
 
 export function IndexChart({ points, head, stats }: { points: IndexPoint[]; head?: ReactNode; stats?: ReactNode }) {
   const [secs, setSecs] = useState<number>(900);
-  const [mode, setMode] = useState<Mode>("line");
+  const [mode, setMode] = useState<Mode>("candles");
   const candles = useMemo(() => toCandles(points, secs), [points, secs]);
 
   if (points.length < 2) {
     return (
       <section className="panel chart">
-        {head && <div className="chart-head"><div className="chart-id">{head}</div></div>}
-        {stats}
+        <div className="chart-bar">
+          {head}
+          {stats}
+        </div>
         <p className="sub">No price history yet.</p>
       </section>
     );
@@ -74,25 +76,27 @@ export function IndexChart({ points, head, stats }: { points: IndexPoint[]; head
 
   return (
     <section className="panel chart" aria-label="Index price">
-      <div className="chart-head">
-        <div className="chart-id">{head}</div>
-        <div className="chart-tools">
-          <div className="chart-tf" role="group" aria-label="Interval">
-            {TIMEFRAMES.map((t) => (
-              <button key={t.label} type="button" aria-pressed={secs === t.secs} onClick={() => setSecs(t.secs)}>
-                {t.label}
-              </button>
-            ))}
-          </div>
+      <div className="chart-bar">
+        {head}
+        {stats}
+      </div>
+
+      <div className="chart-head chart-tools">
+        <div className="chart-tf" role="group" aria-label="Interval">
+          {TIMEFRAMES.map((t) => (
+            <button key={t.label} type="button" aria-pressed={secs === t.secs} onClick={() => setSecs(t.secs)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="chart-side">
           <div className="chart-tf" role="group" aria-label="Chart type">
-            <button type="button" aria-pressed={mode === "line"} onClick={() => setMode("line")}>Line</button>
             <button type="button" aria-pressed={mode === "candles"} onClick={() => setMode("candles")}>Candles</button>
+            <button type="button" aria-pressed={mode === "line"} onClick={() => setMode("line")}>Line</button>
           </div>
           <span className="chart-tag">Mark price{IS_SAMPLE && " · sample"}</span>
         </div>
       </div>
-
-      {stats}
 
       {mode === "candles" && (
         <p className="chart-ohlc">

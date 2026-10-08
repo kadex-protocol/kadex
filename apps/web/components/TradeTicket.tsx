@@ -66,7 +66,15 @@ export function TradeTicket({ snapshot, onOpened }: { snapshot: MarketSnapshot; 
   const blocked = q.problem !== null;
   const dash = (v: string) => (hasAmount ? v : "—");
 
+  const leverage = Number(snapshot.pool.params.baseLeverage) / 1e6;
   const cost = q.margin + q.fee;
+  const affordable = balances
+    ? (balances.usdc * snapshot.pool.params.baseLeverage * 10_000n) /
+      (10_000n * 1_000_000n + BigInt(snapshot.pool.params.openCloseFeeBps) * snapshot.pool.params.baseLeverage)
+    : 0n;
+  const reach = affordable < snapshot.capacity.free ? affordable : snapshot.capacity.free;
+  const ceiling = reach > 10n ? reach - 10n : 0n;
+  const used = !hasAmount || !balances || balances.usdc === 0n ? 0 : Math.min(100, Number((cost * 10_000n) / balances.usdc) / 100);
   const short = connected && balances !== null && hasAmount && balances.usdc < cost;
 
   const submit = async () => {
@@ -95,28 +103,26 @@ export function TradeTicket({ snapshot, onOpened }: { snapshot: MarketSnapshot; 
     (notional * BigInt(Math.round(spread[side === "long" ? "longMonthly" : "shortMonthly"] * 1e6))) / 1_000_000n;
 
   return (
-    <aside className="panel ticket" aria-labelledby="ticket-h">
-      <h2 className="sr-only" id="ticket-h">Open a position</h2>
+    <aside className="panel ticket tk2" aria-labelledby="ticket-h">
+      <header className="tk-head">
+        <h2 id="ticket-h">{hedge ? "Hedge" : "Trade"}</h2>
+        <span className="tk-chip">Isolated · {leverage}x</span>
+        <div className="tk-switch" role="group" aria-label="Order type">
+          <button type="button" aria-pressed={!hedge} onClick={() => setMode("trade")}>Trade</button>
+          <button type="button" aria-pressed={hedge} onClick={() => setMode("hedge")}>Hedge</button>
+        </div>
+      </header>
 
-      <p className="tk-mode">Isolated · {Number(snapshot.pool.params.baseLeverage) / 1e6}x</p>
-
-      <div className="tabs" role="group" aria-label="Order type">
-        <button type="button" aria-pressed={!hedge} onClick={() => setMode("trade")}>Trade</button>
-        <button type="button" aria-pressed={hedge} onClick={() => setMode("hedge")}>Hedge</button>
+      <div className="tk-sides" role="group" aria-label="Side">
+        <button type="button" className="l" aria-pressed={side === "long"} disabled={hedge} onClick={() => setPicked("long")}>
+          <b>Long</b>
+          <span>Profit if the index rises</span>
+        </button>
+        <button type="button" className="s" aria-pressed={side === "short"} onClick={() => setPicked("short")}>
+          <b>{hedge ? "Cover" : "Short"}</b>
+          <span>{hedge ? "A short sized on your stock" : "Profit if the index falls"}</span>
+        </button>
       </div>
-
-      <div className="seg big" role="group" aria-label="Side">
-        <button type="button" className="l" aria-pressed={side === "long"} disabled={hedge} onClick={() => setPicked("long")}>Long</button>
-        <button type="button" className="s" aria-pressed={side === "short"} onClick={() => setPicked("short")}>Short</button>
-      </div>
-
-      <p className="sub" style={{ margin: 0 }}>
-        {hedge
-          ? "Dealers: a short sized on your stock. If the market falls you lose on the shelf and gain here."
-          : side === "long"
-            ? "You profit if the index rises."
-            : "You profit if the index falls."}
-      </p>
 
       <div className="token-input big">
         <div className="ti-top">
@@ -134,6 +140,15 @@ export function TradeTicket({ snapshot, onOpened }: { snapshot: MarketSnapshot; 
           />
           <span className="tk-asset"><span className="coin usdc" aria-hidden="true">$</span>USDC</span>
         </div>
+        {!hedge && (
+          <div className="pct" role="group" aria-label="Use part of what the balance can open">
+            {[25, 50, 75, 100].map((percent) => (
+              <button key={percent} type="button" disabled={ceiling <= 0n} onClick={() => setAmount((Number((ceiling * BigInt(percent)) / 100n) / 1e6).toFixed(2))}>
+                {percent === 100 ? "Max" : `${percent}%`}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <span className="swap-arrow" aria-hidden="true">↓</span>
@@ -164,9 +179,15 @@ export function TradeTicket({ snapshot, onOpened }: { snapshot: MarketSnapshot; 
         </label>
       )}
 
-      <div className="tk-lev">
-        <span>Leverage</span>
-        <b>{Number(snapshot.pool.params.baseLeverage) / 1e6}x · fixed</b>
+      <div className={`tk-meter${short ? " over" : ""}`}>
+        <div>
+          <span>Margin + fee</span>
+          <b>
+            {hasAmount ? fmtUsd(cost, 2) : "0.00"}
+            <em> / {connected && balances ? fmtUsd(balances.usdc, 2) : "—"} USDC</em>
+          </b>
+        </div>
+        <i><i style={{ width: `${used}%` }} /></i>
       </div>
 
       {blocked && hasAmount && <p className="hint bad" style={{ margin: 0 }}>{q.problem}</p>}
@@ -175,7 +196,7 @@ export function TradeTicket({ snapshot, onOpened }: { snapshot: MarketSnapshot; 
       )}
 
       {connected ? (
-        <button className="btn block" disabled={!hasAmount || blocked || short || sending} title={q.problem ?? undefined} onClick={() => void submit()}>
+        <button className={`btn block ${side}`} disabled={!hasAmount || blocked || short || sending} title={q.problem ?? undefined} onClick={() => void submit()}>
           {sending ? "Confirm in your wallet…" : !hasAmount ? "Enter an amount" : hedge ? "Open cover" : `Open ${side}`}
         </button>
       ) : (
