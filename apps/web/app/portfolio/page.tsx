@@ -40,10 +40,14 @@ export default function PortfolioPage() {
   const cashPct = p ? (Number(p.cash) / denom) * 100 : 0;
 
   return (
-    <div className="page">
-      <header className="page-head">
-        <h1 className="display">Portfolio</h1>
-        <p className="lede">Everything you hold on SLAB: open trades, vaulted cards and pool shares.</p>
+    <div className="page wide">
+      <header className="vmkt-head">
+        <h1>
+          Portfolio: <span>{connected ? shortKey(publicKey) : "your holdings"}</span>
+        </h1>
+        <p className="vmkt-total">
+          Trading account <b>{connected && p ? `${fmtUsd(p.totalValue, 2)} $` : "—"}</b>
+        </p>
       </header>
 
       {!connected ? (
@@ -61,12 +65,12 @@ export default function PortfolioPage() {
           <div className="stats">
             <div className="stat">
               <p className="k">Trading account</p>
-              <p className="v serif">${fmtUsd(p.totalValue, 2)}</p>
+              <p className="v lg">${fmtUsd(p.totalValue, 2)}</p>
               <p className="d">margin, cash and open PnL</p>
             </div>
             <div className="stat">
               <p className="k">Open PnL</p>
-              <p className={`v serif ${p.totalPnl >= 0n ? "up" : "down"}`}>{signed(p.totalPnl)}</p>
+              <p className={`v lg ${p.totalPnl >= 0n ? "up" : "down"}`}>{signed(p.totalPnl)}</p>
               <p className="d">unrealised</p>
             </div>
             <div className="stat">

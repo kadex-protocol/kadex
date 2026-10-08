@@ -1,7 +1,6 @@
 "use client";
 
 import { CONSTITUENTS, fmtBps, fmtPct, fmtPrice, fmtUsd } from "@/lib/market";
-import Link from "next/link";
 import { useMarket } from "@/lib/useMarket";
 import { Thumb } from "@/components/Slab";
 
@@ -9,17 +8,20 @@ export default function IndexPage() {
   const { data } = useMarket();
 
   return (
-    <div className="page">
-      <header className="page-head">
-        <Link href="/" className="link">← Back to trade</Link>
-        <h1 className="display" style={{ marginTop: 14 }}>The Culture Index</h1>
-        <p className="lede">What the index holds, and the rules it holds it by.</p>
+    <div className="page wide">
+      <header className="vmkt-head">
+        <h1>
+          Index: <span>methodology</span>
+        </h1>
+        <p className="vmkt-total">
+          Index value <b>{data ? fmtPrice(data.oracle.price) : "—"}</b>
+        </p>
       </header>
 
       <div className="stats">
         <div className="stat">
           <p className="k">Index value</p>
-          <p className="v serif">{data ? fmtPrice(data.oracle.price) : "—"}</p>
+          <p className="v lg">{data ? fmtPrice(data.oracle.price) : "—"}</p>
         </div>
         <div className="stat">
           <p className="k">Pool NAV</p>
