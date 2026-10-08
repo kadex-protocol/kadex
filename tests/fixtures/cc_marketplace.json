@@ -1,0 +1,551 @@
+{
+  "findTotal": 159927,
+  "total": 160033,
+  "totalPages": 1600,
+  "cardsQtyByCategory": {},
+  "filterNFtCard": [
+    {
+      "animationUrl": null,
+      "authenticated": true,
+      "autographed": false,
+      "backImage": "https://nft.collectorcrypt.com/back/2026081617C225914",
+      "blockchain": "Solana",
+      "category": "Pokemon",
+      "centering": null,
+      "corners": null,
+      "createdAt": "2026-08-16T07:47:17.089Z",
+      "edges": null,
+      "frontImage": "https://nft.collectorcrypt.com/front/2026081617C225914",
+      "grade": "GEM-MT 10",
+      "gradeNum": null,
+      "gradingCompany": "PSA",
+      "gradingID": "149272749",
+      "id": "2026081617C225914",
+      "insuredValue": "200",
+      "itemName": "2016 #028 Diglett PSA 10 Japanese XY Starter Pack",
+      "listedAt": "2026-10-07T18:40:10.574Z",
+      "location": [],
+      "nftAddress": "FLfFtnEjSC25xxwEbXKDjD7aFz5MgY3m3DcDHe8WT1vT",
+      "nftStatus": "Valid",
+      "orientation": "vertical",
+      "ownerId": "cmm44lqm3063af8ctjzjyl3hs",
+      "qualifiers": [],
+      "serial": "028",
+      "status": "Transferred",
+      "surface": null,
+      "type": "Card",
+      "updatedAt": "2026-10-07T10:16:15.012Z",
+      "vault": "OmniVault",
+      "vaultId": "8JBXPCFN",
+      "year": 2016,
+      "set": "Pokemon Japanese XY Starter Pack",
+      "format": null,
+      "productCode": null,
+      "packCount": null,
+      "language": null,
+      "platform": null,
+      "rating": null,
+      "series": null,
+      "features": null,
+      "publisher": null,
+      "nftStandard": "core",
+      "images": {
+        "backS": "https://d1xpxki1g4htqu.cloudfront.net/l-zCx91G3ADw4KrQki8m31xJ-4atjr1KFmo19Z8mgBo",
+        "cardId": "2026081617C225914",
+        "frontM": "https://d1xpxki1g4htqu.cloudfront.net/-s3uPiC9hop90SsNfNSgAtM1-6EP583gT60bDB2m98I",
+        "frontS": "https://d1xpxki1g4htqu.cloudfront.net/22ApAnveA2EZQD-JFL2qwli_FGqfFG_y-vds7rgFAgk"
+      },
+      "offers": [
+        {
+          "id": "e33c228a-04d0-426a-a2bf-71393c303954"
+        }
+      ],
+      "owner": {
+        "id": "cmm44lqm3063af8ctjzjyl3hs",
+        "name": "Miko",
+        "wallet": "FVWiwDoc3Dthm9X7SVshTkRYr78V4doAz79VRJfdeWMq"
+      },
+      "listing": {
+        "createdAt": "2026-10-07T18:40:10.574Z",
+        "currency": "USDC",
+        "price": 650,
+        "receiptId": "v2_3NKFNggNMjKQTvv8",
+        "sellerId": "cmm44lqm3063af8ctjzjyl3hs",
+        "updatedAt": "2026-10-07T18:40:10.574Z",
+        "marketplace": "CC"
+      }
+    },
+    {
+      "animationUrl": null,
+      "authenticated": true,
+      "autographed": false,
+      "backImage": "https://dilxwvfkfup17.cloudfront.net/eyJ0YWciOiIiLCJ2YWx1ZSI6ImNNekxKNHQ1NjZuVWZTL3BSTnVZK0NmRk01ejNxQkVocWFoNEpKL0lVL2FaVzZBajFHblM3UVlXbXN3aDc2RGNHWExIRlpRVjJJM0lKRCtQY2c2MENnPT0iLCJtYWMiOiJlNzc1ZTBmNDg0OTIzNjUwMzNiNjVhYTNiMjNjOGI0YmQ4ZjkxZjhmODQ3ZWMzN2FkYTc4MmI4ZjFlMzE5YTA2IiwiaXYiOiJodGQxWTZhNDlkOEdPdVY2Vi8rbTlnPT0ifQ==",
+      "blockchain": "Solana",
+      "category": "Pokemon",
+      "centering": null,
+      "corners": null,
+      "createdAt": "2026-07-16T17:48:07.219Z",
+      "edges": null,
+      "frontImage": "https://dilxwvfkfup17.cloudfront.net/eyJ0YWciOiIiLCJ2YWx1ZSI6ImNNekxKNHQ1NjZuVWZTL3BSTnVZK0NmRk01ejNxQkVocWFoNEpKL0lVL2J1ejdaaSs5bnV2bkpZQVBubzdNeXlvdG8xbnJlaWxLcXFUaGxlR2l2bEFBPT0iLCJtYWMiOiI2M2RlYzk0OTY5ZTk2NjMwYjRhOWQxNjA5ODg2OTcyODAzYWM4MzIyNTYwZGFmMWZmMWU0MzNhZTEwMzk4ZmIwIiwiaXYiOiJodGQxWTZhNDlkOEdPdVY2Vi8rbTlnPT0ifQ==",
+      "grade": "PRISTINE 10",
+      "gradeNum": 10,
+      "gradingCompany": "CGC",
+      "gradingID": "6168839053",
+      "id": "202607165C200911",
+      "insuredValue": "24",
+      "itemName": "2025 Pokemon Chinese SV Black Crystal Blazing Faith AR Yveltal #135 CGC 10 PRISTINE",
+      "listedAt": "2026-10-07T18:40:03.335Z",
+      "location": [
+        "PWCC",
+        "PWCC Vault: Collector Crypt #732795",
+        "7560 SW Durham Rd",
+        "Tigard, OR 97224"
+      ],
+      "nftAddress": "9cjiceawBs2DdVnKvPf98joezyoGbBB7Qp6deDyZkcbh",
+      "nftStatus": "Valid",
+      "orientation": "vertical",
+      "ownerId": "cmsvl4i1k5d3awyqwar51tv1v",
+      "qualifiers": [],
+      "serial": "135/129",
+      "status": "Transferred",
+      "surface": null,
+      "type": "Card",
+      "updatedAt": "2026-10-07T10:08:30.627Z",
+      "vault": "PWCC",
+      "vaultId": "fanatics06785",
+      "year": 2025,
+      "set": "Black Crystal Blazing Faith - csv5C - Simplified Chinese",
+      "format": null,
+      "productCode": null,
+      "packCount": null,
+      "language": null,
+      "platform": null,
+      "rating": null,
+      "series": null,
+      "features": null,
+      "publisher": null,
+      "nftStandard": "core",
+      "images": {
+        "backS": "https://d1xpxki1g4htqu.cloudfront.net/IfVBkRUdk74JM02iyY4dm85JkkP3TYVmKcQX9QV2SsQ",
+        "cardId": "202607165C200911",
+        "frontM": "https://d1xpxki1g4htqu.cloudfront.net/MKAVoEKD0Yl9V7VbY0pabjZI8fwnd5hARvbPFIhtS8g",
+        "frontS": "https://d1xpxki1g4htqu.cloudfront.net/ospcYCaliYe9xSzDdMSBa3Q_GUzuBc4lo3VGZxXlLUU"
+      },
+      "offers": [
+        {
+          "id": "6c0edd05-63d6-4473-9d54-fb3c775f9477"
+        },
+        {
+          "id": "eb195800-c452-4842-8452-11ca06c08708"
+        }
+      ],
+      "owner": {
+        "id": "cmsvl4i1k5d3awyqwar51tv1v",
+        "name": "kawhi",
+        "wallet": "ERp9c1dq71fngTkWSdLkhLnjS1SmY6V1DA5zpk75AHhm"
+      },
+      "listing": {
+        "createdAt": "2026-10-05T06:27:29.788Z",
+        "currency": "USDC",
+        "price": 23.28,
+        "receiptId": "v2_4N7Rk8LvfbNonbMz",
+        "sellerId": "cmsvl4i1k5d3awyqwar51tv1v",
+        "updatedAt": "2026-10-07T18:40:03.335Z",
+        "marketplace": "CC"
+      }
+    },
+    {
+      "animationUrl": null,
+      "authenticated": true,
+      "autographed": false,
+      "backImage": "https://arweave.net/VBJsGN-d9AtLX25UrWuJw0ag9LCnVOhu_tvLOowliMA",
+      "blockchain": "Solana",
+      "category": "Pokemon",
+      "centering": null,
+      "corners": null,
+      "createdAt": "2026-08-02T07:25:00.711Z",
+      "edges": null,
+      "frontImage": "https://arweave.net/oA2io-l3fJk4tplQZ-jbyqnufFEnj6OOftrGd54_0KI",
+      "grade": "GEM MINT 10",
+      "gradeNum": null,
+      "gradingCompany": "CGC",
+      "gradingID": "6029005108",
+      "id": "202608020C218332",
+      "insuredValue": "18",
+      "itemName": "2023 #011 Hitmonlee CGC 10 Trading Card Game Classic - CLV, CLC, CLB - English",
+      "listedAt": "2026-10-07T18:39:09.676Z",
+      "location": [],
+      "nftAddress": "FXTq7MpL4oDDDKAXuyfwSWK6sp4p3RtsVvSZnZHGtx5N",
+      "nftStatus": "Valid",
+      "orientation": "vertical",
+      "ownerId": "cm7v3tzyw10p213476eqj95li",
+      "qualifiers": [],
+      "serial": "011",
+      "status": "Transferred",
+      "surface": null,
+      "type": "Card",
+      "updatedAt": "2026-10-07T18:38:43.235Z",
+      "vault": "OmniVault",
+      "vaultId": "KBY7EUQZ",
+      "year": 2023,
+      "set": "Trading Card Game Classic - CLV, CLC, CLB - English",
+      "format": null,
+      "productCode": null,
+      "packCount": null,
+      "language": null,
+      "platform": null,
+      "rating": null,
+      "series": null,
+      "features": null,
+      "publisher": null,
+      "nftStandard": "core",
+      "images": {
+        "backS": "https://d1xpxki1g4htqu.cloudfront.net/77syJx5H3GW3UkdlZUbgVmGKSjJxh_wd2siVfdSz0hk",
+        "cardId": "202608020C218332",
+        "frontM": "https://d1xpxki1g4htqu.cloudfront.net/tIUSI2zPxTZfqNVtnNeIMzK3CEj2hG0jnqu_g7GcATg",
+        "frontS": "https://d1xpxki1g4htqu.cloudfront.net/NWsePgSy2JDXZxMj2BfbnMVJAyQ_7QfYVvd-5smELts"
+      },
+      "offers": [
+        {
+          "id": "663a8511-5143-40b0-9fec-0299d8b5d987"
+        },
+        {
+          "id": "6b589df5-4bbe-4de5-904c-3de8bc9b1bd6"
+        },
+        {
+          "id": "e6b43ed2-96ac-47fa-bc97-3be8390d2352"
+        }
+      ],
+      "owner": {
+        "id": "cm7v3tzyw10p213476eqj95li",
+        "name": "Neo2479",
+        "wallet": "ErP3xu8uDjiEdGLwniL8gLNK7BW6YSvGvGyfStjzkRJW"
+      },
+      "listing": {
+        "createdAt": "2026-10-07T18:39:09.676Z",
+        "currency": "USDC",
+        "price": 22,
+        "receiptId": "v2_2V2iVFMvR4ecmbgC",
+        "sellerId": "cm7v3tzyw10p213476eqj95li",
+        "updatedAt": "2026-10-07T18:39:09.676Z",
+        "marketplace": "CC"
+      }
+    },
+    {
+      "animationUrl": null,
+      "authenticated": true,
+      "autographed": false,
+      "backImage": "https://arweave.net/0_IcjOHVbC_LKGfJvH4rj6dyDN3SJM2_XoQPPMFJs0Y",
+      "blockchain": "Solana",
+      "category": "Soccer",
+      "centering": null,
+      "corners": null,
+      "createdAt": "2026-08-02T15:23:38.955Z",
+      "edges": null,
+      "frontImage": "https://arweave.net/x5BgpKdc2O7iNS0gvOTYpknV-QZmtk7MD9rN2fRnLXE",
+      "grade": "NM-MT 8",
+      "gradeNum": null,
+      "gradingCompany": "PSA",
+      "gradingID": "147750531",
+      "id": "2026080238C219135",
+      "insuredValue": "15",
+      "itemName": "2025 #19 Estevao PSA 8 Panini FIFA Club World Cup Stickers",
+      "listedAt": "2026-10-07T18:39:08.463Z",
+      "location": [],
+      "nftAddress": "8GqW9yWzga8nwPpiQC3gHgDcYAWb9ArGBd9X7ZCxkp3B",
+      "nftStatus": "Valid",
+      "orientation": "vertical",
+      "ownerId": "cmsir2qzr0zb1ldesimgsanqf",
+      "qualifiers": [],
+      "serial": "19",
+      "status": "Transferred",
+      "surface": null,
+      "type": "Card",
+      "updatedAt": "2026-09-06T06:36:23.539Z",
+      "vault": "OmniVault",
+      "vaultId": "KECEE8TG",
+      "year": 2025,
+      "set": "Panini FIFA Club World Cup Stickers",
+      "format": null,
+      "productCode": null,
+      "packCount": null,
+      "language": null,
+      "platform": null,
+      "rating": null,
+      "series": null,
+      "features": null,
+      "publisher": null,
+      "nftStandard": "core",
+      "images": {
+        "backS": "https://d1xpxki1g4htqu.cloudfront.net/WPHrKmcR04_FIt1cbfr-0u0iXE95Yy0dkN4UdAXiZaw",
+        "cardId": "2026080238C219135",
+        "frontM": "https://d1xpxki1g4htqu.cloudfront.net/sTZ7nOkrot9MTH-tJcVLqc1K8dZXfD0vZVy2WFfyt8U",
+        "frontS": "https://d1xpxki1g4htqu.cloudfront.net/z-0py1ZW1kTk8c7oSCkXYd_xOhSQQYkoYIa6Vif8PJA"
+      },
+      "offers": [
+        {
+          "id": "fc3ed630-b78d-406b-9a89-430415fd7d16"
+        },
+        {
+          "id": "554138b1-10af-4731-8089-5555c96ca440"
+        }
+      ],
+      "owner": {
+        "id": "cmsir2qzr0zb1ldesimgsanqf",
+        "name": "❤️",
+        "wallet": "Dpua5doi7EKeh9oSEpCLe99o76eFFC5FrrartM95wQBQ"
+      },
+      "listing": {
+        "createdAt": "2026-08-24T13:45:16.388Z",
+        "currency": "USDC",
+        "price": 22,
+        "receiptId": "v2_xTXDYMX5k6wMZkM1",
+        "sellerId": "cmsir2qzr0zb1ldesimgsanqf",
+        "updatedAt": "2026-10-07T18:39:08.463Z",
+        "marketplace": "CC"
+      }
+    },
+    {
+      "animationUrl": null,
+      "authenticated": true,
+      "autographed": false,
+      "backImage": "https://d1xpxki1g4htqu.cloudfront.net/sJnirbdiymgrKvdQahRcWpuzpNpYT3fsvGCwPHlGeuE",
+      "blockchain": "Solana",
+      "category": "Dragon Ball",
+      "centering": null,
+      "corners": null,
+      "createdAt": "2026-09-20T01:32:57.874Z",
+      "edges": null,
+      "frontImage": "https://d1xpxki1g4htqu.cloudfront.net/i17gKRwPBZh1sqEnNWsPLFGawhYxUcewMJypruw80N0",
+      "grade": "GEM-MT 10",
+      "gradeNum": null,
+      "gradingCompany": "PSA",
+      "gradingID": "107166220",
+      "id": "2026092057C261167",
+      "insuredValue": "80",
+      "itemName": "2024 #FB04-051 Vegeta PSA 10 Dragon Ball Super Card Game Fusion World Ultra Limit",
+      "listedAt": "2026-10-07T18:38:52.184Z",
+      "location": [],
+      "nftAddress": "7futdAjVo33xsfBMzK3FP6LyRXS1EcMmipPZS7SGTEsg",
+      "nftStatus": "Valid",
+      "orientation": "vertical",
+      "ownerId": "cmrb59p342z1jwdua11n8tdr0",
+      "qualifiers": [],
+      "serial": "FB04-051",
+      "status": "Transferred",
+      "surface": null,
+      "type": "Card",
+      "updatedAt": "2026-10-06T01:40:35.940Z",
+      "vault": "OmniVault",
+      "vaultId": "83UXA26M",
+      "year": 2024,
+      "set": "Dragon Ball Super Card Game Fusion World Ultra Limit",
+      "format": null,
+      "productCode": null,
+      "packCount": null,
+      "language": null,
+      "platform": null,
+      "rating": null,
+      "series": null,
+      "features": null,
+      "publisher": null,
+      "nftStandard": "core",
+      "images": {
+        "backS": "https://d1xpxki1g4htqu.cloudfront.net/Ph_ULJopNQt3A1G2xBJZCn0Y9pIS6tu5sRmSKuX-nHY",
+        "cardId": "2026092057C261167",
+        "frontM": "https://d1xpxki1g4htqu.cloudfront.net/l6l85lXDaR7170CpdDkiWbGUY31BBPidPE7biou8vpU",
+        "frontS": "https://d1xpxki1g4htqu.cloudfront.net/lCOT8Ri7v4JFVRxIx2Bdm0eVkxXGNYMac1M-2C5WRSY"
+      },
+      "offers": [
+        {
+          "id": "30aa0ba4-fa42-46b5-a2cf-5a2e00b0f678"
+        },
+        {
+          "id": "ad2a54bc-f69d-45cb-891a-df9fb615418a"
+        }
+      ],
+      "owner": {
+        "id": "cmrb59p342z1jwdua11n8tdr0",
+        "name": "ssj.sol",
+        "wallet": "GokuPw7UymC4F7nkep8JY3LKjfissuM1bqZNJ1ZTKnUG"
+      },
+      "listing": {
+        "createdAt": "2026-10-07T08:25:26.921Z",
+        "currency": "USDC",
+        "price": 75,
+        "receiptId": "v2_25NbEW9JccUkwFzY",
+        "sellerId": "cmrb59p342z1jwdua11n8tdr0",
+        "updatedAt": "2026-10-07T18:38:52.184Z",
+        "marketplace": "CC"
+      }
+    },
+    {
+      "animationUrl": null,
+      "authenticated": true,
+      "autographed": false,
+      "backImage": "https://arweave.net/rXvaCIDly3ywW_eJhzzxt4-4h8SdoPVjqqYX-yDMrOU",
+      "blockchain": "Solana",
+      "category": "Pokemon",
+      "centering": null,
+      "corners": null,
+      "createdAt": "2026-01-13T05:58:31.778Z",
+      "edges": null,
+      "frontImage": "https://arweave.net/O88QvXoDK3iKljek24Qjv7RWJStV7c1cWP5Z0sfaHOs",
+      "grade": "PRISTINE 10",
+      "gradeNum": 10,
+      "gradingCompany": "CGC",
+      "gradingID": "4311209016",
+      "id": "2026011312C98579",
+      "insuredValue": "148",
+      "itemName": "2023 #149 Dragonite Master Ball Reverse Holo CGC 10 Pristine Japanese Sv2a- 151 Pokemon",
+      "listedAt": "2026-10-07T18:40:10.568Z",
+      "location": [
+        "PSA Vault",
+        "Collector Crypt (102006143)",
+        "900 West Basin Rd",
+        "New Castle, DE 19720"
+      ],
+      "nftAddress": "24cbVc2bJudpQLd9jYr2U14S26Ln9DvqWvW4bhegE8zu",
+      "nftStatus": "Valid",
+      "orientation": "vertical",
+      "ownerId": "cmsy6gjqfa8lmwyqwk12yo59z",
+      "qualifiers": [],
+      "serial": "149/165",
+      "status": "Transferred",
+      "surface": null,
+      "type": "Card",
+      "updatedAt": "2026-10-07T09:24:51.836Z",
+      "vault": "PSA Vault",
+      "vaultId": "191616477",
+      "year": 2023,
+      "set": "Pokémon Card 151 - sv2a - Japanese",
+      "format": null,
+      "productCode": null,
+      "packCount": null,
+      "language": null,
+      "platform": null,
+      "rating": null,
+      "series": null,
+      "features": null,
+      "publisher": null,
+      "nftStandard": "pnft",
+      "images": {
+        "backS": "https://d1xpxki1g4htqu.cloudfront.net/9Pb_OoY4-ytogr6efF-U1FUlzmVlye_74YClsjbAaUM",
+        "cardId": "2026011312C98579",
+        "frontM": "https://d1xpxki1g4htqu.cloudfront.net/OKxQqQOt58W42Mo5E0H-rfdfGZCw3E5aKL6t_-5tunY",
+        "frontS": "https://d1xpxki1g4htqu.cloudfront.net/YtOMLyQce5H0-sRb3tiuxqlbp02ixSvDxe7fxjaIYt4"
+      },
+      "offers": [
+        {
+          "id": "eb6f5d7c-6d56-4009-9874-c4259993c0d6"
+        },
+        {
+          "id": "22743a4b-7967-4bed-9618-2bd1bda73390"
+        },
+        {
+          "id": "16498dda-35c7-43ec-9513-9cb5d00213d7"
+        },
+        {
+          "id": "4f82e307-2a03-4f7e-a609-a2d9f4b705d6"
+        }
+      ],
+      "owner": {
+        "id": "cmsy6gjqfa8lmwyqwk12yo59z",
+        "name": null,
+        "wallet": "DQTn33bCeBMuPK6iiY2yRukmEqizwwhQ2LDiYC6tcrxA"
+      },
+      "listing": {
+        "createdAt": "2026-10-07T18:40:10.568Z",
+        "currency": "USDC",
+        "price": 475,
+        "receiptId": "v2_2HyRfkQqPJ46xWKi",
+        "sellerId": "cmsy6gjqfa8lmwyqwk12yo59z",
+        "updatedAt": "2026-10-07T18:40:10.568Z",
+        "marketplace": "CC"
+      }
+    },
+    {
+      "animationUrl": null,
+      "authenticated": true,
+      "autographed": false,
+      "backImage": "https://arweave.net/Qgu0FMC_3XiMt3kzUpcfOxdOLOXBcUdUamib8-lTm4I",
+      "blockchain": "Solana",
+      "category": "Pokemon",
+      "centering": null,
+      "corners": null,
+      "createdAt": "2026-01-29T18:51:21.635Z",
+      "edges": null,
+      "frontImage": "https://arweave.net/2tz0Zfz0fK7FB34rTNDiruEcwoEZuy0PKIBWzU_Cg5U",
+      "grade": "GEM-MT 10",
+      "gradeNum": 10,
+      "gradingCompany": "PSA",
+      "gradingID": "136848220",
+      "id": "2026012917C101336",
+      "insuredValue": "35",
+      "itemName": "2025 #089 Toxtricity PSA 10 Japanese M2-Inferno X Pokemon",
+      "listedAt": "2026-10-07T18:40:01.454Z",
+      "location": [
+        "PSA Vault",
+        "Collector Crypt (102006143)",
+        "900 West Basin Rd",
+        "New Castle, DE 19720"
+      ],
+      "nftAddress": "DboToEdvBQrqpeiQBZmgXvq8s4M1hqiSCcKK6Enyw3UV",
+      "nftStatus": "Valid",
+      "orientation": "vertical",
+      "ownerId": "cmsvl4i1k5d3awyqwar51tv1v",
+      "qualifiers": [],
+      "serial": "089",
+      "status": "Transferred",
+      "surface": null,
+      "type": "Card",
+      "updatedAt": "2026-10-07T09:25:47.273Z",
+      "vault": "PSA Vault",
+      "vaultId": "190873651",
+      "year": 2025,
+      "set": "Pokemon Japanese M2-Inferno X",
+      "format": null,
+      "productCode": null,
+      "packCount": null,
+      "language": null,
+      "platform": null,
+      "rating": null,
+      "series": null,
+      "features": null,
+      "publisher": null,
+      "nftStandard": "pnft",
+      "images": {
+        "backS": "https://d1xpxki1g4htqu.cloudfront.net/aStKxT8Gah6JeacdmGhw6wnaZjzgmU09U6Taf_3qcKU",
+        "cardId": "2026012917C101336",
+        "frontM": "https://d1xpxki1g4htqu.cloudfront.net/EMnRn0Y3ZePqqNHPzGCmkMz8sZtdIEktnHN8wtodgs4",
+        "frontS": "https://d1xpxki1g4htqu.cloudfront.net/R6kuwYddZQGDP8E_lARdCzoHU6NdDC8kEO5H29pPS2Q"
+      },
+      "offers": [
+        {
+          "id": "06599bf1-9e14-4443-bc04-d4c0f81c89c0"
+        },
+        {
+          "id": "7fb84266-f271-4e49-9429-c19759e10092"
+        },
+        {
+          "id": "9fee066c-3f3f-4a05-8ec5-83607861a8c2"
+        }
+      ],
+      "owner": {
+        "id": "cmsvl4i1k5d3awyqwar51tv1v",
+        "name": "kawhi",
+        "wallet": "ERp9c1dq71fngTkWSdLkhLnjS1SmY6V1DA5zpk75AHhm"
+      },
+      "listing": {
+        "createdAt": "2026-10-05T06:39:15.586Z",
+        "currency": "USDC",
+        "price": 33.95,
+        "receiptId": "v2_3yf7mqVVh1BYGrGX",
+        "sellerId": "cmsvl4i1k5d3awyqwar51tv1v",
+        "updatedAt": "2026-10-07T18:40:01.454Z",
+        "marketplace": "CC"
+      }
+    }
+  ],
+  "nextCursor": "eyJ2IjoxLCJzIjoibGlzdGVkRGF0ZURlc2MiLCJrIjpbIjIwMjYtMTAtMDdUMTg6MTY6MDIuNTUzWiIsIjIwMjUtMDktMzBUMjM6MjA6MTcuMjE2WiIsIjIwMjUwOTMwMTdDNTM3MDgiXX0"
+}

@@ -6,6 +6,7 @@
     "packages/types",
     "packages/sdk",
     "packages/oracle",
+    "packages/collector-crypt",
     "apps/keeper",
     "apps/liquidator",
     "apps/web"
@@ -15,7 +16,9 @@
     "build:programs": "node scripts/build.mjs",
     "test:rust": "cargo test --workspace",
     "test:programs": "anchor test",
-    "typecheck": "tsc -b packages/types packages/sdk packages/oracle",
+    "typecheck": "tsc -b packages/types packages/sdk packages/oracle packages/collector-crypt",
+    "test:cc": "tsc -b packages/types packages/collector-crypt && node --test tests/collector-crypt.test.mjs",
+    "test:cc:chain": "tsc -b packages/types packages/collector-crypt && node scripts/with-validator.mjs node --test tests/cc/*.test.mjs",
     "test:integration": "node scripts/with-validator.mjs node --test tests/integration/*.test.mjs",
     "test:parity": "tsc -b packages/types packages/sdk && node --test tests/parity.test.mjs",
     "web": "npm run dev --workspace apps/web",

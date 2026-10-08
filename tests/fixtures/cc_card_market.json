@@ -1,0 +1,61 @@
+{
+  "id": "2026071519C192249",
+  "nftAddress": "CvsHTsAjWdaxViomzmfzqkVFsNkps6Jzs8d24jjMzP43",
+  "listing": {
+    "id": "500ba868-40df-4fec-b320-b92183f28eff",
+    "cardId": "2026071519C192249",
+    "createdAt": "2026-08-11T00:01:28.896Z",
+    "currency": "USDC",
+    "price": "2550",
+    "receiptId": "v2_Lozw4QKdxg7JfJ8x",
+    "marketplace": "CC",
+    "sellerId": "cms2nvqyynnyhnj9jeljqhqe2",
+    "updatedAt": "2026-10-05T22:28:49.855Z",
+    "status": "Active",
+    "listingAddress": "v3GrGYTdvBffE78XSPdETNcEF1FMu12xCrMzCCsci7s",
+    "closedAt": null,
+    "closedReason": null,
+    "closedBy": null,
+    "chainSlot": 453713361,
+    "chainTxIndex": 799,
+    "chainIxIndex": 1
+  },
+  "listings": [
+    {
+      "id": "500ba868-40df-4fec-b320-b92183f28eff",
+      "cardId": "2026071519C192249",
+      "createdAt": "2026-08-11T00:01:28.896Z",
+      "currency": "USDC",
+      "price": "2550",
+      "receiptId": "v2_Lozw4QKdxg7JfJ8x",
+      "marketplace": "CC",
+      "sellerId": "cms2nvqyynnyhnj9jeljqhqe2",
+      "updatedAt": "2026-10-05T22:28:49.855Z",
+      "status": "Active",
+      "listingAddress": "v3GrGYTdvBffE78XSPdETNcEF1FMu12xCrMzCCsci7s",
+      "closedAt": null,
+      "closedReason": null,
+      "closedBy": null,
+      "chainSlot": 453713361,
+      "chainTxIndex": 799,
+      "chainIxIndex": 1
+    }
+  ],
+  "owner": {
+    "id": "cms2nvqyynnyhnj9jeljqhqe2",
+    "name": "BDeep",
+    "wallet": "6cWYD5eW8Brs7QqErvkwdWYtYpWAQFDdxz6nHTBPpgHA"
+  },
+  "author": {
+    "id": "cms2nvqyynnyhnj9jeljqhqe2",
+    "name": "BDeep",
+    "wallet": "6cWYD5eW8Brs7QqErvkwdWYtYpWAQFDdxz6nHTBPpgHA"
+  },
+  "ownerId": "cms2nvqyynnyhnj9jeljqhqe2",
+  "status": "Transferred",
+  "nftStatus": "Valid",
+  "inSwap": false,
+  "activeSwapId": null,
+  "inAuction": false,
+  "burnedForBridge": false
+}
