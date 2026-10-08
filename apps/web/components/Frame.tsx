@@ -1,11 +1,13 @@
 "use client";
 
+import { BRAND } from "@/lib/brand";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useWallet, shortKey } from "@/lib/wallet";
 import { fmtUsd, IS_SAMPLE, loadBalances } from "@/lib/market";
 import { UiSwitch } from "@/components/UiSwitch";
+import { WelcomeDialog } from "@/components/WelcomeDialog";
 
 /**
  * Four destinations, each named for what you do there. Anything that is
@@ -19,10 +21,11 @@ const NAV = [
   { href: "/portfolio", label: "Portfolio", match: ["/portfolio"] },
 ];
 
-const WAVE_R = 210;
-const WAVE_COLS = 6;
-const WAVE_ROWS = [0, 1, 2, 3];
-const WAVE_RINGS = [0.86, 0.64, 0.42];
+const FAN_PIVOT = { x: 720, y: 2470 };
+const FAN_RADIUS = 2400;
+const FAN_STEP_DEG = 3;
+const FAN_SLABS = Array.from({ length: 13 }, (_, i) => (i - 6) * FAN_STEP_DEG);
+const STAR = "M0 -17 L4.5 -4.5 L17 0 L4.5 4.5 L0 17 L-4.5 4.5 L-17 0 L-4.5 -4.5 Z";
 
 export function WalletButton({ className = "btn" }: { className?: string }) {
   const { status, publicKey, connect, disconnect } = useWallet();
@@ -78,9 +81,9 @@ export function Frame({ children }: { children: React.ReactNode }) {
         </p>
       )}
       <header className="top">
-        <Link href="/" className="brand" aria-label="SLAB, home">
+        <Link href="/" className="brand" aria-label={`${BRAND}, home`}>
           <span className="star" aria-hidden="true" />
-          SLAB
+          {BRAND}
         </Link>
 
         <nav aria-label="Main" className="tabs-nav">
@@ -101,32 +104,29 @@ export function Frame({ children }: { children: React.ReactNode }) {
       </header>
 
       <main className="main">{children}</main>
+      <WelcomeDialog />
 
       <footer className="foot">
-        <svg className="foot-waves" viewBox="0 0 1440 320" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
-          {WAVE_ROWS.flatMap((row) =>
-            Array.from({ length: WAVE_COLS }, (_, col) => {
-              const cx = col * WAVE_R * 2 - WAVE_R * 2 + (row % 2 ? WAVE_R : 0);
-              const cy = WAVE_R + 40 + row * (WAVE_R / 2);
-              return (
-                <g key={`${row}-${col}`}>
-                  <circle className="disc" cx={cx} cy={cy} r={WAVE_R} />
-                  {WAVE_RINGS.map((k) => (
-                    <circle key={k} className="ring" cx={cx} cy={cy} r={WAVE_R * k} />
-                  ))}
-                </g>
-              );
-            }),
-          )}
+        <svg className="foot-slabs" viewBox="0 0 1440 320" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+          {FAN_SLABS.map((deg) => (
+            <g key={deg} transform={`rotate(${deg} ${FAN_PIVOT.x} ${FAN_PIVOT.y}) translate(${FAN_PIVOT.x} ${FAN_PIVOT.y - FAN_RADIUS})`}>
+              <rect className="case" x="-85" y="0" width="170" height="286" rx="12" />
+              <rect className="part" x="-73" y="12" width="146" height="44" rx="4" />
+              <path className="part" d="M-63 28 H-5 M-63 40 H-25" />
+              <rect className="part" x="45" y="20" width="20" height="28" rx="3" />
+              <rect className="part" x="-73" y="66" width="146" height="206" rx="6" />
+              <path className="mark" d={STAR} transform="translate(0 169)" />
+            </g>
+          ))}
         </svg>
 
         <div className="foot-in">
           <div className="foot-brand">
-            <Link href="/" className="brand" aria-label="SLAB, home">
+            <Link href="/" className="brand" aria-label={`${BRAND}, home`}>
               <span className="star" aria-hidden="true" />
-              SLAB
+              {BRAND}
             </Link>
-            <p>© 2026 SLAB · Built on Solana</p>
+            <p>© 2026 {BRAND} · Built on Solana</p>
             <p className="fine">
               {IS_SAMPLE
                 ? "Concept preview. Figures are sample data; nothing is signed or settled."

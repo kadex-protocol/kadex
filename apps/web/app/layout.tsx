@@ -1,10 +1,11 @@
+import { BRAND } from "@/lib/brand";
 import type { Metadata } from "next";
 import "./globals.css";
 import { WalletProvider } from "@/lib/wallet";
 import { Frame } from "@/components/Frame";
 
 export const metadata: Metadata = {
-  title: "SLAB — The collector's market",
+  title: `${BRAND} — The collector's market`,
   description: "Perpetual exposure to a curated index of tokenized collectibles.",
 };
 

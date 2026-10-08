@@ -1,26 +1,80 @@
 "use client";
 
+import type { CSSProperties, PointerEvent } from "react";
 import Link from "next/link";
 import { IS_SAMPLE } from "@/lib/market";
 import type { VaultCard } from "@/lib/collectorCrypt";
 
-const ART_SHOWN = 5;
+interface Slot {
+  x: number;
+  y: number;
+  w: number;
+  rx: number;
+  ry: number;
+  rz: number;
+  depth: 0 | 1 | 2;
+}
 
-const focusTicket = () => {
+const SLOTS: Slot[] = [
+  { x: 7, y: 34, w: 170, rx: 8, ry: 26, rz: -12, depth: 0 },
+  { x: 86, y: 40, w: 180, rx: 6, ry: -28, rz: 11, depth: 0 },
+  { x: 97, y: 96, w: 160, rx: -10, ry: -22, rz: -16, depth: 0 },
+  { x: 20, y: 30, w: 105, rx: 4, ry: 18, rz: 7, depth: 1 },
+  { x: 71, y: 24, w: 100, rx: 10, ry: -16, rz: -9, depth: 1 },
+  { x: 15, y: 96, w: 115, rx: -14, ry: 24, rz: 18, depth: 1 },
+  { x: 30, y: 8, w: 74, rx: 12, ry: 14, rz: -6, depth: 2 },
+  { x: 62, y: 92, w: 80, rx: -8, ry: -12, rz: 10, depth: 2 },
+  { x: 40, y: 98, w: 68, rx: -12, ry: 10, rz: -14, depth: 2 },
+  { x: 99, y: 6, w: 84, rx: 10, ry: -20, rz: 20, depth: 2 },
+];
+const PARALLAX_PX = [22, 12, 5];
+
+const trackPointer = (e: PointerEvent<HTMLElement>) => {
+  const box = e.currentTarget.getBoundingClientRect();
+  e.currentTarget.style.setProperty("--px", (((e.clientX - box.left) / box.width) * 2 - 1).toFixed(3));
+  e.currentTarget.style.setProperty("--py", (((e.clientY - box.top) / box.height) * 2 - 1).toFixed(3));
+};
+
+function BannerArt({ cards }: { cards: VaultCard[] }) {
+  const art = cards.filter((c) => c.frontImage);
+  if (art.length === 0) return <div className="hbanner-art" aria-hidden="true" />;
+  return (
+    <div className="hbanner-art" aria-hidden="true">
+      {SLOTS.map((slot, i) => (
+        <span
+          key={i}
+          className={`hslab-slot d${slot.depth}`}
+          style={{
+            "--x": `${slot.x}%`,
+            "--y": `${slot.y}%`,
+            "--w": `${slot.w}px`,
+            "--rx": `${slot.rx}deg`,
+            "--ry": `${slot.ry}deg`,
+            "--rz": `${slot.rz}deg`,
+            "--par": `${PARALLAX_PX[slot.depth]}px`,
+            "--delay": `${-i * 1.3}s`,
+          } as CSSProperties}
+        >
+          <span className="hslab">
+            <img src={art[i % art.length]!.frontImage!} alt="" loading="lazy" />
+            <i className="glare" />
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+export const focusTicket = () => {
   const input = document.querySelector<HTMLInputElement>(".ticket input");
   input?.scrollIntoView({ block: "center", behavior: "smooth" });
   input?.focus({ preventScroll: true });
 };
 
 export function HomeBanner({ cards }: { cards: VaultCard[] }) {
-  const art = cards.filter((c) => c.frontImage).slice(0, ART_SHOWN);
   return (
-    <section className="panel hbanner" aria-labelledby="hbanner-h">
-      <div className="hbanner-art" aria-hidden="true">
-        {art.map((c) => (
-          <img key={c.nftAddress} src={c.frontImage!} alt="" loading="lazy" />
-        ))}
-      </div>
+    <section className="panel hbanner" aria-labelledby="hbanner-h" onPointerMove={trackPointer}>
+      <BannerArt cards={cards} />
 
       <div className="hbanner-in">
         <p className="tags">
@@ -44,14 +98,9 @@ export function HomeBanner({ cards }: { cards: VaultCard[] }) {
 const scrollTo = (selector: string) => document.querySelector(selector)?.scrollIntoView({ block: "start", behavior: "smooth" });
 
 export function VaultBanner({ cards }: { cards: VaultCard[] }) {
-  const art = cards.filter((c) => c.frontImage).slice(0, ART_SHOWN);
   return (
-    <section className="panel hbanner" aria-labelledby="vbanner-h">
-      <div className="hbanner-art" aria-hidden="true">
-        {art.map((c) => (
-          <img key={c.nftAddress} src={c.frontImage!} alt="" loading="lazy" />
-        ))}
-      </div>
+    <section className="panel hbanner" aria-labelledby="vbanner-h" onPointerMove={trackPointer}>
+      <BannerArt cards={cards} />
 
       <div className="hbanner-in">
         <p className="tags">
