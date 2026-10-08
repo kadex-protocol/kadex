@@ -1,90 +1,165 @@
 "use client";
 
-/**
- * Trade — the landing page.
- *
- * Opening the app lands you on the one thing it exists to do, the way a swap
- * screen does: the market on the left, the ticket on the right, and three
- * steps underneath for anyone who has not done this before.
- */
-
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CONSTITUENTS, fmtBps, fmtPct, fmtPrice, fmtUsd } from "@/lib/market";
+import {
+  borrowSpread, fmtPct, fmtPrice, fmtUsd, IS_SAMPLE, loadIndexHistory, loadPortfolio,
+  type IndexPoint, type Portfolio,
+} from "@/lib/market";
 import { useMarket } from "@/lib/useMarket";
-import { Shelf } from "@/components/Shelf";
-import { Thumb } from "@/components/Slab";
+import { useWallet } from "@/lib/wallet";
+import { loadVaultCards, type VaultCard } from "@/lib/collectorCrypt";
+import { CardRail } from "@/components/CardRail";
+import { HomeBanner } from "@/components/HomeBanner";
+import { IndexChart } from "@/components/IndexChart";
 import { TradeTicket } from "@/components/TradeTicket";
 
-export default function TradePage() {
+const CARDS_SHOWN = 24;
+
+type AccountTab = "positions" | "cards" | "shares";
+
+const EMPTY: Record<AccountTab, string> = {
+  positions: "No open positions. Pick a side and a size in the ticket.",
+  cards: "No cards vaulted yet.",
+  shares: "No pool shares yet.",
+};
+
+function accountLine(tab: AccountTab, p: Portfolio | null) {
+  if (!p) return EMPTY[tab];
+  if (tab === "positions" && p.rows.length > 0) {
+    const pnl = p.totalPnl < 0n ? -p.totalPnl : p.totalPnl;
+    return `${p.rows.length} open, ${p.totalPnl >= 0n ? "+" : "−"}${fmtUsd(pnl, 2)} USDC unrealised.`;
+  }
+  if (tab === "cards" && p.cards.length > 0) return `${p.cards.length} cards vaulted.`;
+  if (tab === "shares" && p.clp > 0n) return `${fmtUsd(p.clp, 2)} CLP, worth ${fmtUsd(p.clpValue, 2)} USDC.`;
+  return EMPTY[tab];
+}
+
+export default function HomePage() {
   const { data, loading, error } = useMarket();
+  const { status, publicKey, connect } = useWallet();
+  const [history, setHistory] = useState<IndexPoint[]>([]);
+  const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
+  const [tab, setTab] = useState<AccountTab>("positions");
+  const [cards, setCards] = useState<VaultCard[]>([]);
+
+  useEffect(() => {
+    let live = true;
+    loadVaultCards(null, { search: "", owner: null, group: null })
+      .then((page) => live && setCards(page.cards.slice(0, CARDS_SHOWN)))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let live = true;
+    loadPortfolio(publicKey).then((p) => live && setPortfolio(p));
+    return () => {
+      live = false;
+    };
+  }, [publicKey]);
+
+  useEffect(() => {
+    if (!data) return;
+    let live = true;
+    loadIndexHistory(data).then((points) => live && setHistory(points));
+    return () => {
+      live = false;
+    };
+  }, [data]);
+
+  const connected = status === "connected" && publicKey !== null;
+  const spread = data ? borrowSpread(data) : null;
+  const dayChange =
+    history.length > 1
+      ? (Number(history[history.length - 1]!.price - history[0]!.price) / Number(history[0]!.price)) * 100
+      : null;
+  const oracleOk = data?.oracle.state === "ok";
 
   return (
-    <div className="page">
-      <header className="page-head">
-        <h1 className="display">Trade the Culture Index</h1>
-        <p className="lede">
-          One price for five graded collectibles. Go long if you think they rise, short if you
-          think they fall — without buying a single card.
-        </p>
-      </header>
-
-      <div className="layout">
+    <div className="page home">
+      <div className="dash">
         <div className="col">
-          <section className="market-card">
-            <div className="market-head">
+          <HomeBanner cards={cards} />
+
+          <section className="panel mrow" aria-label="Market">
+            <div className="mrow-id">
+              <span className="mark" aria-hidden="true"><span className="star" /></span>
               <div>
-                <p className="kicker">SLAB Index / 001</p>
-                <p className="price">{data ? fmtPrice(data.oracle.price) : "—"}</p>
-                <p className="sub">
-                  <span className="dot" style={{ background: data?.oracle.state === "ok" ? "var(--up)" : "var(--down)" }} />
-                  Oracle {data?.oracle.state ?? "—"}
+                <h2 className="nm">
+                  SLAB Index <span className="lev">5x</span>
+                </h2>
+                <p className={`st ${data ? (oracleOk ? "up" : "down") : ""}`}>
+                  <i /> Oracle {data?.oracle.state ?? "—"} · five graded cards
                 </p>
               </div>
-              <Link href="/index-methodology" className="link">How the index works →</Link>
             </div>
-            <Shelf />
+
+            <div className="mrow-px">
+              <b>{data ? fmtPrice(data.oracle.price) : "—"}</b>
+              {dayChange !== null && (
+                <span className={dayChange >= 0 ? "up" : "down"}>
+                  {dayChange >= 0 ? "▲" : "▼"} {Math.abs(dayChange).toFixed(2)}% <em>24h</em>
+                </span>
+              )}
+            </div>
+
+            <dl>
+              <div><dt>TWAP</dt><dd>{data ? fmtPrice(data.oracle.twap) : "—"}</dd></div>
+              <div><dt>Open interest</dt><dd>{data ? `${fmtUsd(data.market.oiLong + data.market.oiShort)} $` : "—"}</dd></div>
+              <div><dt>Capacity left</dt><dd>{data ? `${fmtUsd(data.capacity.free)} $` : "—"}</dd></div>
+              <div className="util">
+                <dt>Utilisation</dt>
+                <dd>
+                  {data ? fmtPct(data.capacity.utilization, 1) : "—"}
+                  <span className="meter"><i style={{ width: data ? fmtPct(data.capacity.utilization, 1) : "0%" }} /></span>
+                </dd>
+              </div>
+              <div>
+                <dt>Borrow / month</dt>
+                <dd>
+                  {spread ? (
+                    <>
+                      <span className={spread.crowded === "long" ? "down" : "up"}>L {spread.longMonthly.toFixed(2)}%</span>
+                      {" · "}
+                      <span className={spread.crowded === "short" ? "down" : "up"}>S {spread.shortMonthly.toFixed(2)}%</span>
+                    </>
+                  ) : "—"}
+                </dd>
+              </div>
+            </dl>
           </section>
 
-          <div className="stats">
-            <div className="stat">
-              <p className="k">Open interest</p>
-              <p className="v">{data ? fmtUsd(data.market.oiLong + data.market.oiShort) : "—"}</p>
-              <p className="d">{data ? `${fmtUsd(data.market.oiLong)} long · ${fmtUsd(data.market.oiShort)} short` : "—"}</p>
-            </div>
-            <div className="stat">
-              <p className="k">Capacity left</p>
-              <p className="v">{data ? fmtUsd(data.capacity.free) : "—"}</p>
-              <p className="d">USDC</p>
-            </div>
-            <div className="stat">
-              <p className="k">Utilisation</p>
-              <p className="v">{data ? fmtPct(data.capacity.utilization, 1) : "—"}</p>
-              <p className="d">of the ceiling</p>
-            </div>
-          </div>
+          <CardRail cards={cards} />
 
-          <section className="panel">
-            <div className="panel-head">
-              <h2 className="title sm">What&rsquo;s in the index</h2>
-              <span className="sub">{CONSTITUENTS.length} cards · fixed weights</span>
-            </div>
-            <ul className="weights">
-              {CONSTITUENTS.map((c) => (
-                <li key={c.id}>
-                  <span className="asset">
-                    <Thumb art={c.art} />
-                    <span>
-                      <span className="nm">{c.name}</span>
-                      <span className="id">{c.year} · {c.series} · {c.grade}</span>
-                    </span>
-                  </span>
-                  <span className="w">
-                    <span className="bar"><i style={{ width: `${(c.weightBps / CONSTITUENTS[0]!.weightBps) * 100}%`, background: "var(--ember)" }} /></span>
-                    <b>{fmtBps(c.weightBps)}</b>
-                  </span>
-                </li>
+          <IndexChart points={history} />
+
+          <section className="panel acct" aria-label="Your account">
+            <div className="tabs" role="group" aria-label="Holdings">
+              {([
+                ["positions", "Positions", portfolio?.rows.length ?? 0],
+                ["cards", "Vaulted cards", portfolio?.cards.length ?? 0],
+                ["shares", "Pool shares", portfolio && portfolio.clp > 0n ? 1 : 0],
+              ] as const).map(([id, label, n]) => (
+                <button key={id} type="button" aria-pressed={tab === id} onClick={() => setTab(id)}>
+                  {label} ({n})
+                </button>
               ))}
-            </ul>
+            </div>
+            <div className="acct-body">
+              {!connected ? (
+                <button type="button" className="link" onClick={() => void connect()} disabled={status === "connecting"}>
+                  {status === "connecting" ? "Connecting…" : "Connect a wallet to view open positions"}
+                </button>
+              ) : (
+                <>
+                  <p className="sub">{accountLine(tab, portfolio)}</p>
+                  <Link href="/portfolio" className="link">Open Portfolio →</Link>
+                </>
+              )}
+            </div>
           </section>
         </div>
 
@@ -101,11 +176,18 @@ export default function TradePage() {
         )}
       </div>
 
-      <section className="steps" aria-label="How it works">
-        <div><span>1</span><h4>Connect a wallet</h4><p>Any Solana wallet. Margin is posted in USDC.</p></div>
-        <div><span>2</span><h4>Pick a side and a size</h4><p>The ticket shows your entry and liquidation price before you sign.</p></div>
-        <div><span>3</span><h4>Track it in Portfolio</h4><p>Open positions, PnL, your vaulted cards and pool shares live there.</p></div>
-      </section>
+      <footer className="statusbar">
+        <span>
+          <i className={oracleOk ? "up" : "down"} /> Oracle {data?.oracle.state ?? "—"}
+          <i className="up" /> Solana
+          {IS_SAMPLE && <em>Preview · sample data</em>}
+        </span>
+        <span>
+          <Link href="/index-methodology">Index methodology</Link>
+          <Link href="/pool">Earn</Link>
+          <Link href="/vault">Vault</Link>
+        </span>
+      </footer>
     </div>
   );
 }

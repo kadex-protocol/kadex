@@ -154,6 +154,42 @@ export async function loadPositions(owner: PublicKey | null): Promise<PositionVi
   return [];
 }
 
+export interface IndexPoint {
+  ts: number;
+  price: bigint;
+}
+
+const HISTORY_POINTS = 288;
+export const HISTORY_STEP_SECS = 300;
+const HISTORY_SEED = 20261007;
+
+function seeded(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Sample series only: there is no on-chain price history to read yet.
+export async function loadIndexHistory(snapshot: MarketSnapshot): Promise<IndexPoint[]> {
+  if (!IS_SAMPLE) return [];
+  const random = seeded(HISTORY_SEED);
+  const now = Math.floor(Date.now() / 1000 / HISTORY_STEP_SECS) * HISTORY_STEP_SECS;
+  const prices = [Number(snapshot.oracle.price)];
+  let trend = 0;
+  for (let i = 1; i < HISTORY_POINTS; i += 1) {
+    trend = trend * 0.82 + (random() - 0.5) * 0.0007;
+    const step = trend + (random() - 0.5) * 0.0042 + 0.00005;
+    prices.push(prices[i - 1]! / (1 + step));
+  }
+  return prices
+    .reverse()
+    .map((price, i) => ({ ts: now - (HISTORY_POINTS - 1 - i) * HISTORY_STEP_SECS, price: BigInt(Math.round(price)) }));
+}
+
 /** What a quote looks like before anything is signed. */
 export interface Quote {
   side: Side;
