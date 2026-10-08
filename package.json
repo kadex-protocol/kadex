@@ -20,6 +20,7 @@
     "test:cc": "tsc -b packages/types packages/collector-crypt && node --test tests/collector-crypt.test.mjs",
     "test:cc:chain": "tsc -b packages/types packages/collector-crypt && node scripts/with-validator.mjs node --test tests/cc/*.test.mjs",
     "test:integration": "tsc -b packages/types packages/sdk && node scripts/with-validator.mjs node --test tests/integration/*.test.mjs",
+    "dev:chain": "node scripts/with-validator.mjs node scripts/dev-chain.mjs",
     "test:parity": "tsc -b packages/types packages/sdk && node --test tests/parity.test.mjs",
     "web": "npm run dev --workspace apps/web",
     "web:build": "npm run build --workspace apps/web",
