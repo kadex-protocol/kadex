@@ -37,72 +37,44 @@ export default function IndexPage() {
         </div>
       </div>
 
-      <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2 className="title">Composition</h2>
-            <p className="sub">Fixed weights. The basket does not rebalance on its own.</p>
+      <div className="layout meth">
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2 className="title">Composition</h2>
+              <p className="sub">Fixed weights. The basket does not rebalance on its own.</p>
+            </div>
           </div>
-        </div>
-        <div className="t-wrap">
-          <table className="t">
-            <thead>
-              <tr>
-                <th>Constituent</th>
-                <th>Reference</th>
-                <th>Grade</th>
-                <th className="r">Weight</th>
-              </tr>
-            </thead>
-            <tbody>
-              {CONSTITUENTS.map((c) => (
-                <tr key={c.id}>
-                  <td>
-                    <span className="asset">
-                      <Thumb art={c.art} />
-                      <span>
-                        <span className="nm">{c.name}</span>
-                        <span className="id">{c.year} · {c.category}</span>
-                      </span>
-                    </span>
-                  </td>
-                  <td className="n">{c.ref}</td>
-                  <td>{c.grade}</td>
-                  <td className="r n">{fmtBps(c.weightBps)}</td>
+          <div className="t-wrap">
+            <table className="t">
+              <thead>
+                <tr>
+                  <th>Constituent</th>
+                  <th>Reference</th>
+                  <th>Grade</th>
+                  <th className="r">Weight</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <div className="layout even">
-        <section className="panel prose">
-          <h2 className="title">Methodology</h2>
-
-          <h3>Selection</h3>
-          <p>
-            Constituents are professionally graded, tokenized and held under custody. A card
-            enters by whitelist and keeps a fixed weight. A fixed basket is a security decision
-            rather than a simplification — a basket whose membership can move is a basket an
-            attacker can move into.
-          </p>
-
-          <h3>Pricing</h3>
-          <p>
-            The index price is a time-weighted average of an on-chain pool of card fractions,
-            clamped so it cannot travel more than five per cent between readings. External sale
-            data is a sanity bound, never the price itself. If that feed goes quiet the market
-            loses one defence and keeps running.
-          </p>
-
-          <h3>Capacity</h3>
-          <p>
-            Open interest is limited by two independent ceilings and the lower one always
-            governs. One is the pool&rsquo;s liquid reserve, so a winning position is paid from
-            assets that can actually be paid out. The other is the depth of the pricing pool, so
-            that moving the price far enough to force liquidations <em>costs more than it pays</em>.
-          </p>
+              </thead>
+              <tbody>
+                {CONSTITUENTS.map((c) => (
+                  <tr key={c.id}>
+                    <td>
+                      <span className="asset">
+                        <Thumb art={c.art} />
+                        <span>
+                          <span className="nm">{c.name}</span>
+                          <span className="id">{c.year} · {c.category}</span>
+                        </span>
+                      </span>
+                    </td>
+                    <td className="n">{c.ref}</td>
+                    <td>{c.grade}</td>
+                    <td className="r n">{fmtBps(c.weightBps)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <section className="panel">
@@ -141,6 +113,39 @@ export default function IndexPage() {
           </p>
         </section>
       </div>
+
+      <section className="panel prose">
+        <h2 className="title">Methodology</h2>
+        <div className="prose-cols">
+          <div>
+            <h3>Selection</h3>
+            <p>
+              Constituents are professionally graded, tokenized and held under custody. A card
+              enters by whitelist and keeps a fixed weight. A fixed basket is a security decision
+              rather than a simplification — a basket whose membership can move is a basket an
+              attacker can move into.
+            </p>
+          </div>
+          <div>
+            <h3>Pricing</h3>
+            <p>
+              The index price is a time-weighted average of an on-chain pool of card fractions,
+              clamped so it cannot travel more than five per cent between readings. External sale
+              data is a sanity bound, never the price itself. If that feed goes quiet the market
+              loses one defence and keeps running.
+            </p>
+          </div>
+          <div>
+            <h3>Capacity</h3>
+            <p>
+              Open interest is limited by two independent ceilings and the lower one always
+              governs. One is the pool&rsquo;s liquid reserve, so a winning position is paid from
+              assets that can actually be paid out. The other is the depth of the pricing pool, so
+              that moving the price far enough to force liquidations <em>costs more than it pays</em>.
+            </p>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

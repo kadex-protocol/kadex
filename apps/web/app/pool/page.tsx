@@ -34,6 +34,8 @@ const toRaw = (text: string) => {
   return !Number.isFinite(n) || n <= 0 ? 0n : BigInt(Math.trunc(n * 1e6));
 };
 const clean = (text: string) => text.replace(/[^0-9.,]/g, "");
+const filled = (amount: bigint, balance: bigint | null) =>
+  !balance || balance <= 0n ? 0 : Math.min(100, Number((amount * 10_000n) / balance) / 100);
 const portion = (balance: bigint, percent: number) => (Number((balance * BigInt(percent)) / 100n) / 1e6).toString();
 
 export default function PoolPage() {
@@ -62,6 +64,8 @@ export default function PoolPage() {
   const burning = burn > 0n;
   const payBalance = balances ? (kind === "usdc" ? balances.usdc : balances.fractions) : null;
   const clpBalance = balances ? balances.clp : null;
+  const payOver = connected && payBalance !== null && pay > payBalance;
+  const burnOver = connected && clpBalance !== null && burn > clpBalance;
   const closed = data ? `The pool is ${data.pool.state} and is not accepting this.` : null;
   const submit = async (side: TicketSide, action: PoolAction) => {
     if (!publicKey) return;
@@ -155,7 +159,7 @@ export default function PoolPage() {
                 value={payAmount}
                 onChange={(e) => setPayAmount(clean(e.target.value))}
               />
-              <span className="seg mini" role="group" aria-label="What to deposit">
+              <span className="tk-switch sm" role="group" aria-label="What to deposit">
                 <button type="button" aria-pressed={kind === "usdc"} onClick={() => setKind("usdc")}>USDC</button>
                 <button type="button" aria-pressed={kind === "fractions"} onClick={() => setKind("fractions")}>Fractions</button>
               </span>
@@ -178,8 +182,19 @@ export default function PoolPage() {
             </div>
             <div className="ti-row">
               <span className={`ti-out${paying && dep ? "" : " dim"}`}>{paying && dep ? fmtUsd(dep.shares, 2) : "0.00"}</span>
-              <span className="token">CLP</span>
+              <span className="tk-asset"><span className="coin" aria-hidden="true"><span className="star" /></span>CLP</span>
             </div>
+          </div>
+
+          <div className={`tk-meter${payOver ? " over" : ""}`}>
+            <div>
+              <span>Of your balance</span>
+              <b>
+                {fmtUsd(pay, 2)}
+                <em> / {payBalance !== null ? fmtUsd(payBalance, 2) : "—"}</em>
+              </b>
+            </div>
+            <i><i style={{ width: `${filled(pay, payBalance)}%` }} /></i>
           </div>
 
           <p className={`hint${dep?.problem && paying ? " bad" : ""}`} style={{ margin: 0 }}>
@@ -203,8 +218,8 @@ export default function PoolPage() {
 
           {connected ? (
             <button
-              className="btn block"
-              disabled={!paying || !!dep?.problem || !g?.canDeposit || loading || sending !== null}
+              className="btn block long"
+              disabled={!paying || !!dep?.problem || !g?.canDeposit || loading || sending !== null || payOver}
               onClick={() => void submit("deposit", { kind: kind === "usdc" ? "depositUsdc" : "depositFractions", amount: pay })}
             >
               {sending === "deposit" ? "Confirm in your wallet…" : paying ? "Deposit" : "Enter an amount"}
@@ -245,7 +260,7 @@ export default function PoolPage() {
                 value={burnAmount}
                 onChange={(e) => setBurnAmount(clean(e.target.value))}
               />
-              <span className="token">CLP</span>
+              <span className="tk-asset"><span className="coin" aria-hidden="true"><span className="star" /></span>CLP</span>
             </div>
             <div className="pct" role="group" aria-label="Use part of the balance">
               {[25, 50, 75, 100].map((percent) => (
@@ -265,12 +280,23 @@ export default function PoolPage() {
             </div>
             <div className="ti-row">
               <span className={`ti-out${burning && red ? "" : " dim"}`}>{burning && red ? fmtUsd(red.usdc, 2) : "0.00"}</span>
-              <span className="token">USDC</span>
+              <span className="tk-asset"><span className="coin usdc" aria-hidden="true">$</span>USDC</span>
             </div>
             <div className="ti-row">
               <span className={`ti-out${burning && red ? "" : " dim"}`}>{burning && red ? fmtUsd(red.fractions, 2) : "0.00"}</span>
-              <span className="token">Fractions</span>
+              <span className="tk-asset"><span className="coin" aria-hidden="true"><span className="star" /></span>Fractions</span>
             </div>
+          </div>
+
+          <div className={`tk-meter${burnOver ? " over" : ""}`}>
+            <div>
+              <span>Of your CLP</span>
+              <b>
+                {fmtUsd(burn, 2)}
+                <em> / {clpBalance !== null ? fmtUsd(clpBalance, 2) : "—"}</em>
+              </b>
+            </div>
+            <i><i style={{ width: `${filled(burn, clpBalance)}%` }} /></i>
           </div>
 
           <p className={`hint${red?.problem && burning ? " bad" : ""}`} style={{ margin: 0 }}>
@@ -288,8 +314,8 @@ export default function PoolPage() {
 
           {connected ? (
             <button
-              className="btn block"
-              disabled={!burning || !!red?.problem || !g?.canWithdraw || loading || sending !== null}
+              className="btn block neutral"
+              disabled={!burning || !!red?.problem || !g?.canWithdraw || loading || sending !== null || burnOver}
               onClick={() => void submit("withdraw", { kind: "withdraw", amount: burn })}
             >
               {sending === "withdraw" ? "Confirm in your wallet…" : burning ? "Withdraw" : "Enter an amount"}
@@ -345,7 +371,7 @@ export default function PoolPage() {
                     <td className="r n">
                       <span className="w">
                         {data ? fmtPct(data.poolStats.usdcSleeveShare, 1) : "—"}
-                        <span className="bar"><i style={{ width: data ? fmtPct(data.poolStats.usdcSleeveShare, 2) : "0%", background: "var(--accent, var(--ink))" }} /></span>
+                        <span className="bar"><i style={{ width: data ? fmtPct(data.poolStats.usdcSleeveShare, 2) : "0%", background: "var(--ink)" }} /></span>
                       </span>
                     </td>
                     <td className="r">No limit</td>

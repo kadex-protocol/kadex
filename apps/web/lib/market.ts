@@ -543,9 +543,30 @@ export interface Portfolio {
   longNotional: bigint;
   shortNotional: bigint;
   cash: bigint;
+  positions: PositionView[];
+}
+
+async function livePortfolio(owner: PublicKey): Promise<Portfolio> {
+  const snapshot = await loadMarket();
+  const [positions, balances] = await Promise.all([loadPositions(owner, snapshot), loadBalances(owner)]);
+  const sum = (f: (p: PositionView) => bigint) => positions.reduce((a, p) => a + f(p), 0n);
+  const totalPnl = sum((p) => p.pnl - p.borrowOwed);
+  return {
+    rows: [],
+    cards: [],
+    clp: balances.clp,
+    clpValue: quoteWithdraw(snapshot, balances.clp).totalValue,
+    totalValue: balances.usdc + sum((p) => p.margin) + totalPnl,
+    totalPnl,
+    longNotional: sum((p) => (p.side === "long" ? p.notional : 0n)),
+    shortNotional: sum((p) => (p.side === "short" ? p.notional : 0n)),
+    cash: balances.usdc,
+    positions,
+  };
 }
 
 export async function loadPortfolio(owner: PublicKey | null): Promise<Portfolio> {
+  if (owner && CLUSTER) return livePortfolio(owner);
   const sample = owner !== null && IS_SAMPLE;
   const rows = sample ? SAMPLE_POSITIONS : [];
   const clp = sample ? SAMPLE_CLP : 0n;
@@ -563,5 +584,6 @@ export async function loadPortfolio(owner: PublicKey | null): Promise<Portfolio>
     longNotional: sum((r) => (r.side === "long" ? r.notional : 0n)),
     shortNotional: sum((r) => (r.side === "short" ? r.notional : 0n)),
     cash,
+    positions: [],
   };
 }

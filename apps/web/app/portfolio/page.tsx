@@ -14,9 +14,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CONSTITUENTS, fmtPrice, fmtUsd, loadPortfolio, type Portfolio } from "@/lib/market";
+import { CONSTITUENTS, fmtPrice, fmtUsd, IS_SAMPLE, loadMarket, loadPortfolio, type Portfolio } from "@/lib/market";
 import { useWallet, shortKey } from "@/lib/wallet";
 import { Slab, Thumb } from "@/components/Slab";
+import { PositionsTable } from "@/components/PositionsTable";
 
 const card = (id: string) => CONSTITUENTS.find((c) => c.id === id) ?? CONSTITUENTS[0]!;
 const signed = (x: bigint) => (x >= 0n ? "+" : "−") + fmtUsd(x < 0n ? -x : x, 2);
@@ -28,13 +29,31 @@ export default function PortfolioPage() {
   const [p, setP] = useState<Portfolio | null>(null);
   const [tab, setTab] = useState<Tab>("positions");
 
+  const [mark, setMark] = useState<bigint | null>(null);
+  const [version, setVersion] = useState(0);
+  const [failure, setFailure] = useState<string | null>(null);
+
   useEffect(() => {
-    setP(null);
-    loadPortfolio(publicKey).then(setP);
-  }, [publicKey]);
+    let live = true;
+    if (version === 0) setP(null);
+    setFailure(null);
+    Promise.all([loadPortfolio(publicKey), loadMarket()])
+      .then(([portfolio, market]) => {
+        if (!live) return;
+        setP(portfolio);
+        setMark(market.oracle.price);
+      })
+      .catch((e) => live && setFailure(e instanceof Error ? e.message : "Could not read your holdings."));
+    return () => {
+      live = false;
+    };
+  }, [publicKey, version]);
+
+  const openCount = p ? (IS_SAMPLE ? p.rows.length : p.positions.length) : 0;
 
   const connected = status === "connected" && publicKey !== null;
-  const denom = p && p.totalValue > 0n ? Number(p.totalValue) : 1;
+  const exposure = p ? Number(p.longNotional + p.shortNotional + p.cash) : 0;
+  const denom = exposure > 0 ? exposure : 1;
   const longPct = p ? (Number(p.longNotional) / denom) * 100 : 0;
   const shortPct = p ? (Number(p.shortNotional) / denom) * 100 : 0;
   const cashPct = p ? (Number(p.cash) / denom) * 100 : 0;
@@ -54,9 +73,14 @@ export default function PortfolioPage() {
         <div className="empty">
           <h3>Connect a wallet to see your portfolio</h3>
           <p>Positions, cards and pool shares are read from the chain against your address.</p>
-          <button className="btn block" style={{ width: "auto", padding: "12px 28px" }} onClick={() => void connect()} disabled={status === "connecting"}>
+          <button className="btn block" style={{ width: "auto" }} onClick={() => void connect()} disabled={status === "connecting"}>
             {status === "connecting" ? "Connecting…" : "Connect wallet"}
           </button>
+        </div>
+      ) : failure ? (
+        <div className="empty" role="alert">
+          <h3>Could not read your holdings</h3>
+          <p>{failure}</p>
         </div>
       ) : p === null ? (
         <div className="empty"><h3>Reading {shortKey(publicKey)}…</h3></div>
@@ -87,7 +111,7 @@ export default function PortfolioPage() {
 
           <div className="tabs" role="tablist" aria-label="Portfolio sections">
             {([
-              ["positions", "Positions", p.rows.length],
+              ["positions", "Positions", openCount],
               ["cards", "My cards", p.cards.length],
               ["liquidity", "Liquidity", p.clp > 0n ? 1 : 0],
             ] as const).map(([id, label, n]) => (
@@ -97,7 +121,13 @@ export default function PortfolioPage() {
             ))}
           </div>
 
-          {tab === "positions" &&
+          {tab === "positions" && p.positions.length > 0 && (
+            <section className="panel">
+              <PositionsTable positions={p.positions} markPrice={mark} onClosed={() => setVersion((v) => v + 1)} />
+            </section>
+          )}
+
+          {tab === "positions" && p.positions.length === 0 &&
             (p.rows.length === 0 ? (
               <div className="empty">
                 <h3>No open positions</h3>
