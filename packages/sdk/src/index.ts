@@ -8,4 +8,5 @@
 
 export * as math from "./math.js";
 export * from "./views.js";
+export * from "./chain.js";
 export * from "@slab/types";
