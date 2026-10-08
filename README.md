@@ -1,4 +1,4 @@
-# SLAB
+# Kadex
 
 Perpetual futures on an index of tokenized trading cards, on Solana. The CLP
 pool is the counterparty to every trade; the price comes from an AMM pool of

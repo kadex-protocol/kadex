@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { BRAND } from "@/lib/brand";
 import Link from "next/link";
 import { CONSTITUENTS, fmtPrice, fmtUsd, IS_SAMPLE, loadMarket, loadPortfolio, type Portfolio } from "@/lib/market";
 import { useWallet, shortKey } from "@/lib/wallet";
@@ -158,7 +159,7 @@ export default function PortfolioPage() {
                                 <Thumb art={c.art} />
                                 <span>
                                   <span className="nm">{c.name}</span>
-                                  <span className="id">Index: SLAB-{c.id}</span>
+                                  <span className="id">Index: {BRAND.toUpperCase()}-{c.id}</span>
                                 </span>
                               </span>
                             </td>

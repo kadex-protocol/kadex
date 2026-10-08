@@ -1,6 +1,6 @@
-# SLAB — implementation plan
+# Kadex — implementation plan
 
-> The SLAB spec is the source of economic truth. This document turns it into
+> The Kadex spec is the source of economic truth. This document turns it into
 > code boundaries and says who builds what without blocking anyone else.
 
 State as of 1 Oct 2026 — days 1 and 2 complete. Submission: 12 Oct 2026.
