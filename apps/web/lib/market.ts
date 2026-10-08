@@ -29,7 +29,7 @@ import {
   oracleView,
   poolView,
 } from "@slab/sdk";
-import { readChain, readTokenBalances } from "./chain";
+import { readChain, readPositions, readTokenBalances } from "./chain";
 import { CLUSTER } from "./cluster";
 
 export const IS_SAMPLE = CLUSTER === null;
@@ -188,9 +188,25 @@ function snapshotOf(
  * positions — the UI has to render both, and an empty list is the honest
  * answer until the programs are live.
  */
-export async function loadPositions(owner: PublicKey | null): Promise<PositionView[]> {
-  if (!owner) return [];
-  return [];
+export async function loadPositions(owner: PublicKey | null, snapshot: MarketSnapshot | null): Promise<PositionView[]> {
+  if (!owner || !CLUSTER || !snapshot) return [];
+  const positions = await readPositions(CLUSTER, owner);
+  return positions
+    .filter((p) => p.market.equals(snapshot.market.address))
+    .map((p) => {
+      const { liquidatable: _liquidatable, ...derived } = derivePosition(p, snapshot.market, snapshot.oracle.price, snapshot.pool.params);
+      return {
+        address: p.address,
+        owner: p.owner,
+        side: p.side,
+        notional: p.notional,
+        margin: p.margin,
+        entryPrice: p.entryPrice,
+        borrowIdxEntry: p.borrowIdxEntry,
+        openedTs: p.openedTs,
+        ...derived,
+      };
+    });
 }
 
 export interface IndexPoint {

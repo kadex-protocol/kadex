@@ -25,11 +25,17 @@ import { useEffect, useMemo, useState } from "react";
 import type { Side } from "@slab/types";
 import { useWallet } from "@/lib/wallet";
 import { borrowSpread, fmtPrice, fmtUsd, loadBalances, quote, type Balances, type MarketSnapshot } from "@/lib/market";
+import { CLUSTER } from "@/lib/cluster";
+import { sendOpenPosition } from "@/lib/tradeTx";
+import { explainTxError, shortSignature } from "@/lib/tx";
 
 type Mode = "trade" | "hedge";
 
-export function TradeTicket({ snapshot }: { snapshot: MarketSnapshot }) {
-  const { status, publicKey, connect, error } = useWallet();
+export function TradeTicket({ snapshot, onOpened }: { snapshot: MarketSnapshot; onOpened?(): void }) {
+  const { status, publicKey, connect, signTransaction, error } = useWallet();
+  const [sending, setSending] = useState(false);
+  const [receipt, setReceipt] = useState<{ ok: boolean; text: string } | null>(null);
+  const [balanceVersion, setBalanceVersion] = useState(0);
   const [mode, setMode] = useState<Mode>("trade");
   const [picked, setPicked] = useState<Side>("long");
   const [amount, setAmount] = useState("");
@@ -40,7 +46,7 @@ export function TradeTicket({ snapshot }: { snapshot: MarketSnapshot }) {
   const connected = status === "connected" && publicKey !== null;
   const hedge = mode === "hedge";
 
-  useEffect(() => { loadBalances(publicKey).then(setBalances); }, [publicKey]);
+  useEffect(() => { loadBalances(publicKey).then(setBalances).catch(() => setBalances(null)); }, [publicKey, balanceVersion]);
 
   const typed = useMemo(() => {
     const n = Number(amount.replace(/,/g, ""));
@@ -56,8 +62,33 @@ export function TradeTicket({ snapshot }: { snapshot: MarketSnapshot }) {
   const q = useMemo(() => quote(snapshot, side, notional), [snapshot, side, notional]);
 
   const hasAmount = notional > 0n;
+  const units = q.entryPrice > 0n ? (notional * 1_000_000n) / q.entryPrice : 0n;
   const blocked = q.problem !== null;
   const dash = (v: string) => (hasAmount ? v : "—");
+
+  const cost = q.margin + q.fee;
+  const short = connected && balances !== null && hasAmount && balances.usdc < cost;
+
+  const submit = async () => {
+    if (!publicKey) return;
+    if (!CLUSTER) {
+      setReceipt({ ok: false, text: "Preview only: no cluster is configured, so nothing was sent." });
+      return;
+    }
+    setSending(true);
+    setReceipt(null);
+    try {
+      const signature = await sendOpenPosition(CLUSTER, publicKey, signTransaction, { side, notional, margin: q.margin });
+      setReceipt({ ok: true, text: `Position opened · ${shortSignature(signature)}` });
+      setAmount("");
+      setBalanceVersion((v) => v + 1);
+      onOpened?.();
+    } catch (e) {
+      setReceipt({ ok: false, text: explainTxError(e) });
+    } finally {
+      setSending(false);
+    }
+  };
 
   // What the cover costs per month, which is the number a dealer decides on.
   const monthlyCost =
@@ -87,14 +118,10 @@ export function TradeTicket({ snapshot }: { snapshot: MarketSnapshot }) {
             : "You profit if the index falls."}
       </p>
 
-      <div className="rows">
-        <div><span>Available to trade</span><b>{connected && balances ? fmtUsd(balances.usdc, 2) : "—"}</b></div>
-        <div><span>Position</span><b>—</b></div>
-      </div>
-
-      <div className="token-input">
+      <div className="token-input big">
         <div className="ti-top">
           <span>{hedge ? "Inventory value" : "Order size"}</span>
+          <span>Balance {connected && balances ? fmtUsd(balances.usdc, 2) : "—"}</span>
         </div>
         <div className="ti-row">
           <input
@@ -105,7 +132,20 @@ export function TradeTicket({ snapshot }: { snapshot: MarketSnapshot }) {
             value={amount}
             onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,]/g, ""))}
           />
-          <span className="token">USDC</span>
+          <span className="tk-asset"><span className="coin usdc" aria-hidden="true">$</span>USDC</span>
+        </div>
+      </div>
+
+      <span className="swap-arrow" aria-hidden="true">↓</span>
+
+      <div className="token-input big out">
+        <div className="ti-top">
+          <span>{side === "long" ? "You go long" : "You go short"}</span>
+          <span>@ {fmtPrice(q.entryPrice)}</span>
+        </div>
+        <div className="ti-row">
+          <span className={`ti-out${hasAmount ? "" : " dim"}`}>{hasAmount ? fmtUsd(units, 2) : "0.00"}</span>
+          <span className="tk-asset"><span className="coin" aria-hidden="true"><span className="star" /></span>Index</span>
         </div>
       </div>
 
@@ -130,10 +170,13 @@ export function TradeTicket({ snapshot }: { snapshot: MarketSnapshot }) {
       </div>
 
       {blocked && hasAmount && <p className="hint bad" style={{ margin: 0 }}>{q.problem}</p>}
+      {!blocked && short && (
+        <p className="hint bad" style={{ margin: 0 }}>Needs {fmtUsd(cost, 2)} USDC for margin and fee; this wallet has {fmtUsd(balances.usdc, 2)}.</p>
+      )}
 
       {connected ? (
-        <button className="btn block" disabled={!hasAmount || blocked} title={q.problem ?? undefined}>
-          {!hasAmount ? "Enter an amount" : hedge ? "Open cover" : `Open ${side}`}
+        <button className="btn block" disabled={!hasAmount || blocked || short || sending} title={q.problem ?? undefined} onClick={() => void submit()}>
+          {sending ? "Confirm in your wallet…" : !hasAmount ? "Enter an amount" : hedge ? "Open cover" : `Open ${side}`}
         </button>
       ) : (
         <button className="btn block" onClick={() => void connect()} disabled={status === "connecting"}>
@@ -142,6 +185,7 @@ export function TradeTicket({ snapshot }: { snapshot: MarketSnapshot }) {
       )}
 
       {error && <p className="hint bad" role="alert" style={{ margin: 0 }}>{error}</p>}
+      {receipt && <p className={`hint ${receipt.ok ? "good" : "bad"}`} role="status" style={{ margin: 0 }}>{receipt.text}</p>}
 
       <div className="rows tk-sum">
         <div className={hasAmount ? "hi" : undefined}><span>Est. liquidation price</span><b>{dash(fmtPrice(q.liquidationPrice))}</b></div>
@@ -176,7 +220,9 @@ export function TradeTicket({ snapshot }: { snapshot: MarketSnapshot }) {
       </details>
 
       <p className="fine">
-        Order routing requires the programs to be deployed. Nothing is signed or settled here yet.
+        {CLUSTER
+          ? `Orders settle on ${CLUSTER.rpcUrl}.`
+          : "Order routing requires the programs to be deployed. Nothing is signed or settled here yet."}
       </p>
     </aside>
   );

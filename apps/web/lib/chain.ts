@@ -1,7 +1,8 @@
 import type { PublicKey } from "@solana/web3.js";
 import {
-  decodeMarket, decodeOracle, decodePool, decodeTokenAmount, findAta, findPool,
-  type MarketAccount, type OracleAccount, type PoolAccount,
+  POSITION_OWNER_OFFSET, POSITION_SIZE, PROGRAM_IDS,
+  decodeMarket, decodeOracle, decodePool, decodePosition, decodeTokenAmount, findAta, findPool,
+  type MarketAccount, type OracleAccount, type PoolAccount, type PositionAccount,
 } from "@slab/sdk";
 import type { Cluster } from "./cluster";
 
@@ -48,4 +49,20 @@ export async function readTokenBalances(cluster: Cluster, owner: PublicKey) {
   const infos = await cluster.connection.getMultipleAccountsInfo([accounts.usdc, accounts.fractions, accounts.clp]);
   const [usdc, fractions, clp] = infos.map((info) => (info ? decodeTokenAmount(info.data) : 0n));
   return { usdc: usdc ?? 0n, fractions: fractions ?? 0n, clp: clp ?? 0n };
+}
+
+export interface OwnedPosition extends PositionAccount {
+  address: PublicKey;
+}
+
+export async function readPositions({ connection }: Cluster, owner: PublicKey): Promise<OwnedPosition[]> {
+  const accounts = await connection.getProgramAccounts(PROGRAM_IDS.perp, {
+    filters: [
+      { dataSize: POSITION_SIZE },
+      { memcmp: { offset: POSITION_OWNER_OFFSET, bytes: owner.toBase58() } },
+    ],
+  });
+  return accounts
+    .map(({ pubkey, account }) => ({ address: pubkey, ...decodePosition(account.data) }))
+    .sort((a, b) => Number(b.openedTs - a.openedTs));
 }

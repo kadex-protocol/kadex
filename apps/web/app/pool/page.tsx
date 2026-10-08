@@ -19,7 +19,8 @@ import {
   IS_SAMPLE, type Balances, type DepositKind,
 } from "@/lib/market";
 import { CLUSTER } from "@/lib/cluster";
-import { explainTxError, sendPoolAction, type PoolAction } from "@/lib/poolTx";
+import { sendPoolAction, type PoolAction } from "@/lib/poolTx";
+import { explainTxError, shortSignature } from "@/lib/tx";
 
 type TicketSide = "deposit" | "withdraw";
 interface Receipt {
@@ -72,7 +73,7 @@ export default function PoolPage() {
     setReceipt(null);
     try {
       const signature = await sendPoolAction(CLUSTER, publicKey, signTransaction, action);
-      setReceipt({ side, ok: true, text: `Confirmed · ${signature.slice(0, 8)}…${signature.slice(-8)}` });
+      setReceipt({ side, ok: true, text: `Confirmed · ${shortSignature(signature)}` });
       if (side === "deposit") setPayAmount("");
       else setBurnAmount("");
       reload();
