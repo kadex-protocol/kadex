@@ -12,16 +12,20 @@ import {
   decodePool,
   decodeTokenAmount,
   depositFractionsIx,
+  closePositionIx,
+  decodePosition,
   depositUsdcIx,
   findAta,
   marksOf,
   navIssue,
+  openPositionIx,
   poolView,
   refreshPriceIx,
   withdrawIx,
 } from "../../packages/sdk/dist/chain.js";
 import { navRedeem } from "../../packages/sdk/dist/views.js";
 import * as math from "../../packages/sdk/dist/math.js";
+import { findPosition } from "../../packages/types/dist/index.js";
 
 const big = (bn) => BigInt(bn.toString());
 
@@ -149,6 +153,33 @@ describe("@slab/sdk against the deployed programs", () => {
     assert.equal(usdcOut, (pool.usdcSleeve * value) / assets);
     assert.equal(fractionsOut, (pool.fractionBalance * value) / assets);
     assert.ok(usdcOut > 0n && fractionsOut > 0n, "a withdrawal is never one sleeve alone");
+  });
+
+  test("a position opened and closed through the SDK moves margin out and back", async () => {
+    await send(refreshPriceIx(lp.publicKey, env.oracle, env.ammPool));
+    const accountsOf = { market: env.market, pool: env.pool, oracle: env.oracle, usdcVault: env.usdcVault };
+    const order = { nonce: 7n, side: "short", notional: 1_000n * USDC, margin: 200n * USDC };
+    const fee = (order.notional * BigInt(target.pool.params.openCloseFeeBps) + 9_999n) / 10_000n;
+
+    const before = await tokens(accounts().usdc);
+    await send(openPositionIx(accountsOf, lp.publicKey, accounts().usdc, order));
+    assert.equal(before - (await tokens(accounts().usdc)), order.margin + fee);
+
+    const address = findPosition(env.market, lp.publicKey, order.nonce);
+    const mine = decodePosition(await raw(address));
+    const theirs = await ctx.p.perp.account.position.fetch(address);
+    assert.equal(mine.owner.toBase58(), lp.publicKey.toBase58());
+    assert.equal(mine.market.toBase58(), env.market.toBase58());
+    assert.equal(mine.side, "short");
+    for (const key of ["notional", "margin", "entryPrice", "borrowIdxEntry", "openedTs", "nonce"]) {
+      assert.equal(mine[key], big(theirs[key]), key);
+    }
+    assert.equal(decodeMarket(await raw(env.market)).oiShort, order.notional);
+
+    await send(closePositionIx(accountsOf, lp.publicKey, address, accounts().usdc));
+    assert.equal(await ctx.conn.getAccountInfo(address), null);
+    const back = (await tokens(accounts().usdc)) - (before - order.margin - fee);
+    assert.ok(back > 0n && back <= order.margin, `closing returns margin net of fee and borrow, got ${back}`);
   });
 
   test("the program refuses an SDK deposit of zero", async () => {

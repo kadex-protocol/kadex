@@ -1,6 +1,6 @@
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
-import type { MarketState, MarketView, OracleState, OracleView, PoolParams, PoolView } from "@slab/types";
-import { PROGRAM_IDS } from "@slab/types";
+import type { MarketState, MarketView, OracleState, OracleView, PoolParams, PoolView, Side } from "@slab/types";
+import { PROGRAM_IDS, findPosition } from "@slab/types";
 import * as m from "./math.js";
 
 export const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
@@ -14,11 +14,16 @@ export const DISCRIMINATORS = {
   depositFractions: [109, 37, 63, 9, 185, 2, 61, 60],
   withdraw: [183, 18, 70, 156, 148, 109, 161, 34],
   refreshPrice: [253, 61, 142, 248, 9, 32, 158, 32],
+  position: [170, 188, 143, 228, 122, 64, 247, 208],
+  openPosition: [135, 128, 47, 77, 15, 152, 240, 49],
+  closePosition: [123, 134, 81, 0, 49, 68, 98, 98],
 } as const;
 
 export const POOL_SIZE = 482;
 export const ORACLE_SIZE = 1265;
 export const MARKET_SIZE = 165;
+export const POSITION_SIZE = 130;
+export const POSITION_OWNER_OFFSET = 8;
 const TOKEN_AMOUNT_OFFSET = 64;
 
 const MARKET_STATES: MarketState[] = ["active", "reduceOnly", "settled"];
@@ -213,6 +218,33 @@ export function decodeMarket(data: Uint8Array): MarketAccount {
   };
 }
 
+export interface PositionAccount {
+  owner: PublicKey;
+  market: PublicKey;
+  side: Side;
+  notional: bigint;
+  margin: bigint;
+  entryPrice: bigint;
+  borrowIdxEntry: bigint;
+  openedTs: bigint;
+  nonce: bigint;
+}
+
+export function decodePosition(data: Uint8Array): PositionAccount {
+  const r = new Reader(data, "Position", POSITION_SIZE, DISCRIMINATORS.position);
+  return {
+    owner: r.key(),
+    market: r.key(),
+    side: enumAt<Side>(["long", "short"], r.u8(), "Side"),
+    notional: r.u64(),
+    margin: r.u64(),
+    entryPrice: r.u64(),
+    borrowIdxEntry: r.u128(),
+    openedTs: r.i64(),
+    nonce: r.u64(),
+  };
+}
+
 export function decodeTokenAmount(data: Uint8Array): bigint {
   return new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(TOKEN_AMOUNT_OFFSET, true);
 }
@@ -394,5 +426,66 @@ export function withdrawIx(
       readonly(TOKEN_PROGRAM_ID),
     ],
     data: amountData(DISCRIMINATORS.withdraw, shares),
+  });
+}
+
+export interface MarketAccounts {
+  market: PublicKey;
+  pool: PublicKey;
+  oracle: PublicKey;
+  usdcVault: PublicKey;
+}
+
+export function openPositionIx(
+  accounts: MarketAccounts,
+  trader: PublicKey,
+  traderUsdc: PublicKey,
+  order: { nonce: bigint; side: Side; notional: bigint; margin: bigint },
+): TransactionInstruction {
+  const data = new Uint8Array(33);
+  const view = new DataView(data.buffer);
+  data.set(DISCRIMINATORS.openPosition, 0);
+  view.setBigUint64(8, order.nonce, true);
+  view.setUint8(16, order.side === "long" ? 0 : 1);
+  view.setBigUint64(17, order.notional, true);
+  view.setBigUint64(25, order.margin, true);
+  return new TransactionInstruction({
+    programId: PROGRAM_IDS.perp,
+    keys: [
+      signer(trader, true),
+      writable(accounts.market),
+      writable(accounts.pool),
+      readonly(accounts.oracle),
+      writable(findPosition(accounts.market, trader, order.nonce)),
+      writable(traderUsdc),
+      writable(accounts.usdcVault),
+      readonly(PROGRAM_IDS.clpPool),
+      readonly(TOKEN_PROGRAM_ID),
+      readonly(SystemProgram.programId),
+    ],
+    data: Buffer.from(data),
+  });
+}
+
+export function closePositionIx(
+  accounts: MarketAccounts,
+  owner: PublicKey,
+  position: PublicKey,
+  payoutUsdc: PublicKey,
+): TransactionInstruction {
+  return new TransactionInstruction({
+    programId: PROGRAM_IDS.perp,
+    keys: [
+      signer(owner, true),
+      writable(accounts.market),
+      writable(accounts.pool),
+      readonly(accounts.oracle),
+      writable(position),
+      writable(accounts.usdcVault),
+      writable(payoutUsdc),
+      readonly(PROGRAM_IDS.clpPool),
+      readonly(TOKEN_PROGRAM_ID),
+    ],
+    data: Buffer.from(DISCRIMINATORS.closePosition),
   });
 }
