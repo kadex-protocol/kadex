@@ -9,7 +9,7 @@ import { test, before, describe } from "node:test";
 import assert from "node:assert/strict";
 import anchor from "@coral-xyz/anchor";
 import { Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
-import { createAssociatedTokenAccount, createTransferInstruction, getMint } from "@solana/spl-token";
+import { createAccount, createAssociatedTokenAccount, createTransferInstruction, getMint } from "@solana/spl-token";
 import { IDLS, USDC, newProvider, funded, mustFail, sendIxs, ensureVaultRegistry } from "./_harness.mjs";
 import {
   CORE_PROGRAM_ID,
@@ -21,6 +21,7 @@ import {
   findAta,
   fractionalizeCoreIx,
   readCoreCard,
+  readVaultInventory,
   redeemCoreIx,
   vaultAction,
 } from "../../packages/sdk/dist/index.js";
@@ -178,6 +179,40 @@ describe("vault this card, through the SDK", () => {
       sendIxs(ctx.conn, [owner], createAtaIdempotentIx(owner.publicKey, owner.publicKey, findFractionMint(asset)), fractionalizeCoreIx({ asset, collection }, owner.publicKey)),
       "vaulting a disabled card",
     );
+  });
+
+  test("the inventory lists what a wallet locked or holds, and what it still needs", async () => {
+    const owner = await funded(ctx.conn, 2);
+    const buyer = await funded(ctx.conn, 2);
+    const vaultIt = async (who, value) => {
+      const asset = await createCoreCard(who.publicKey);
+      await whitelistCore(asset, value);
+      await sendIxs(ctx.conn, [who], createAtaIdempotentIx(who.publicKey, who.publicKey, findFractionMint(asset)), fractionalizeCoreIx({ asset, collection }, who.publicKey));
+      return asset;
+    };
+    const a = await vaultIt(owner, 100n);
+    const b = await vaultIt(owner, 40n);
+    const unlocked = await createCoreCard(owner.publicKey);
+    await whitelistCore(unlocked, 10n);
+
+    // The owner sells 30 fractions of A to the buyer, into a NON-associated account.
+    const loose = await createAccount(ctx.conn, ctx.payer, findFractionMint(a), buyer.publicKey, Keypair.generate());
+    await sendIxs(ctx.conn, [owner], createTransferInstruction(findAta(owner.publicKey, findFractionMint(a)), loose, owner.publicKey, 30n * USDC));
+
+    const mine = await readVaultInventory(ctx.conn, owner.publicKey);
+    assert.deepEqual(mine.map((r) => r.asset.toBase58()), [b.toBase58(), a.toBase58()], "both locked cards, the redeemable one first; never the unlocked one");
+    assert.deepEqual(
+      { held: mine[1].held, missing: mine[1].missing, supply: mine[1].supply, deposited: mine[1].deposited, cost: mine[1].missingAtAppraisal },
+      { held: 70n * USDC, missing: 30n * USDC, supply: 100n * USDC, deposited: true, cost: 30n * USDC },
+    );
+    assert.equal(mine[0].missing, 0n, "B is fully held: redeemable now");
+
+    const theirs = await readVaultInventory(ctx.conn, buyer.publicKey);
+    assert.equal(theirs.length, 1, "the buyer sees A, which they hold part of, and not B");
+    assert.deepEqual({ held: theirs[0].held, missing: theirs[0].missing, deposited: theirs[0].deposited }, { held: 30n * USDC, missing: 70n * USDC, deposited: false });
+
+    const nobody = await funded(ctx.conn, 1);
+    assert.deepEqual(await readVaultInventory(ctx.conn, nobody.publicKey), []);
   });
 
   test("an asset that is not on the cluster is reported, not thrown", async () => {

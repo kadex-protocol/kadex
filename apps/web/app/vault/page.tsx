@@ -16,6 +16,7 @@ import type { CategoryGroup, MarketplaceSource, OrderBy } from "@kadex/collector
 import { SOLANA_ADDRESS, loadVaultCard, loadVaultCards, type VaultCard } from "@/lib/collectorCrypt";
 import { askOverAppraisal, titleParts } from "@/lib/cardText";
 import { useWallet } from "@/lib/wallet";
+import { VaultInventory } from "@/components/VaultInventory";
 import { TiltSlab } from "@/components/TiltSlab";
 import { VaultBanner } from "@/components/HomeBanner";
 
@@ -202,6 +203,8 @@ export default function VaultPage() {
   return (
     <div className="page vmkt">
       <VaultBanner cards={banner} />
+
+      <VaultInventory />
 
       <header className="vmkt-head">
         <h1>

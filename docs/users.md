@@ -4,7 +4,7 @@ Five roles. Only three of them care about cards; the other two are the ones
 that make the market work.
 
 Last reviewed 9 Oct 2026. Every role has a screen. What is still missing is an
-LP position view (#8) and a vault inventory view (#7).
+LP position view (#8).
 
 | # | Role | Wants | Screen | State |
 |---|---|---|---|---|
@@ -75,8 +75,9 @@ fractions minted and the burn-all condition → vaults it.
 
 Served, and 3 is stated before the deposit button rather than after it.
 
-**Missing (#7):** no inventory view. Someone who has vaulted three cards has no
-screen showing what is locked and what it would take to redeem each.
+**Inventory.** "Your vaulted cards" on the Vault page lists every locked card the
+wallet deposited or holds fractions of: held against the whole supply, how
+many are still needed to redeem, and that shortfall at appraisal value.
 
 ---
 
@@ -126,6 +127,5 @@ missing: a machine-readable endpoint for bots.
 ## What is left
 
 1. **A position view** for LPs (#8). It is why anyone returns.
-2. **A vault inventory** for card owners (#7).
-3. **A machine-readable feed** of rates, utilisation and capacity for
+2. **A machine-readable feed** of rates, utilisation and capacity for
    arbitrageurs. They poll; they do not refresh a page.

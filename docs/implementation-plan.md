@@ -27,7 +27,7 @@ four apps.
 | `apps/keeper` `apps/liquidator` `apps/external-feed` | TS | done |
 | `apps/web` | Next.js | trade, pool and vault flows send transactions |
 
-Tests: 173 Rust, 21 parity, 12 price history, 23 Raydium reader, 74 on-chain integration, 32 + 8 Collector Crypt.
+Tests: 173 Rust, 21 parity, 12 price history, 23 Raydium reader, 75 on-chain integration, 32 + 8 Collector Crypt.
 
 ## 2. Declared deviations from the spec
 

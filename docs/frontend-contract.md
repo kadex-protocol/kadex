@@ -157,6 +157,20 @@ second click that states the fraction count before signing.
 `tests/integration/vault-sdk.test.mjs` runs each state against the real
 Metaplex Core program and shows the program refusing what the button refuses.
 
+## Vault inventory
+
+```ts
+import { readVaultInventory } from "@kadex/sdk";
+
+const rows = await readVaultInventory(connection, wallet);
+// per locked card the wallet deposited or holds part of:
+// supply, held (summed over ALL its token accounts), missing, deposited, missingAtAppraisal
+```
+
+Two RPC calls: the program's locked `VaultedCard` accounts, and the wallet's
+token accounts. `missingAtAppraisal` is the shortfall at 1 fraction = $1 of
+appraisal, not a market price, and the page says so.
+
 ## Price history
 
 No account stores past prices: every `refresh_price` emits `PriceRefreshed`
@@ -181,6 +195,6 @@ light RPC returns less, and the chart shows what it gets.
 
 ## What does not exist yet
 
-- no LP position view (#8) and no vault inventory (#7)
+- no LP position view (#8)
 - the basket constituents and weights are the `CONSTITUENTS` constant in
   `apps/web/lib/market.ts`, not read from chain (#1, #10)

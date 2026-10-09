@@ -194,3 +194,86 @@ export function vaultAction(s: CoreCardState, wallet: PublicKey | null): VaultAc
   if (!wallet || !s.assetOwner.equals(wallet)) return { kind: "notOwner", reason: "Only its owner can vault this card." };
   return { kind: "vault", fractions: s.card.fractionsPerCard };
 }
+
+// --- inventory ------------------------------------------------------------
+
+export interface InventoryRow {
+  asset: PublicKey;
+  fractionMint: PublicKey;
+  /** The whole supply; redeeming burns all of it. */
+  supply: bigint;
+  /** Fractions this wallet holds, across all its token accounts for the mint. */
+  held: bigint;
+  /** Fractions still to acquire before this wallet can redeem. */
+  missing: bigint;
+  /** This wallet locked the card. */
+  deposited: boolean;
+  /** What `missing` costs at appraisal: 1 fraction is $1 of appraisal, native USDC. */
+  missingAtAppraisal: bigint;
+}
+
+/**
+ * Locked cards a wallet deposited or holds fractions of. Pure: the caller
+ * supplies the vault records and the wallet's balances by mint.
+ */
+export function inventoryRows(vaults: readonly VaultedCardAccount[], balances: ReadonlyMap<string, bigint>, wallet: PublicKey): InventoryRow[] {
+  return vaults
+    .filter((v) => v.locked)
+    .map((v) => {
+      const held = balances.get(v.fractionMint.toBase58()) ?? 0n;
+      const missing = v.fractionsMinted > held ? v.fractionsMinted - held : 0n;
+      return {
+        asset: v.nftMint,
+        fractionMint: v.fractionMint,
+        supply: v.fractionsMinted,
+        held,
+        missing,
+        deposited: v.depositor.equals(wallet),
+        // FRACTION_DECIMALS = USDC decimals = 6, so native fractions ARE native USDC at $1.
+        missingAtAppraisal: missing,
+      };
+    })
+    .filter((r) => r.deposited || r.held > 0n)
+    .sort((a, b) => (a.missing < b.missing ? -1 : a.missing > b.missing ? 1 : a.asset.toBase58().localeCompare(b.asset.toBase58())));
+}
+
+/**
+ * Every locked card, and the wallet's balance of each fraction mint, in two
+ * RPC calls. Balances are summed over all the wallet's token accounts, not
+ * only the associated one, so fractions held anywhere count.
+ */
+export async function readVaultInventory(connection: Connection, wallet: PublicKey): Promise<InventoryRow[]> {
+  const [locked, tokens] = await Promise.all([
+    connection.getProgramAccounts(PROGRAM_IDS.cardVault, {
+      commitment: "confirmed",
+      filters: [
+        { dataSize: VAULTED_CARD_SIZE },
+        { memcmp: { offset: 0, bytes: bs58(VAULT_DISCRIMINATORS.vaultedCard) } },
+        { memcmp: { offset: 112, bytes: bs58([1]) } },
+      ],
+    }),
+    connection.getTokenAccountsByOwner(wallet, { programId: TOKEN_PROGRAM_ID }, "confirmed"),
+  ]);
+  const balances = new Map<string, bigint>();
+  for (const { account } of tokens.value) {
+    const mint = new PublicKey(account.data.subarray(0, 32)).toBase58();
+    balances.set(mint, (balances.get(mint) ?? 0n) + decodeTokenAmount(account.data));
+  }
+  return inventoryRows(locked.map(({ account }) => decodeVaultedCard(account.data)), balances, wallet);
+}
+
+const BS58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+/** Base58 for the short memcmp filters above; no dependency for eight bytes. */
+function bs58(bytes: readonly number[]): string {
+  let n = bytes.reduce((acc, b) => acc * 256n + BigInt(b), 0n);
+  let out = "";
+  while (n > 0n) {
+    out = BS58[Number(n % 58n)] + out;
+    n /= 58n;
+  }
+  for (const b of bytes) {
+    if (b !== 0) break;
+    out = "1" + out;
+  }
+  return out;
+}
