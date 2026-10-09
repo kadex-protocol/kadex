@@ -11,15 +11,15 @@
 //! - it does not use external fills as a price source: they enter only as a
 //!   sanity bound (`external_median`), as the spec requires
 //!
-//! The account it publishes (`slab_interface::OracleAccount`) is the FROZEN
+//! The account it publishes (`kadex_interface::OracleAccount`) is the FROZEN
 //! INTERFACE with Backend B.
 
 use anchor_lang::prelude::*;
-use slab_interface::{
+use kadex_interface::{
     m, require_deployer, seeds, AmmAdapter, Observation, OracleAccount, OracleParams, OracleState,
     ORACLE_OBSERVATIONS,
 };
-use slab_math::{div_wad_floor, mul_wad_floor, WAD};
+use kadex_math::{div_wad_floor, mul_wad_floor, WAD};
 
 declare_id!("5288ShBXsFxqXiGm22FZi1ZrMnmet4i1ZR3bccyAguqp");
 
@@ -275,7 +275,7 @@ pub fn window_min_depth(o: &OracleAccount, now: i64, current: u64) -> u64 {
 pub fn allowed_move(rate_wad: u64, elapsed: i64, period_secs: u32) -> Result<u64> {
     let period = period_secs.max(1) as u128;
     let secs = (elapsed.max(0) as u128).min(period);
-    let v = m(slab_math::mul_div_floor(rate_wad as u128, secs, period))?;
+    let v = m(kadex_math::mul_div_floor(rate_wad as u128, secs, period))?;
     u64::try_from(v).map_err(|_| error!(OracleError::PriceOverflow))
 }
 

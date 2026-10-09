@@ -1,4 +1,4 @@
-//! Risk decisions for SLAB — the rules, with no knowledge of Solana.
+//! Risk decisions for Kadex — the rules, with no knowledge of Solana.
 //!
 //! # Why this crate exists
 //!
@@ -21,14 +21,14 @@
 
 #![forbid(unsafe_code)]
 
-use slab_math::{
+use kadex_math::{
     accrue_borrow_index, apply_bps_ceil, borrow_owed as owed, borrow_rate_hourly,
     div_wad_floor, equity as eq, health_wad, liquidation_price as liq_price, min_margin,
     mul_wad_ceil, mul_wad_floor, oi_allowed, oi_cap_depth, oi_cap_solvency, pnl as raw_pnl,
     side_multiplier, to_u64, utilization, MathError, Side,
 };
 
-pub use slab_math::{Side as RiskSide, RAY, WAD};
+pub use kadex_math::{Side as RiskSide, RAY, WAD};
 
 // ---------------------------------------------------------------------------
 // errors
@@ -599,7 +599,7 @@ mod tests {
         for depth in [25_000, 60_000, 250_000, 1_000_000] {
             let depth = depth * USDC;
             let c = capacity(140_000 * USDC, depth, &p).unwrap();
-            let cost = slab_math::cost_to_move_price(depth, p.delta_liq as u128).unwrap();
+            let cost = kadex_math::cost_to_move_price(depth, p.delta_liq as u128).unwrap();
             let gain = mul_wad_floor(c.cap_depth as u128, p.mu as u128).unwrap() as u64;
             assert!(
                 cost >= gain * 2 - 2,

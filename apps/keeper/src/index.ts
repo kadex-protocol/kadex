@@ -1,5 +1,5 @@
 /**
- * SLAB keeper — OWNER: Backend A.
+ * Kadex keeper — OWNER: Backend A.
  *
  * Calls `refresh_price` on a loop so the oracle stays fresh.
  *
@@ -46,7 +46,7 @@ import {
   TransactionInstruction,
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
-import { PROGRAM_IDS } from "@slab/types";
+import { PROGRAM_IDS } from "@kadex/types";
 
 /**
  * Anchor's instruction discriminator: the first 8 bytes of

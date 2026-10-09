@@ -1,5 +1,5 @@
 {
-  "name": "@slab/sdk",
+  "name": "@kadex/sdk",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",

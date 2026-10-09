@@ -34,7 +34,7 @@ Account ownership in Solana is per program. With `OracleAccount` inside
 `clp-pool`, whoever writes prices and whoever writes risk would be editing the
 same crate every day.
 
-As a separate program, `#[account]` in `slab-interface` declares the oracle
+As a separate program, `#[account]` in `kadex-interface` declares the oracle
 program's ID, and Anchor then requires on its own that any
 `Account<'info, OracleAccount>` belongs to it. An account forged by another
 program is rejected before any of our logic runs — the check belongs to the
@@ -46,18 +46,18 @@ framework, not to us.
 programs/*        ← account validation, CPI, token movement
       │             (thin: it only orchestrates)
       ▼
-slab-risk         ← every decision. No anchor-lang, no solana-program:
+kadex-risk        ← every decision. No anchor-lang, no solana-program:
       │             a rule here physically cannot read an account
       ▼
-slab-math         ← fixed-point arithmetic. No I/O, no Anchor
+kadex-math        ← fixed-point arithmetic. No I/O, no Anchor
 ```
 
 This is enforced, not agreed:
 
-- `perp::tests::risk_crate_cannot_reach_solana` fails if `slab-risk` ever
+- `perp::tests::risk_crate_cannot_reach_solana` fails if `kadex-risk` ever
   gains an Anchor or Solana dependency
 - `perp::tests::handlers_stay_thin` fails if a handler grows past 45 lines,
-  which is almost always a rule that leaked out of `slab-risk`
+  which is almost always a rule that leaked out of `kadex-risk`
 
 That is why 152 tests run in under a second with no SBF build and no validator.
 

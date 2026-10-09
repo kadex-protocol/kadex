@@ -1,5 +1,5 @@
-import type { CategoryGroup, CollectorCard, MarketplaceSource, OrderBy } from "@slab/collector-crypt";
-import { isVaultable } from "@slab/collector-crypt";
+import type { CategoryGroup, CollectorCard, MarketplaceSource, OrderBy } from "@kadex/collector-crypt";
+import { isVaultable } from "@kadex/collector-crypt";
 
 export interface CardWire {
   nftAddress: string;

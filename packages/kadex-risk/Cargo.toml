@@ -1,18 +1,18 @@
 [package]
-name = "slab-risk"
+name = "kadex-risk"
 version = "0.1.0"
-description = "SLAB risk rules. Pure functions, no Anchor, no Solana — so a rule cannot touch an account."
+description = "Kadex risk rules. Pure functions, no Anchor, no Solana — so a rule cannot touch an account."
 edition.workspace = true
 rust-version.workspace = true
 
 [lib]
 crate-type = ["lib"]
-name = "slab_risk"
+name = "kadex_risk"
 
 # Deliberately empty of anchor-lang and solana-program. If you find yourself
 # wanting to add either, the code you are writing belongs in a program, not here.
 [dependencies]
-slab-math = { workspace = true }
+kadex-math = { workspace = true }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

@@ -1,6 +1,6 @@
 import type { PublicKey } from "@solana/web3.js";
-import type { Side } from "@slab/types";
-import { closePositionIx, createAtaIdempotentIx, findAta, openPositionIx, type MarketAccounts } from "@slab/sdk";
+import type { Side } from "@kadex/types";
+import { closePositionIx, createAtaIdempotentIx, findAta, openPositionIx, type MarketAccounts } from "@kadex/sdk";
 import { readChain, type ChainState } from "./chain";
 import type { Cluster } from "./cluster";
 import { refreshIfAging, sendInstructions, type Sign } from "./tx";

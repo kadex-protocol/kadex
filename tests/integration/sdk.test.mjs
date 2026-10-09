@@ -29,7 +29,7 @@ import { findPosition } from "../../packages/types/dist/index.js";
 
 const big = (bn) => BigInt(bn.toString());
 
-describe("@slab/sdk against the deployed programs", () => {
+describe("@kadex/sdk against the deployed programs", () => {
   let ctx, env, lp, target;
 
   const raw = async (address) => (await ctx.conn.getAccountInfo(address)).data;

@@ -24,21 +24,21 @@
 //! derived from it would drift away from what the sleeve could actually be
 //! sold for.
 //!
-//! Risk policy lives in `slab-risk`; pure arithmetic lives in `slab-math`.
+//! Risk policy lives in `kadex-risk`; pure arithmetic lives in `kadex-math`.
 //! This program validates accounts, moves tokens, and stores state.
 
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program_option::COption;
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
-use slab_interface::{
+use kadex_interface::{
     m, r, read_oracle, require_deployer, seeds, BookSnapshot, MarketState, PoolParams,
     ORACLE_PROGRAM_ID, PERP_PROGRAM_ID,
 };
-use slab_math::{
+use kadex_math::{
     assets_for_shares, card_weight, clp_price, mul_div_floor, mul_wad_floor, nav,
     shares_for_deposit, subtract_bps_ceil, to_u64, utilization,
 };
-use slab_risk::{self as risk, Capacity};
+use kadex_risk::{self as risk, Capacity};
 
 declare_id!("3XZkAqLeQDoNXD6Bb9YoGSEdnvqk9r7UMgrKsN5x3L9v");
 
@@ -432,7 +432,7 @@ impl Pool {
     }
 
     /// Both open-interest ceilings and which one binds. Delegated to
-    /// `slab-risk`: the pool stores the inputs, the risk crate decides.
+    /// `kadex-risk`: the pool stores the inputs, the risk crate decides.
     pub fn capacity(&self, oracle_depth: u64) -> Result<Capacity> {
         r(risk::capacity(
             self.usdc_sleeve,
@@ -1037,8 +1037,8 @@ pub struct StateChanged {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slab_math::WAD;
-    use slab_risk::{Binding, MarketRisk, RiskSide as Side};
+    use kadex_math::WAD;
+    use kadex_risk::{Binding, MarketRisk, RiskSide as Side};
 
     const USDC: u64 = 1_000_000;
     const PAR: u64 = WAD as u64;

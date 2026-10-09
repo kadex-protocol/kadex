@@ -15,7 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `var u="ember";try{u=localStorage.getItem("slab.skin.v2")||u}catch(e){}document.documentElement.dataset.ui=u`,
+            __html: `var u="ember";try{u=localStorage.getItem("kadex.skin.v2")||u}catch(e){}document.documentElement.dataset.ui=u`,
           }}
         />
         <link rel="preconnect" href="https://fonts.googleapis.com" />

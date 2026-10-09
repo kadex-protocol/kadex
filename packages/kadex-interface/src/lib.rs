@@ -1,4 +1,4 @@
-//! FROZEN interfaces between SLAB programs.
+//! FROZEN interfaces between Kadex programs.
 //!
 //! Everything in this crate is a contract between people. Changing anything
 //! here breaks someone else's work in flight.
@@ -20,11 +20,11 @@
 //!   mirrors them in `packages/types`.
 //!
 //! This crate holds the *serializable* shapes. The decisions that use them live
-//! in `slab-risk`, which deliberately knows nothing about Anchor.
+//! in `kadex-risk`, which deliberately knows nothing about Anchor.
 
 use anchor_lang::prelude::*;
-use slab_math::WAD;
-use slab_risk::RiskParams;
+use kadex_math::WAD;
+use kadex_risk::RiskParams;
 
 // This crate declares the `oracle` program's ID because [`OracleAccount`]
 // belongs to it. That is what makes `#[account]` generate the right owner
@@ -58,13 +58,13 @@ pub struct BookSnapshot {
 }
 
 impl BookSnapshot {
-    pub fn of(m: &slab_risk::MarketRisk) -> Self {
+    pub fn of(m: &kadex_risk::MarketRisk) -> Self {
         Self { oi_long: m.oi_long, oi_short: m.oi_short, units_long: m.units_long, units_short: m.units_short }
     }
 
     /// Unrealized trader PnL at `price`. Positive: traders ahead, pool behind.
-    pub fn unrealized_pnl(&self, price: u64) -> core::result::Result<i128, slab_risk::RiskError> {
-        slab_risk::MarketRisk {
+    pub fn unrealized_pnl(&self, price: u64) -> core::result::Result<i128, kadex_risk::RiskError> {
+        kadex_risk::MarketRisk {
             oi_long: self.oi_long,
             oi_short: self.oi_short,
             units_long: self.units_long,
@@ -410,9 +410,9 @@ impl OracleView {
         self.price.min(self.slow_twap)
     }
 
-    /// Shape this view takes when handed to `slab-risk`.
-    pub fn risk_input(&self) -> slab_risk::PriceInput {
-        slab_risk::PriceInput {
+    /// Shape this view takes when handed to `kadex-risk`.
+    pub fn risk_input(&self) -> kadex_risk::PriceInput {
+        kadex_risk::PriceInput {
             price: self.price,
             depth: self.depth,
         }
@@ -454,7 +454,7 @@ pub const LOADER_V3_ID: Pubkey = pubkey!("BPFLoaderUpgradeab1e111111111111111111
 
 /// The key allowed to upgrade `program`, read from the loader itself.
 ///
-/// Every `initialize_*` in SLAB creates an account at a fixed PDA, so the
+/// Every `initialize_*` in Kadex creates an account at a fixed PDA, so the
 /// first caller wins it forever. Without this check that caller is whoever
 /// gets there first after deployment, and they choose the vaults, the oracle
 /// and the admin. Tying initialization to the upgrade authority means the
@@ -551,7 +551,7 @@ pub struct PoolParams {
 }
 
 impl PoolParams {
-    /// Project onto the plain struct `slab-risk` works with.
+    /// Project onto the plain struct `kadex-risk` works with.
     ///
     /// This mapping is the only place the two representations meet, and
     /// `params_projection_is_faithful` guards it.
@@ -597,27 +597,27 @@ impl Default for PoolParams {
     }
 }
 
-/// Position side. Mirrors [`slab_math::Side`], but Anchor-serializable.
+/// Position side. Mirrors [`kadex_math::Side`], but Anchor-serializable.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 pub enum Side {
     Long,
     Short,
 }
 
-impl From<Side> for slab_math::Side {
+impl From<Side> for kadex_math::Side {
     fn from(s: Side) -> Self {
         match s {
-            Side::Long => slab_math::Side::Long,
-            Side::Short => slab_math::Side::Short,
+            Side::Long => kadex_math::Side::Long,
+            Side::Short => kadex_math::Side::Short,
         }
     }
 }
 
-impl From<slab_math::Side> for Side {
-    fn from(s: slab_math::Side) -> Self {
+impl From<kadex_math::Side> for Side {
+    fn from(s: kadex_math::Side) -> Self {
         match s {
-            slab_math::Side::Long => Side::Long,
-            slab_math::Side::Short => Side::Short,
+            kadex_math::Side::Long => Side::Long,
+            kadex_math::Side::Short => Side::Short,
         }
     }
 }
@@ -656,19 +656,19 @@ pub enum InterfaceError {
     WithdrawBreachesCapacity,
 }
 
-/// Convert a [`slab_math::MathError`] into an Anchor error. All program
+/// Convert a [`kadex_math::MathError`] into an Anchor error. All program
 /// arithmetic goes through here, so no overflow becomes a wrong number.
-pub fn m<T>(r: core::result::Result<T, slab_math::MathError>) -> Result<T> {
+pub fn m<T>(r: core::result::Result<T, kadex_math::MathError>) -> Result<T> {
     r.map_err(|_| error!(InterfaceError::MathFailure))
 }
 
-/// Convert a [`slab_risk::RiskError`] into an Anchor error.
+/// Convert a [`kadex_risk::RiskError`] into an Anchor error.
 ///
 /// This is the whole adapter between the pure risk crate and the programs:
-/// `slab-risk` never constructs an Anchor error, and the programs never
+/// `kadex-risk` never constructs an Anchor error, and the programs never
 /// reimplement a rule.
-pub fn r<T>(res: core::result::Result<T, slab_risk::RiskError>) -> Result<T> {
-    use slab_risk::RiskError as E;
+pub fn r<T>(res: core::result::Result<T, kadex_risk::RiskError>) -> Result<T> {
+    use kadex_risk::RiskError as E;
     res.map_err(|e| match e {
         E::StateForbidsOpen => error!(InterfaceError::StateForbidsOpen),
         E::OracleNotTradeable => error!(InterfaceError::OracleNotTradeable),
@@ -747,7 +747,7 @@ mod tests {
 
     #[test]
     fn every_risk_error_maps_to_a_distinct_anchor_error() {
-        use slab_risk::RiskError as E;
+        use kadex_risk::RiskError as E;
         let all = [
             E::StateForbidsOpen,
             E::OracleNotTradeable,
@@ -888,7 +888,7 @@ mod tests {
     #[test]
     fn side_round_trips_between_representations() {
         for s in [Side::Long, Side::Short] {
-            let back: Side = slab_math::Side::from(s).into();
+            let back: Side = kadex_math::Side::from(s).into();
             assert_eq!(back, s);
         }
     }

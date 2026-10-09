@@ -10,22 +10,22 @@
 //! follows it:
 //!
 //! 1. Anchor validates the accounts (constraints in the `#[derive(Accounts)]`)
-//! 2. the handler reads what it needs and calls **one** function in `slab-risk`
+//! 2. the handler reads what it needs and calls **one** function in `kadex-risk`
 //! 3. the handler moves tokens and writes state
 //! 4. the handler emits an event
 //!
 //! The handler decides nothing. Every rule — the two ceilings, the margin
-//! requirement, the utilization gate — lives in `slab-risk`, which cannot
+//! requirement, the utilization gate — lives in `kadex-risk`, which cannot
 //! reach an `AccountInfo` and is therefore testable in milliseconds.
 //!
 //! If a handler here grows past ~25 lines, a rule has leaked out of
-//! `slab-risk`. Move it back. `handlers_stay_thin` fails when that happens.
+//! `kadex-risk`. Move it back. `handlers_stay_thin` fails when that happens.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use clp_pool::Pool;
-use slab_interface::{m, r, read_oracle, seeds, BookSnapshot, OracleView, Side, ORACLE_PROGRAM_ID};
-use slab_risk::{self as risk, Gates, MarketRisk, PositionRisk};
+use kadex_interface::{m, r, read_oracle, seeds, BookSnapshot, OracleView, Side, ORACLE_PROGRAM_ID};
+use kadex_risk::{self as risk, Gates, MarketRisk, PositionRisk};
 
 declare_id!("BcVwJ91Jd1k7xUNcGYzRygq2ubaCYn7p5MeUZzy1EyLR");
 
@@ -80,11 +80,11 @@ pub mod perp {
             &params,
         ))?;
 
-        let fee = m(slab_math::apply_bps_ceil(
+        let fee = m(kadex_math::apply_bps_ceil(
             notional as u128,
             pool.params.open_close_fee_bps as u128,
         ))
-        .and_then(|v| m(slab_math::to_u64(v)))?;
+        .and_then(|v| m(kadex_math::to_u64(v)))?;
         ctx.accounts.collect(margin.checked_add(fee).ok_or(error!(PerpError::MathFailure))?)?;
 
         let mk = &mut ctx.accounts.market;
@@ -234,10 +234,10 @@ pub fn accrue_market(mk: &mut Account<Market>, pool: &Pool, now: i64, depth: u64
 }
 
 impl Market {
-    /// Project onto the plain struct `slab-risk` works with.
+    /// Project onto the plain struct `kadex-risk` works with.
     ///
     /// The fields are stored flat rather than as a nested `MarketRisk` on
-    /// purpose: nesting it would force `slab-risk` to depend on Borsh and
+    /// purpose: nesting it would force `kadex-risk` to depend on Borsh and
     /// Anchor's `InitSpace`, and the whole value of that crate is that it
     /// depends on neither. A copy in and out is the price of the guarantee.
     pub fn risk(&self) -> MarketRisk {
@@ -283,7 +283,7 @@ pub struct Position {
 }
 
 impl Position {
-    /// Shape this position takes when handed to `slab-risk`.
+    /// Shape this position takes when handed to `kadex-risk`.
     pub fn risk(&self) -> PositionRisk {
         PositionRisk {
             side: self.side.into(),
@@ -385,7 +385,7 @@ impl<'info> OpenPosition<'info> {
         read_oracle(&self.oracle.to_account_info(), &ORACLE_PROGRAM_ID)
     }
 
-    /// Translate the two state enums into the booleans `slab-risk` asks for.
+    /// Translate the two state enums into the booleans `kadex-risk` asks for.
     /// Keeping the enums out of the risk crate means a change in their shape
     /// never reaches a rule.
     pub fn gates(&self, oracle: &OracleView) -> Gates {
@@ -454,7 +454,7 @@ pub struct PositionOpened {
 #[cfg(test)]
 mod tests {
     /// A handler longer than this almost always has a rule hidden inside it.
-    /// Decisions belong in `slab-risk`, where they can be tested without a
+    /// Decisions belong in `kadex-risk`, where they can be tested without a
     /// validator.
     ///
     /// This is a blunt instrument on purpose: it fails in the `cargo test` of
@@ -493,7 +493,7 @@ mod tests {
                     assert!(
                         count <= MAX_HANDLER_LINES,
                         "handler `{name}` is {count} lines; limit is {MAX_HANDLER_LINES}. \
-                         A rule probably leaked out of slab-risk — move it back."
+                         A rule probably leaked out of kadex-risk — move it back."
                     );
                     seen.push(name);
                 }
@@ -514,23 +514,23 @@ mod tests {
     #[test]
     fn the_interface_names_this_program() {
         // clp-pool derives the one market it will bind from this constant.
-        assert_eq!(slab_interface::PERP_PROGRAM_ID, crate::ID);
+        assert_eq!(kadex_interface::PERP_PROGRAM_ID, crate::ID);
     }
 
     #[test]
     fn risk_crate_cannot_reach_solana() {
-        // The guarantee is structural: if slab-risk ever gains anchor-lang or
+        // The guarantee is structural: if kadex-risk ever gains anchor-lang or
         // solana-program, a rule can start reading accounts and the split
         // stops meaning anything.
-        let manifest = include_str!("../../../packages/slab-risk/Cargo.toml");
+        let manifest = include_str!("../../../packages/kadex-risk/Cargo.toml");
         let deps = manifest
             .split("[dependencies]")
             .nth(1)
-            .expect("slab-risk manifest must declare [dependencies]");
+            .expect("kadex-risk manifest must declare [dependencies]");
         for forbidden in ["anchor-lang", "anchor-spl", "solana-program", "solana-sdk"] {
             assert!(
                 !deps.contains(forbidden),
-                "slab-risk must not depend on {forbidden}: risk rules would be \
+                "kadex-risk must not depend on {forbidden}: risk rules would be \
                  able to touch accounts and stop being testable without a validator"
             );
         }
@@ -573,7 +573,7 @@ macro_rules! settler {
 
             /// Remove the position from the book and return the book as it
             /// now stands, which the pool stores and marks itself.
-            pub fn unwind(&mut self, pos: slab_risk::PositionRisk) -> Result<BookSnapshot> {
+            pub fn unwind(&mut self, pos: kadex_risk::PositionRisk) -> Result<BookSnapshot> {
                 let mk = &mut self.market;
                 let mut state = mk.risk();
                 r(state.remove_position(pos.side, pos.notional, pos.entry_price))?;
@@ -652,11 +652,11 @@ impl<'info> ClosePosition<'info> {
     /// Closing fee, rounded up. The caller caps it at what the trader is
     /// owed.
     pub fn close_fee(&self, notional: u64) -> Result<u64> {
-        let fee = m(slab_math::apply_bps_ceil(
+        let fee = m(kadex_math::apply_bps_ceil(
             notional as u128,
             self.pool.params.open_close_fee_bps as u128,
         ))
-        .and_then(|v| m(slab_math::to_u64(v)))?;
+        .and_then(|v| m(kadex_math::to_u64(v)))?;
         Ok(fee)
     }
 }

@@ -6,7 +6,7 @@
  * design survives: do the risk parameters do what they are supposed to?
  *
  * WHAT IS REAL HERE. Every protocol calculation uses the shipped maths from
- * `@slab/sdk` — the same functions the program calls. Utilization, borrow
+ * `@kadex/sdk` — the same functions the program calls. Utilization, borrow
  * rate, the side multiplier, both ceilings, PnL. None of it is re-implemented
  * for the simulation.
  *
@@ -250,7 +250,7 @@ function compare(title, question, variantA, variantB, labelA, labelB) {
   return rows;
 }
 
-console.log("\nSLAB — parameter A/B");
+console.log("\nKadex — parameter A/B");
 console.log("90 days, hourly. Protocol maths real; trader behaviour modelled.");
 console.log("Reported figure is the BOOK result: income from traders minus paid to traders,");
 console.log("as % of pool NAV. The card sleeve's own rise and fall is excluded - no parameter");

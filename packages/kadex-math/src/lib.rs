@@ -1,4 +1,4 @@
-//! Fixed-point arithmetic for SLAB.
+//! Fixed-point arithmetic for Kadex.
 //!
 //! RULE ZERO: no floating point anywhere near money. Everything here is
 //! integer arithmetic with an explicit scale and a rounding direction stated

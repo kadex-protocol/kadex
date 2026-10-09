@@ -1,5 +1,5 @@
 /**
- * TypeScript mirror of `packages/slab-math`.
+ * TypeScript mirror of `packages/kadex-math`.
  *
  * The frontend has to show PnL, health and liquidation price BEFORE the
  * transaction is sent. If these calculations drift from the Rust, the screen

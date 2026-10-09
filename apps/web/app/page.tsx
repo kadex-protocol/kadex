@@ -9,7 +9,7 @@ import {
 } from "@/lib/market";
 import { useMarket } from "@/lib/useMarket";
 import { useWallet } from "@/lib/wallet";
-import type { PositionView } from "@slab/types";
+import type { PositionView } from "@kadex/types";
 import { AccountPanel } from "@/components/AccountPanel";
 import { loadVaultCards, type VaultCard } from "@/lib/collectorCrypt";
 import { CardRail } from "@/components/CardRail";

@@ -25,7 +25,7 @@ use anchor_lang::solana_program::{
 };
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
 use core_asset::{read_core_card, CORE_PROGRAM_ID};
-use slab_interface::{require_deployer, seeds};
+use kadex_interface::{require_deployer, seeds};
 
 declare_id!("J8Tef8N4YSfVwAxpBemCZrz3qCxehTeb2cd1jTwoBczW");
 
@@ -707,7 +707,7 @@ mod tests {
         // The oracle computes price = usdc_reserve / fraction_reserve and
         // expects WAD (1e6). That only holds with both sides at 6 decimals.
         assert_eq!(FRACTION_DECIMALS, 6);
-        assert_eq!(FRACTIONS_PER_USD, slab_math::WAD as u64);
+        assert_eq!(FRACTIONS_PER_USD, kadex_math::WAD as u64);
     }
 
     #[test]

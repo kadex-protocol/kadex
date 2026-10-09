@@ -21,7 +21,7 @@
 //! 8 discriminator bytes + two little-endian `u64`.
 
 use anchor_lang::prelude::*;
-use slab_math::{div_wad_floor, isqrt};
+use kadex_math::{div_wad_floor, isqrt};
 
 declare_id!("AUPEWRMXpNvN42nCA6ovZRt4eYcaySyRhewxnTa6ygJi");
 
@@ -170,10 +170,10 @@ impl MockPool {
 /// Exposed so the attack tests can compute a push instead of guessing one, and
 /// so the number in the UI comes from the same formula the ceiling uses.
 pub fn usdc_to_move_price(usdc_reserve: u64, delta_wad: u64) -> Option<u64> {
-    let one_plus = slab_math::WAD.checked_add(delta_wad as u128)?;
-    let root = isqrt(one_plus.checked_mul(slab_math::WAD)?);
-    let factor = root.checked_sub(slab_math::WAD)?;
-    u64::try_from((usdc_reserve as u128).checked_mul(factor)? / slab_math::WAD).ok()
+    let one_plus = kadex_math::WAD.checked_add(delta_wad as u128)?;
+    let root = isqrt(one_plus.checked_mul(kadex_math::WAD)?);
+    let factor = root.checked_sub(kadex_math::WAD)?;
+    u64::try_from((usdc_reserve as u128).checked_mul(factor)? / kadex_math::WAD).ok()
 }
 
 #[derive(Accounts)]
@@ -218,7 +218,7 @@ pub enum AmmError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slab_math::WAD;
+    use kadex_math::WAD;
 
     const USDC: u64 = 1_000_000;
 

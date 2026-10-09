@@ -77,7 +77,7 @@ impl OracleView {
     fn require_markable(&self, now) -> Result<u64>;   // fresh, any state
     fn mark_price(&self) -> u64;   // min(price, slow): value leaving the pool
     fn issue_price(&self) -> u64;  // max(price, slow): CLP being issued
-    fn risk_input(&self) -> slab_risk::PriceInput;
+    fn risk_input(&self) -> kadex_risk::PriceInput;
 }
 ```
 

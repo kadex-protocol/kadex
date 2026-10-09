@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { PositionView } from "@slab/types";
+import type { PositionView } from "@kadex/types";
 import { CLUSTER } from "@/lib/cluster";
 import { fmtPrice, fmtUsd } from "@/lib/market";
 import { sendClosePosition } from "@/lib/tradeTx";

@@ -1,7 +1,7 @@
 [package]
 name = "oracle"
 version = "0.1.0"
-description = "SLAB — oracle"
+description = "Kadex — oracle"
 edition.workspace = true
 rust-version.workspace = true
 
@@ -22,8 +22,8 @@ custom-panic = []
 [dependencies]
 anchor-lang = { workspace = true, features = ["init-if-needed"] }
 anchor-spl = { workspace = true }
-slab-math = { workspace = true }
-slab-interface = { workspace = true }
+kadex-math = { workspace = true }
+kadex-interface = { workspace = true }
 
 
 

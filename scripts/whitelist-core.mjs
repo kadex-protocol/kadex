@@ -5,8 +5,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { findCard, findFractionMint, findRegistry, findVaultedCard } from "@slab/types";
-import { fetchCard, isVaultable } from "@slab/collector-crypt";
+import { findCard, findFractionMint, findRegistry, findVaultedCard } from "@kadex/types";
+import { fetchCard, isVaultable } from "@kadex/collector-crypt";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 

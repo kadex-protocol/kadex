@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchCard } from "@slab/collector-crypt";
+import { fetchCard } from "@kadex/collector-crypt";
 import { SOLANA_ADDRESS, toWire } from "@/lib/collectorCrypt";
 
 const cached: typeof fetch = (input, init) => fetch(input, { ...init, next: { revalidate: 60 } });

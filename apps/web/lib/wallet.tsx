@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { PublicKey, Transaction } from "@solana/web3.js";
 
-const REMEMBER_KEY = "slab.wallet";
+const REMEMBER_KEY = "kadex.wallet";
 const INSTALL_URL = "https://phantom.app/download";
 
 interface StandardAccount {

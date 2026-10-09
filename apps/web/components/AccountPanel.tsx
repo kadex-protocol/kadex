@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { PositionView } from "@slab/types";
+import type { PositionView } from "@kadex/types";
 import { CONSTITUENTS, fmtPrice, fmtUsd, type MarketSnapshot, type Portfolio } from "@/lib/market";
 import { useWallet } from "@/lib/wallet";
 import { PositionsTable } from "@/components/PositionsTable";

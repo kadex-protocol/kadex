@@ -1,5 +1,5 @@
 import type { PublicKey } from "@solana/web3.js";
-import { createAtaIdempotentIx, depositFractionsIx, depositUsdcIx, withdrawIx } from "@slab/sdk";
+import { createAtaIdempotentIx, depositFractionsIx, depositUsdcIx, withdrawIx } from "@kadex/sdk";
 import { readChain, tokenAccountsOf } from "./chain";
 import type { Cluster } from "./cluster";
 import { refreshIfAging, sendInstructions, type Sign } from "./tx";

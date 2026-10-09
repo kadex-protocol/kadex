@@ -5,7 +5,7 @@
  * Computed here with the same fixed-point arithmetic as the Rust.
  */
 
-import type { MarketView, OracleView, PoolParams, PoolView, PositionView, Side } from "@slab/types";
+import type { MarketView, OracleView, PoolParams, PoolView, PositionView, Side } from "@kadex/types";
 import * as m from "./math.js";
 
 /** Raw position data, as it comes off the account. */
@@ -54,7 +54,7 @@ export function deriveCapacity(
   const p = pool.params;
   const capSolvency = m.oiCapSolvency(pool.usdcSleeve, p.phi, p.deltaMax);
   // The program folds `attack_safety` into mu before taking the ceiling
-  // (slab-risk). Leaving it out here made the screen report DOUBLE the
+  // (kadex-risk). Leaving it out here made the screen report DOUBLE the
   // capacity the chain would allow.
   const muEffective = m.mulWadCeil(p.mu, p.attackSafety);
   const capDepth = m.oiCapDepth(oracle.depthUsdc, p.deltaLiq, muEffective);

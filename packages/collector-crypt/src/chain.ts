@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Connection, PublicKey, TransactionInstruction } from "@solana/web3.js";
-import { PROGRAM_IDS, WAD } from "@slab/types";
+import { PROGRAM_IDS, WAD } from "@kadex/types";
 import {
   fetchCard,
   impliedFractionPrice,

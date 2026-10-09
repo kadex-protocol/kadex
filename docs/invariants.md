@@ -12,8 +12,8 @@ OI_total × δ_max  ≤  U × φ
 A winning trader is always paid out of the liquid sleeve. An opening that
 would breach this is **refused in the same transaction**, not corrected later.
 
-- Rust: `slab_risk::check_open`
-- Test: `slab_risk::tests::opening_past_the_solvency_ceiling_is_refused`
+- Rust: `kadex_risk::check_open`
+- Test: `kadex_risk::tests::opening_past_the_solvency_ceiling_is_refused`
 
 ## 2. Two ceilings, and the lower one wins
 
@@ -25,8 +25,8 @@ Never the average, never the higher. With the spec parameters **the depth
 ceiling binds 13x before solvency does** — it is AMM liquidity that sizes the
 market, not the CLP balance.
 
-- Rust: `slab_risk::capacity`
-- Test: `slab_risk::tests::depth_ceiling_binds_long_before_solvency_does`
+- Rust: `kadex_risk::capacity`
+- Test: `kadex_risk::tests::depth_ceiling_binds_long_before_solvency_does`
 
 ## 3. Utilization and borrow
 
@@ -38,7 +38,7 @@ r_hourly = r0 + r1 × u²
 The quadratic term makes the rate climb slowly while capacity remains and
 spike near the ceiling. The pool becomes expensive before it is cornered.
 
-- Test: `slab_risk::tests::borrow_grows_quadratically_with_utilization`
+- Test: `kadex_risk::tests::borrow_grows_quadratically_with_utilization`
 
 ## 4. The crowded side pays more
 
@@ -48,7 +48,7 @@ r_side = r_hourly × (1 + ψ × max(0, (OI_side − OI_opposite) / OI_total))
 
 The thin side never pays a premium — its multiplier is exactly 1.0.
 
-- Test: `slab_risk::tests::the_crowded_side_pays_more`
+- Test: `kadex_risk::tests::the_crowded_side_pays_more`
 
 ## 5. NAV
 
@@ -113,7 +113,7 @@ NAV.
 Never an internal price. With an internal price, someone would push it to hunt
 other people's liquidations.
 
-- Rust: `slab_risk::is_liquidatable` takes the oracle price, always
+- Rust: `kadex_risk::is_liquidatable` takes the oracle price, always
 
 ## 10. Bad debt is explicit
 
@@ -121,7 +121,7 @@ A loss past the margin is written to `Pool.bad_debt` and deducted from NAV. It
 never disappears and is never hidden. Invisible bad debt is what let nftperp
 trade insolvent for months.
 
-- Test: `slab_risk::tests::a_gap_through_the_margin_is_recorded_as_bad_debt`
+- Test: `kadex_risk::tests::a_gap_through_the_margin_is_recorded_as_bad_debt`
 
 ## 11b. Settled unwinds, it does not trade
 
@@ -168,5 +168,5 @@ Always in the pool's favour, never the user's.
 | fees, borrow, required margin | up | the user pays the cent |
 | trader PnL | down in magnitude | the pool never pays the rounding cent |
 
-Documented in `packages/slab-math/src/lib.rs` and verified by
-`slab_math::tests::deposit_then_withdraw_never_creates_value`.
+Documented in `packages/kadex-math/src/lib.rs` and verified by
+`kadex_math::tests::deposit_then_withdraw_never_creates_value`.

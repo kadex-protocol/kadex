@@ -1,5 +1,5 @@
 [workspace]
-members = ["programs/*", "packages/slab-math", "packages/slab-risk", "packages/slab-interface"]
+members = ["programs/*", "packages/kadex-math", "packages/kadex-risk", "packages/kadex-interface"]
 resolver = "2"
 
 [workspace.package]
@@ -9,9 +9,9 @@ rust-version = "1.89.0"
 [workspace.dependencies]
 anchor-lang = "1.2.0"
 anchor-spl = "1.2.0"
-slab-math = { path = "packages/slab-math" }
-slab-risk = { path = "packages/slab-risk" }
-slab-interface = { path = "packages/slab-interface" }
+kadex-math = { path = "packages/kadex-math" }
+kadex-risk = { path = "packages/kadex-risk" }
+kadex-interface = { path = "packages/kadex-interface" }
 
 [profile.release]
 overflow-checks = true

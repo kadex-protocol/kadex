@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Run a command against a throwaway `solana-test-validator` with all five
- * SLAB programs deployed at their fixed addresses.
+ * Kadex programs deployed at their fixed addresses.
  *
  *     node scripts/with-validator.mjs node --test tests/integration/
  *
@@ -112,7 +112,7 @@ async function main() {
     process.exit(1);
   }
 
-  const workdir = mkdtempSync(join(tmpdir(), "slab-validator-"));
+  const workdir = mkdtempSync(join(tmpdir(), "kadex-validator-"));
   const ledger = join(workdir, "ledger");
   const deployer = join(workdir, "deployer.json");
 
@@ -165,7 +165,7 @@ async function main() {
   // may initialize them. Tests act as it for every admin step.
   const child = spawn(command[0], command.slice(1), {
     stdio: "inherit",
-    env: { ...ENV, SLAB_DEPLOYER: deployer },
+    env: { ...ENV, KADEX_DEPLOYER: deployer },
     cwd: ROOT,
   });
   const code = await new Promise((r) => child.on("exit", r));

@@ -1,6 +1,6 @@
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
-import type { MarketState, MarketView, OracleState, OracleView, PoolParams, PoolView, Side } from "@slab/types";
-import { PROGRAM_IDS, findPosition } from "@slab/types";
+import type { MarketState, MarketView, OracleState, OracleView, PoolParams, PoolView, Side } from "@kadex/types";
+import { PROGRAM_IDS, findPosition } from "@kadex/types";
 import * as m from "./math.js";
 
 export const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");

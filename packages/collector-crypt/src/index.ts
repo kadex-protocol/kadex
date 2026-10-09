@@ -1,4 +1,4 @@
-import { WAD } from "@slab/types";
+import { WAD } from "@kadex/types";
 
 export const COLLECTOR_CRYPT_API = "https://api.collectorcrypt.com";
 export const COLLECTOR_CRYPT_COLLECTION = "CCryptUfeFSZ3Fgc9FLeKrhLVAP67FSqi1GuVoj9CRac";

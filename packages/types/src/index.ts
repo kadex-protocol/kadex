@@ -1,7 +1,7 @@
 /**
- * @slab/types — THE FRONTEND CONTRACT.
+ * @kadex/types — THE FRONTEND CONTRACT.
  *
- * Mirrors in TypeScript exactly what `packages/slab-interface` freezes in
+ * Mirrors in TypeScript exactly what `packages/kadex-interface` freezes in
  * Rust: PDA seeds, scales, parameters and states.
  *
  * If anything here drifts from the Rust, the frontend derives addresses that
@@ -22,7 +22,7 @@ export const PROGRAM_IDS = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// scales — must match packages/slab-math/src/lib.rs
+// scales — must match packages/kadex-math/src/lib.rs
 // ---------------------------------------------------------------------------
 
 /** Ratios, prices and parameters. 1.0 === WAD. */
@@ -42,7 +42,7 @@ export const fromUsdc = (x: bigint): number => Number(x) / 10 ** TOKEN_DECIMALS;
 export const toUsdc = (x: number): bigint => BigInt(Math.trunc(x * 10 ** TOKEN_DECIMALS));
 
 // ---------------------------------------------------------------------------
-// seeds — must match slab_interface::seeds
+// seeds — must match kadex_interface::seeds
 // ---------------------------------------------------------------------------
 
 const enc = (s: string) => Buffer.from(s, "utf8");

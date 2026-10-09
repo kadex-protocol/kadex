@@ -3,7 +3,7 @@ import {
   POSITION_OWNER_OFFSET, POSITION_SIZE, PROGRAM_IDS,
   decodeMarket, decodeOracle, decodePool, decodePosition, decodeTokenAmount, findAta, findPool,
   type MarketAccount, type OracleAccount, type PoolAccount, type PositionAccount,
-} from "@slab/sdk";
+} from "@kadex/sdk";
 import type { Cluster } from "./cluster";
 
 export interface ChainState {

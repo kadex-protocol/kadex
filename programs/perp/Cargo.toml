@@ -1,7 +1,7 @@
 [package]
 name = "perp"
 version = "0.1.0"
-description = "SLAB — perp"
+description = "Kadex — perp"
 edition.workspace = true
 rust-version.workspace = true
 
@@ -22,9 +22,9 @@ custom-panic = []
 [dependencies]
 anchor-lang = { workspace = true, features = ["init-if-needed"] }
 anchor-spl = { workspace = true }
-slab-math = { workspace = true }
-slab-risk = { workspace = true }
-slab-interface = { workspace = true }
+kadex-math = { workspace = true }
+kadex-risk = { workspace = true }
+kadex-interface = { workspace = true }
 clp-pool = { path = "../clp-pool", features = ["cpi"] }
 
 

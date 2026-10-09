@@ -509,9 +509,9 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "base64 0.22.1",
+ "kadex-interface",
+ "kadex-math",
  "mpl-core",
- "slab-interface",
- "slab-math",
 ]
 
 [[package]]
@@ -562,9 +562,9 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
- "slab-interface",
- "slab-math",
- "slab-risk",
+ "kadex-interface",
+ "kadex-math",
+ "kadex-risk",
 ]
 
 [[package]]
@@ -1026,6 +1026,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "kadex-interface"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "kadex-math",
+ "kadex-risk",
+]
+
+[[package]]
+name = "kadex-math"
+version = "0.1.0"
+
+[[package]]
+name = "kadex-risk"
+version = "0.1.0"
+dependencies = [
+ "kadex-math",
+]
+
+[[package]]
 name = "kaigan"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1110,7 +1130,7 @@ name = "mock-amm"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
- "slab-math",
+ "kadex-math",
 ]
 
 [[package]]
@@ -1232,8 +1252,8 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
- "slab-interface",
- "slab-math",
+ "kadex-interface",
+ "kadex-math",
 ]
 
 [[package]]
@@ -1287,9 +1307,9 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "clp-pool",
- "slab-interface",
- "slab-math",
- "slab-risk",
+ "kadex-interface",
+ "kadex-math",
+ "kadex-risk",
 ]
 
 [[package]]
@@ -1633,26 +1653,6 @@ name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
-
-[[package]]
-name = "slab-interface"
-version = "0.1.0"
-dependencies = [
- "anchor-lang",
- "slab-math",
- "slab-risk",
-]
-
-[[package]]
-name = "slab-math"
-version = "0.1.0"
-
-[[package]]
-name = "slab-risk"
-version = "0.1.0"
-dependencies = [
- "slab-math",
-]
 
 [[package]]
 name = "smallvec"

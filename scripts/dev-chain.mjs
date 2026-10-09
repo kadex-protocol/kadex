@@ -8,7 +8,7 @@ import {
   RPC_URL, USDC, TOKEN_PROGRAM_ID, newProvider, programs, setupProtocol, actor, refresh, sleep,
 } from "../tests/integration/_harness.mjs";
 
-const ENV_FILE = process.env.SLAB_ENV_FILE ?? fileURLToPath(new URL("../apps/web/.env.local", import.meta.url));
+const ENV_FILE = process.env.KADEX_ENV_FILE ?? fileURLToPath(new URL("../apps/web/.env.local", import.meta.url));
 const REFRESH_MS = 20_000;
 const big = (x) => new anchor.BN(x.toString());
 
@@ -50,7 +50,7 @@ if (wallet) {
 
 writeFileSync(
   ENV_FILE,
-  `NEXT_PUBLIC_SLAB_RPC_URL=${process.env.SLAB_BROWSER_RPC ?? RPC_URL}\nNEXT_PUBLIC_SLAB_USDC_MINT=${env.usdcMint.toBase58()}\n`,
+  `NEXT_PUBLIC_KADEX_RPC_URL=${process.env.KADEX_BROWSER_RPC ?? RPC_URL}\nNEXT_PUBLIC_KADEX_USDC_MINT=${env.usdcMint.toBase58()}\n`,
 );
 
 console.log(`[dev-chain] pool       ${env.pool.toBase58()}`);

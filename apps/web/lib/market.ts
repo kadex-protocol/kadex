@@ -6,16 +6,16 @@
  * the programs are deployed, only the functions in this file change — no
  * component reaches past it.
  *
- * The shapes are the real ones from `@slab/types`, and the derived numbers go
- * through the real `@slab/sdk` maths, so what the screen shows is computed the
+ * The shapes are the real ones from `@kadex/types`, and the derived numbers go
+ * through the real `@kadex/sdk` maths, so what the screen shows is computed the
  * same way the program computes it. That is the point of routing sample data
  * through the production path rather than hardcoding pretty numbers.
  */
 
-import type { MarketView, OracleView, PoolView, PositionView, Side } from "@slab/types";
-import { gates, oracleTradeable } from "@slab/types";
+import type { MarketView, OracleView, PoolView, PositionView, Side } from "@kadex/types";
+import { gates, oracleTradeable } from "@kadex/types";
 import { PublicKey } from "@solana/web3.js";
-import { WAD } from "@slab/types";
+import { WAD } from "@kadex/types";
 import {
   deriveBorrowRates,
   deriveCapacity,
@@ -28,7 +28,7 @@ import {
   navRedeem,
   oracleView,
   poolView,
-} from "@slab/sdk";
+} from "@kadex/sdk";
 import { readChain, readPositions, readTokenBalances } from "./chain";
 import { CLUSTER } from "./cluster";
 

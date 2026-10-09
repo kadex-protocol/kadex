@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-export const UI_KEY = "slab.skin.v2";
+export const UI_KEY = "kadex.skin.v2";
 
 const SKINS = [
   { id: "magenta", label: "Magenta" },

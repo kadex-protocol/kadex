@@ -8,7 +8,7 @@ import {
   isOrderBy,
   isVaultable,
   type CollectorCard,
-} from "@slab/collector-crypt";
+} from "@kadex/collector-crypt";
 import { SOLANA_ADDRESS, toWire, type MarketplaceWire } from "@/lib/collectorCrypt";
 
 const cached: typeof fetch = (input, init) => fetch(input, { ...init, next: { revalidate: 60 } });

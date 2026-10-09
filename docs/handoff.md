@@ -29,9 +29,9 @@ they cannot be deployed anywhere. `docs/deploying.md` explains the shim.
 
 | Piece | State |
 |---|---|
-| `packages/slab-math` | done — fixed point, property tests |
-| `packages/slab-risk` | done — every risk rule |
-| `packages/slab-interface` | **frozen** — the contract between programs |
+| `packages/kadex-math` | done — fixed point, property tests |
+| `packages/kadex-risk` | done — every risk rule |
+| `packages/kadex-interface` | **frozen** — the contract between programs |
 | `programs/oracle` | done — all defences, time-based since the 6 Oct audit |
 | `programs/mock-amm` | done — constant-product pool whose price can be pushed |
 | `programs/card-vault` | done — SPL and Metaplex Core cards, whitelist, redeem |
@@ -64,7 +64,7 @@ Open `programs/perp/src/lib.rs` and read `open_position`. Every instruction
 follows it:
 
 1. Anchor validates the accounts, in the `#[derive(Accounts)]` constraints
-2. the handler reads what it needs and calls **one** function in `slab-risk`
+2. the handler reads what it needs and calls **one** function in `kadex-risk`
 3. the handler moves tokens and writes state
 4. the handler emits an event
 
@@ -72,7 +72,7 @@ follows it:
 with no validator. Two tests enforce it:
 
 - `handlers_stay_thin` — a handler over 45 lines fails the build
-- `risk_crate_cannot_reach_solana` — `slab-risk` must never depend on
+- `risk_crate_cannot_reach_solana` — `kadex-risk` must never depend on
   `anchor-lang` or `solana-program`
 
 ## 4. Architecture decisions
@@ -98,7 +98,7 @@ Deploy and initialize with the same key.
 
 Changing any of these breaks someone else's work:
 
-1. `slab_interface::seeds` — every PDA
+1. `kadex_interface::seeds` — every PDA
 2. `OracleAccount` and `OracleView`
 3. `PoolParams`
 4. `MarketState` and `OracleState`
@@ -107,7 +107,7 @@ Changing any of these breaks someone else's work:
 7. The program IDs in `keys/`
 
 The index token (#1) will need to change some of these. The process is at the
-top of `packages/slab-interface/src/lib.rs`: say why, list what it affects,
+top of `packages/kadex-interface/src/lib.rs`: say why, list what it affects,
 update the docs, update the tests, tell whoever is blocked.
 
 ## 6. Code rules

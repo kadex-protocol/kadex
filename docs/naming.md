@@ -2,6 +2,11 @@
 
 Candidates for replacing the working name SLAB. Brainstorm record, 7 Oct 2026.
 
+> **Decided: Kadex** (commit b2c1764). The code was renamed on 9 Oct 2026:
+> `kadex-math`, `kadex-risk`, `kadex-interface`, `@kadex/*`, `NEXT_PUBLIC_KADEX_*`.
+> Still to do before launch: ticker lookup on DexScreener and CoinGecko, domain,
+> X handle, trademark.
+
 Constraints: one word, no spaces, English or Japanese, no Portuguese. Reference
 register: slab, eilo, kori, nora.
 

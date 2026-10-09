@@ -1,5 +1,5 @@
 /**
- * SLAB reference liquidator — OWNER: Backend B.
+ * Kadex reference liquidator — OWNER: Backend B.
  *
  * Scans open positions and liquidates the ones below maintenance margin.
  *
@@ -40,8 +40,8 @@ import { join } from "node:path";
 import * as anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { getOrCreateAssociatedTokenAccount, TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { PROGRAM_IDS, WAD } from "@slab/types";
-import * as math from "@slab/sdk/math";
+import { PROGRAM_IDS, WAD } from "@kadex/types";
+import * as math from "@kadex/sdk/math";
 
 /** Anchor account discriminator: first 8 bytes of sha256("account:<Name>"). */
 function accountDiscriminator(name: string): Buffer {

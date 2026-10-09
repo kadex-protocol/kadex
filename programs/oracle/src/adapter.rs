@@ -13,7 +13,7 @@
 //! corresponding function here. Nothing in `perp` or `clp-pool` is touched.
 
 use anchor_lang::prelude::*;
-use slab_interface::AmmAdapter;
+use kadex_interface::AmmAdapter;
 
 use crate::errors::OracleError;
 

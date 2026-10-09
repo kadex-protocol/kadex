@@ -1,5 +1,5 @@
 import { Transaction, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { oracleIsFresh, refreshPriceIx } from "@slab/sdk";
+import { oracleIsFresh, refreshPriceIx } from "@kadex/sdk";
 import type { ChainState } from "./chain";
 import type { Cluster } from "./cluster";
 

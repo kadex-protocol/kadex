@@ -3,7 +3,7 @@
 import { BRAND } from "@/lib/brand";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-const SEEN_KEY = "slab.welcome.v1";
+const SEEN_KEY = "kadex.welcome.v1";
 const FORCE_PARAM = "onboarding";
 
 const INDEX_LINE = "M0 96 L40 88 L78 92 L116 70 L150 76 L190 52 L228 60 L268 38 L306 44 L346 22 L384 30 L420 12";

@@ -1,24 +1,24 @@
 # Frontend contract
 
 > The frontend does NOT deserialize accounts by hand and does NOT derive PDAs
-> by hand. Everything goes through `@slab/sdk`, so a layout change breaks the
+> by hand. Everything goes through `@kadex/sdk`, so a layout change breaks the
 > SDK build instead of breaking the screen in silence.
 
 ## Usable today
 
 | Resource | Where | State |
 |---|---|---|
-| Program IDs | `@slab/types` → `PROGRAM_IDS` | frozen |
-| PDA derivation | `@slab/types` → `find*` | frozen |
+| Program IDs | `@kadex/types` → `PROGRAM_IDS` | frozen |
+| PDA derivation | `@kadex/types` → `find*` | frozen |
 | IDLs | `target/idl/*.json` | generated |
 | Anchor types | `target/types/*.ts` | generated |
-| Maths | `@slab/sdk` → `math` | parity-tested |
-| Screen derivations | `@slab/sdk` → `derive*` | done |
+| Maths | `@kadex/sdk` → `math` | parity-tested |
+| Screen derivations | `@kadex/sdk` → `derive*` | done |
 
 ## PDA derivation
 
 ```ts
-import { findPool, findMarket, findPosition, findOracle } from "@slab/types";
+import { findPool, findMarket, findPosition, findOracle } from "@kadex/types";
 
 const pool     = findPool(usdcMint);
 const market   = findMarket(pool);
@@ -26,7 +26,7 @@ const oracle   = findOracle(basket);
 const position = findPosition(market, wallet, 0n);
 ```
 
-The seeds mirror `slab_interface::seeds` byte for byte. If they drift, the
+The seeds mirror `kadex_interface::seeds` byte for byte. If they drift, the
 frontend derives addresses that do not exist.
 
 ## Values the screen needs
@@ -35,7 +35,7 @@ None of these are stored on an account. They are computed in the SDK with the
 same fixed-point arithmetic as the Rust.
 
 ```ts
-import { derivePosition, deriveCapacity, deriveBorrowRates, derivePool } from "@slab/sdk";
+import { derivePosition, deriveCapacity, deriveBorrowRates, derivePool } from "@kadex/sdk";
 
 // position: PnL, borrow owed, equity, health, liquidation price
 const p = derivePosition(raw, market, oraclePrice, pool.params);
@@ -69,7 +69,7 @@ display only.
 ## Enabling and disabling controls
 
 ```ts
-import { gates, oracleTradeable } from "@slab/types";
+import { gates, oracleTradeable } from "@kadex/types";
 
 const g = gates(pool.state);      // canOpen, canClose, canDeposit, canWithdraw...
 const ok = oracleTradeable(oracle.state);
@@ -95,13 +95,13 @@ Never show a bare "error". The state says why:
 
 ## Reading accounts and sending LP transactions
 
-`@slab/sdk` decodes `Pool`, `OracleAccount` and `Market` and builds the three
+`@kadex/sdk` decodes `Pool`, `OracleAccount` and `Market` and builds the three
 LP instructions. Each decoder checks the account size and discriminator and
 throws if either is off, so a layout change stops the screen instead of
 feeding it garbage.
 
 ```ts
-import { decodePool, decodeOracle, marksOf, poolView, depositUsdcIx, withdrawIx } from "@slab/sdk";
+import { decodePool, decodeOracle, marksOf, poolView, depositUsdcIx, withdrawIx } from "@kadex/sdk";
 
 const pool = decodePool(poolInfo.data);
 const marks = marksOf(decodeOracle(oracleInfo.data));   // trade, low, high
@@ -117,14 +117,14 @@ quote has to use `navIssue` for CLP minted and `navRedeem` for CLP burned.
 With neither variable set the app runs on sample data and says so.
 
 ```
-NEXT_PUBLIC_SLAB_RPC_URL=http://127.0.0.1:8899
-NEXT_PUBLIC_SLAB_USDC_MINT=<the mint the pool was initialized with>
+NEXT_PUBLIC_KADEX_RPC_URL=http://127.0.0.1:8899
+NEXT_PUBLIC_KADEX_USDC_MINT=<the mint the pool was initialized with>
 ```
 
 `npm run dev:chain -- <your wallet>` boots a validator, deploys, seeds the
 pool with 140,000 USDC and 40,000 fractions, funds that wallet with SOL, USDC
 and fractions, writes `apps/web/.env.local` and keeps the oracle fresh. Set
-`SLAB_ENV_FILE` to write the file somewhere else, which is what running it
+`KADEX_ENV_FILE` to write the file somewhere else, which is what running it
 from WSL against a Windows checkout needs.
 
 The pool page then reads the chain and sends `deposit_usdc`,

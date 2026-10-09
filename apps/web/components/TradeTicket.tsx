@@ -22,7 +22,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import type { Side } from "@slab/types";
+import type { Side } from "@kadex/types";
 import { useWallet } from "@/lib/wallet";
 import { borrowSpread, fmtPrice, fmtUsd, loadBalances, quote, type Balances, type MarketSnapshot } from "@/lib/market";
 import { CLUSTER } from "@/lib/cluster";

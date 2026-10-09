@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { fmtUsd } from "@/lib/market";
-import type { CategoryGroup, MarketplaceSource, OrderBy } from "@slab/collector-crypt";
+import type { CategoryGroup, MarketplaceSource, OrderBy } from "@kadex/collector-crypt";
 import { SOLANA_ADDRESS, loadVaultCard, loadVaultCards, type VaultCard } from "@/lib/collectorCrypt";
 import { askOverAppraisal, titleParts } from "@/lib/cardText";
 import { useWallet } from "@/lib/wallet";
@@ -55,7 +55,7 @@ const SORTS: readonly (readonly [OrderBy, string])[] = [
   ["yearDesc", "Year: newest"],
 ];
 
-const FORMAT_KEY = "slab.vault.format.v2";
+const FORMAT_KEY = "kadex.vault.format.v2";
 const isFormat = (v: string | null): v is Format => FORMATS.some(([id]) => id === v);
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Could not reach Collector Crypt.");

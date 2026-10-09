@@ -29,7 +29,7 @@ export const IDLS = {
   cardVault: require("../../target/idl/card_vault.json"),
 };
 
-/** PDA seeds — must match `slab_interface::seeds`. */
+/** PDA seeds — must match `kadex_interface::seeds`. */
 export const SEEDS = {
   oracle: Buffer.from("oracle"),
   pool: Buffer.from("pool"),
@@ -52,8 +52,8 @@ export function findOracle(basket) {
  * Strangers and attackers are separate `funded()` keypairs.
  */
 function deployer() {
-  const path = process.env.SLAB_DEPLOYER;
-  if (!path) throw new Error("SLAB_DEPLOYER unset: run through scripts/with-validator.mjs");
+  const path = process.env.KADEX_DEPLOYER;
+  if (!path) throw new Error("KADEX_DEPLOYER unset: run through scripts/with-validator.mjs");
   return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(path, "utf8"))));
 }
 

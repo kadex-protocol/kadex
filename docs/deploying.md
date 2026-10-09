@@ -40,7 +40,7 @@ would not otherwise surface until someone tried to deploy.
 Add the shim to your own PATH as well, so a bare `anchor build` is safe too:
 
 ```sh
-echo 'export PATH="$HOME/Desktop/slab/scripts/bin:$PATH"' >> ~/.zshrc
+echo 'export PATH="$HOME/Desktop/kadex/scripts/bin:$PATH"' >> ~/.zshrc
 ```
 
 ### Removing the shim later

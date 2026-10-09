@@ -1,7 +1,7 @@
 [package]
 name = "mock-amm"
 version = "0.1.0"
-description = "SLAB — constant-product fraction/USDC pool for devnet and tests. Never mainnet."
+description = "Kadex — constant-product fraction/USDC pool for devnet and tests. Never mainnet."
 edition.workspace = true
 rust-version.workspace = true
 
@@ -21,7 +21,7 @@ custom-panic = []
 
 [dependencies]
 anchor-lang = { workspace = true }
-slab-math = { workspace = true }
+kadex-math = { workspace = true }
 
 
 [lints.rust]

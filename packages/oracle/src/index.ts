@@ -1,5 +1,5 @@
 /**
- * @slab/oracle — off-chain AMM reserve adapters.
+ * @kadex/oracle — off-chain AMM reserve adapters.
  *
  * # Blocker #1
  *

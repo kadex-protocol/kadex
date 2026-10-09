@@ -1,5 +1,5 @@
 /**
- * Parity between `packages/slab-math` (Rust) and `packages/sdk/src/math.ts`.
+ * Parity between `packages/kadex-math` (Rust) and `packages/sdk/src/math.ts`.
  *
  * The vectors below are EXACTLY the ones asserted in the Rust tests. If the
  * two implementations drift apart, this file fails — before the frontend can
@@ -182,7 +182,7 @@ test("the full hedge scenario from the spec", () => {
  */
 test("the gates mirror matches the Rust", async () => {
   const src = await readFile(
-    new URL("../packages/slab-interface/src/lib.rs", import.meta.url),
+    new URL("../packages/kadex-interface/src/lib.rs", import.meta.url),
     "utf8",
   );
 
@@ -225,7 +225,7 @@ test("the gates mirror matches the Rust", async () => {
  * 8,972 — double. A user would size a position the UI called fine and have it
  * rejected on chain.
  *
- * The expected value is the one asserted in packages/slab-risk.
+ * The expected value is the one asserted in packages/kadex-risk.
  */
 test("the capacity the UI shows matches the chain", () => {
   const params = {

@@ -13,9 +13,9 @@ four apps.
 
 | Piece | Kind | State |
 |---|---|---|
-| `packages/slab-math` | Rust crate | done |
-| `packages/slab-risk` | Rust crate | done |
-| `packages/slab-interface` | Rust crate | frozen |
+| `packages/kadex-math` | Rust crate | done |
+| `packages/kadex-risk` | Rust crate | done |
+| `packages/kadex-interface` | Rust crate | frozen |
 | `programs/oracle` | program | done; real AMM adapter missing (#4) |
 | `programs/mock-amm` | program | fixture for localnet and devnet |
 | `programs/card-vault` | program | done; no basket mint yet (#1) |
@@ -37,9 +37,9 @@ The oracle is its own program instead of living inside `clp-pool`. Account
 ownership in Solana is per program; inside `clp-pool`, prices and risk would
 share one crate. As a separate program the only thing between them is an
 account read, at zero CPI cost: Anchor checks the owner because
-`slab-interface` declares the oracle program's ID.
+`kadex-interface` declares the oracle program's ID.
 
-### A fourth crate: `slab-risk`
+### A fourth crate: `kadex-risk`
 
 Rules live in a crate that depends on neither `anchor-lang` nor
 `solana-program`, so a rule cannot read an account and needs no validator to
@@ -54,14 +54,14 @@ at `initialize_pool`. Closing that gap is #1.
 ## 3. Dependency graph
 
 ```
-slab-math ──> slab-risk ──┬──> slab-interface ──> all programs
-                          │
-                          └──> perp, clp-pool  (decisions)
+kadex-math ──> kadex-risk ──┬──> kadex-interface ──> all programs
+                            │
+                            └──> perp, clp-pool  (decisions)
 
 oracle ──(OracleAccount, read only)──> perp, clp-pool
 perp ──(CPI: record_open, settle_position)──> clp-pool
 
-slab-interface ──> packages/types (TS mirror) ──> packages/sdk ──> apps/web
+kadex-interface ──> packages/types (TS mirror) ──> packages/sdk ──> apps/web
 ```
 
 ## 4. Remaining blockers

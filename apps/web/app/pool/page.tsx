@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { gates } from "@slab/types";
+import { gates } from "@kadex/types";
 import { useWallet } from "@/lib/wallet";
 import { useMarket } from "@/lib/useMarket";
 import {

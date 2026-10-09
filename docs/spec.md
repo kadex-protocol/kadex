@@ -117,8 +117,8 @@ still paid from the margin and the shortfall is recorded as bad debt.
 
 ## 6. How the code is structured
 
-- **`slab-math`** — integer fixed-point arithmetic. No floats near money.
-- **`slab-risk`** — every rule as a pure function, no Solana dependency.
+- **`kadex-math`** — integer fixed-point arithmetic. No floats near money.
+- **`kadex-risk`** — every rule as a pure function, no Solana dependency.
   `risk_crate_cannot_reach_solana` fails if it gains one.
 - **Programs** validate accounts, call one risk function, move tokens.
   `handlers_stay_thin` fails if a handler passes 45 lines.

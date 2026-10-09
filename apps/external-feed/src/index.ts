@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs";
 import { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
-import { WAD } from "@slab/types";
+import { WAD } from "@kadex/types";
 import {
   divergenceWad,
   readExternalMedian,
   readOraclePrice,
   setExternalMedianIx,
-} from "@slab/collector-crypt/chain";
+} from "@kadex/collector-crypt/chain";
 
 interface Config {
   rpcUrl: string;

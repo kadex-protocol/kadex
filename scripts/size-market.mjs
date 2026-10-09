@@ -44,7 +44,7 @@ const capSolvency = (sleeve) => (((sleeve * PHI) / WAD) * WAD) / DELTA_MAX;
 /**
  * `R * (sqrt(1 + delta_liq) - 1) / (mu * attack_safety)`
  *
- * The program folds the safety factor into mu (slab-risk `capacity`), rounding
+ * The program folds the safety factor into mu (kadex-risk `capacity`), rounding
  * up, so this does the same.
  */
 const MU_EFFECTIVE = mulWadCeil(MU, ATTACK_SAFETY);
