@@ -244,3 +244,5 @@ export async function fetchCard(nftAddress: string, opts: ClientOptions = {}): P
   const m = isRecord(market) ? market : {};
   return parseCard({ ...card, owner: m.owner, listing: m.listing });
 }
+
+export * from "./gacha.js";

@@ -14,9 +14,44 @@ Optional. Without one the limit is 300 requests a minute per IP; with one,
 `Authorization: Bearer ccsk_…` — the API does not read `x-api-key`.
 
 Set `COLLECTOR_CRYPT_API_KEY` and the client, the whitelist script, the feed
-and the web route handlers all send it. It is read on the server only and never
+and the web route handlers all send it. The gacha API has its own key; see
+below. It is read on the server only and never
 reaches the browser. An invalid key is silently ignored on marketplace routes,
 so a typo looks exactly like no key at all.
+
+## The gacha API
+
+A second host, `https://gacha.collectorcrypt.com`, with its own key. Checked
+live on 9 Oct 2026.
+
+| Endpoint | Key | Gives us |
+|---|---|---|
+| `GET /api/v1/machines` | yes | **your** machines: config, live status (`enabled`), EV, per-tier stock, low/sells flags |
+| `GET /api/v1/stock` | yes | **your** stock per tier, with the low-stock buffer status |
+| `GET /api/machines` | no | house machines only — 119 on 9 Oct |
+| `GET /api/stock` | no | house stock per tier — 151 machine codes |
+
+- The key goes out as **`x-api-key`**, not the marketplace's `Authorization:
+  Bearer`. It lives in `COLLECTOR_CRYPT_GACHA_API_KEY`, server side only;
+  `apps/web/.env.example` lists it. Without a key the v1 endpoints answer 401.
+- A machine is a pack: `price` per pull, `odds` and `tierRanges` per tier
+  (common, uncommon, rare, epic), `stock` per tier, `ev` per pull and
+  `instantBuyback` as a percent. Amounts are dollars as JSON numbers — `ev`
+  carries float noise (`54.86571367572274`) — so the client rounds each to the
+  nearest native USDC unit once and stays BigInt after that.
+- Partner machines carry an `owner` wallet; house machines have `null`.
+- `/machines` embeds stock and `/stock` repeats it. Fetched a moment apart,
+  10 of 119 machines disagreed: stock moves between two requests.
+- The v1 responses were documented to us but not yet seen. The client reads
+  extra booleans into `flags` and accepts a tier as either a bare count or an
+  object with a count and a low flag, and `npm run test:cc:live` prints what
+  your machines actually return once the key is set.
+
+| Piece | Where | Run |
+|---|---|---|
+| Client | `packages/collector-crypt/src/gacha.ts` | `npm run test:cc` |
+| Server route | `apps/web/app/api/collector-crypt/gacha` | `GET /api/collector-crypt/gacha` — `scope` says house or mine |
+| Live check | `tests/cc/gacha.live.mjs` | `npm run test:cc:live` (loads `apps/web/.env.local`) |
 
 ## The API
 

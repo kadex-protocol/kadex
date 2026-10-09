@@ -1,0 +1,26 @@
+{
+ "pokemon_50": {
+  "common": 324,
+  "uncommon": 217,
+  "rare": 345,
+  "epic": 200
+ },
+ "pokemon_500": {
+  "common": 1063,
+  "uncommon": 1158,
+  "rare": 631,
+  "epic": 68
+ },
+ "pokemon_151": {
+  "common": 96,
+  "uncommon": 55,
+  "rare": 72,
+  "epic": 96
+ },
+ "charizard_50": {
+  "common": 0,
+  "uncommon": 0,
+  "rare": 0,
+  "epic": 0
+ }
+}

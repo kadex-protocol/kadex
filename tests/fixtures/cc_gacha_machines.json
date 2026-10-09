@@ -1,0 +1,166 @@
+{
+ "machines": [
+  {
+   "code": "pokemon_50",
+   "name": "Elite Pokémon Gacha Pack",
+   "shortName": "PKMN 50",
+   "mobile_name": "ELITE",
+   "image": "",
+   "thumbnailUrl": "/pokemon_50.png",
+   "public": true,
+   "owner": null,
+   "isPartner": false,
+   "adoptable": false,
+   "parentCode": null,
+   "menuOrder": 4,
+   "menuCategory": "Pokemon",
+   "price": 50,
+   "contains": 1,
+   "instantBuyback": 85,
+   "freeSpins": true,
+   "turboMode": true,
+   "fixedEv": false,
+   "pointsMultiplier": 1,
+   "lowThreshold": 50,
+   "odds": {
+    "common": 0.8,
+    "uncommon": 0.15,
+    "rare": 0.04,
+    "epic": 0.01
+   },
+   "tierRanges": {
+    "common": {
+     "start": 30,
+     "end": 60
+    },
+    "uncommon": {
+     "start": 60,
+     "end": 110
+    },
+    "rare": {
+     "start": 110,
+     "end": 250
+    },
+    "epic": {
+     "start": 250,
+     "end": 5001
+    }
+   },
+   "stock": {
+    "common": 324,
+    "uncommon": 217,
+    "rare": 345,
+    "epic": 200
+   },
+   "ev": 54.86571367572274
+  },
+  {
+   "code": "pokemon_500",
+   "name": "Hyper Pokémon Gacha",
+   "shortName": "PKMN 500",
+   "mobile_name": "HYPER",
+   "image": "",
+   "thumbnailUrl": "https://degwuxynwtb2zaso.public.blob.vercel-storage.com/machines/pokemon_500/thumb-LMUZ2Qvweg6274nDWr8PHZ0v97I6dV.png",
+   "public": true,
+   "owner": "By8ZMDk9pt3sY2vuKiwcYhzrTTH8bw648iH8nmbnh5wY",
+   "isPartner": false,
+   "adoptable": false,
+   "parentCode": null,
+   "menuOrder": 8,
+   "menuCategory": "Pokemon",
+   "price": 500,
+   "contains": 1,
+   "instantBuyback": 90,
+   "freeSpins": false,
+   "turboMode": true,
+   "fixedEv": false,
+   "pointsMultiplier": 10,
+   "lowThreshold": 50,
+   "odds": {
+    "common": 0.75,
+    "uncommon": 0.2,
+    "rare": 0.04,
+    "epic": 0.01
+   },
+   "tierRanges": {
+    "common": {
+     "start": 250,
+     "end": 500
+    },
+    "uncommon": {
+     "start": 500,
+     "end": 1000
+    },
+    "rare": {
+     "start": 1000,
+     "end": 2500
+    },
+    "epic": {
+     "start": 2500,
+     "end": 50001
+    }
+   },
+   "stock": {
+    "common": 1063,
+    "uncommon": 1158,
+    "rare": 631,
+    "epic": 68
+   },
+   "ev": 525.5605827705969
+  },
+  {
+   "code": "pokemon_151",
+   "name": "151 & Friends",
+   "shortName": "PKMN 151",
+   "mobile_name": null,
+   "image": "",
+   "thumbnailUrl": "/pokemon_151.png",
+   "public": false,
+   "owner": null,
+   "isPartner": false,
+   "adoptable": false,
+   "parentCode": null,
+   "menuOrder": 10,
+   "menuCategory": "Pokemon",
+   "price": 151,
+   "contains": 1,
+   "instantBuyback": 90,
+   "freeSpins": false,
+   "turboMode": true,
+   "fixedEv": false,
+   "pointsMultiplier": 3.02,
+   "lowThreshold": 50,
+   "odds": {
+    "common": 0.75,
+    "uncommon": 0.2,
+    "rare": 0.04,
+    "epic": 0.01
+   },
+   "tierRanges": {
+    "common": {
+     "start": 75,
+     "end": 150
+    },
+    "uncommon": {
+     "start": 150,
+     "end": 300
+    },
+    "rare": {
+     "start": 300,
+     "end": 750
+    },
+    "epic": {
+     "start": 750,
+     "end": 15001
+    }
+   },
+   "stock": {
+    "common": 96,
+    "uncommon": 55,
+    "rare": 72,
+    "epic": 96
+   },
+   "ev": 157.1167001440461
+  }
+ ]
+}

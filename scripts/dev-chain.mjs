@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import anchor from "@coral-xyz/anchor";
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
@@ -48,10 +48,16 @@ if (wallet) {
   await mintTo(ctx.conn, ctx.payer, env.fractionMint, fractions, ctx.payer, 3_000n * USDC);
 }
 
-writeFileSync(
-  ENV_FILE,
-  `NEXT_PUBLIC_KADEX_RPC_URL=${process.env.KADEX_BROWSER_RPC ?? RPC_URL}\nNEXT_PUBLIC_KADEX_USDC_MINT=${env.usdcMint.toBase58()}\n`,
-);
+// Rewrite only the two cluster lines: anything else in the file, such as an
+// API key, is the user's and survives every restart.
+const ours = {
+  NEXT_PUBLIC_KADEX_RPC_URL: process.env.KADEX_BROWSER_RPC ?? RPC_URL,
+  NEXT_PUBLIC_KADEX_USDC_MINT: env.usdcMint.toBase58(),
+};
+const kept = existsSync(ENV_FILE)
+  ? readFileSync(ENV_FILE, "utf8").split("\n").filter((line) => line.trim() && !(line.split("=")[0].trim() in ours))
+  : [];
+writeFileSync(ENV_FILE, [...kept, ...Object.entries(ours).map(([k, v]) => `${k}=${v}`)].join("\n") + "\n");
 
 console.log(`[dev-chain] pool       ${env.pool.toBase58()}`);
 console.log(`[dev-chain] USDC mint  ${env.usdcMint.toBase58()}`);

@@ -6,7 +6,8 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-    "./chain": { "types": "./dist/chain.d.ts", "default": "./dist/chain.js" }
+    "./chain": { "types": "./dist/chain.d.ts", "default": "./dist/chain.js" },
+    "./gacha": { "types": "./dist/gacha.d.ts", "default": "./dist/gacha.js" }
   },
   "scripts": { "build": "tsc -b" }
 }
