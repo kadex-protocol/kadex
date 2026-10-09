@@ -142,10 +142,11 @@ export async function setupOracle(
   return { ammPool: pool.publicKey, basket, oracle };
 }
 
-export async function refresh({ provider, p }, { oracle, ammPool }) {
+export async function refresh({ provider, p }, { oracle, ammPool, refreshAccounts = [] }) {
   return p.oracle.methods
     .refreshPrice()
     .accounts({ caller: provider.wallet.publicKey, oracle, ammPool })
+    .remainingAccounts(refreshAccounts.map((pubkey) => ({ pubkey, isSigner: false, isWritable: false })))
     .rpc();
 }
 
@@ -250,18 +251,26 @@ export const DEFAULT_POOL_PARAMS = {
  */
 export async function setupProtocol(
   ctx,
-  { usdc = 60_000n * USDC, fraction = 60_000n * USDC, oracleParams = DEFAULT_ORACLE_PARAMS } = {},
+  {
+    usdc = 60_000n * USDC,
+    fraction = 60_000n * USDC,
+    oracleParams = DEFAULT_ORACLE_PARAMS,
+    // A real AMM: an oracle already bound to it, and the two mints it pairs.
+    oracleEnv: given = null,
+    usdcMint: givenUsdc = null,
+    fractionMint: givenFraction = null,
+  } = {},
 ) {
   const { conn, payer, provider, p } = ctx;
-  const oracleEnv = await setupOracle(ctx, usdc, fraction, oracleParams);
+  const oracleEnv = given ?? (await setupOracle(ctx, usdc, fraction, oracleParams));
   await refresh(ctx, oracleEnv);
 
-  const usdcMint = await createMint(conn, payer, payer.publicKey, null, 6);
+  const usdcMint = givenUsdc ?? (await createMint(conn, payer, payer.publicKey, null, 6));
   const pool = findPool(usdcMint);
 
   // Authority is the pool PDA from the start.
   const clpMint = await createMint(conn, payer, pool, null, 6);
-  const fractionMint = await createMint(conn, payer, payer.publicKey, null, 6);
+  const fractionMint = givenFraction ?? (await createMint(conn, payer, payer.publicKey, null, 6));
   const usdcVault = await createAccount(conn, payer, usdcMint, pool, Keypair.generate());
   const fractionVault = await createAccount(conn, payer, fractionMint, pool, Keypair.generate());
 
@@ -315,3 +324,67 @@ export async function balance(conn, account) {
 }
 
 export { TOKEN_PROGRAM_ID };
+
+// ---------------------------------------------------------------------------
+// A real Raydium CPMM pool, created by the real program loaded from
+// tests/fixtures/raydium_cpmm.so, and an oracle bound to it.
+// ---------------------------------------------------------------------------
+
+import { createAssociatedTokenAccount } from "@solana/spl-token";
+import { Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import {
+  RAYDIUM_CPMM,
+  RAYDIUM_CREATE_POOL_FEE,
+  createPoolIx,
+  decodePool,
+  poolAddresses,
+  refreshAccounts,
+} from "../../packages/oracle/dist/raydium.js";
+
+export const RAYDIUM_AMM_CONFIG_0 = new PublicKey("5MxLgy9oPdTC3YgkiePHqr3EoCRD9uLVYRQS2ANAs7wy");
+
+export async function sendIxs(conn, signers, ...ixs) {
+  return sendAndConfirmTransaction(conn, new Transaction().add(...ixs), signers, { commitment: "confirmed" });
+}
+
+/**
+ * Two fresh 6-decimal mints (USDC and the index token), a Raydium pool
+ * pairing them at `usdc / fraction`, and an oracle whose basket is the index
+ * mint. The payer holds what is left of `mintAmount` of each.
+ */
+export async function setupRaydiumOracle(
+  ctx,
+  { usdc = 60_000n * USDC, fraction = 60_000n * USDC, params = DEFAULT_ORACLE_PARAMS, mintAmount = 1_000_000n * USDC } = {},
+) {
+  const { conn, payer, p, provider } = ctx;
+  const usdcMint = await createMint(conn, payer, payer.publicKey, null, 6);
+  const indexMint = await createMint(conn, payer, payer.publicKey, null, 6);
+  for (const mint of [usdcMint, indexMint]) {
+    const account = await createAssociatedTokenAccount(conn, payer, mint, payer.publicKey);
+    await mintTo(conn, payer, mint, account, payer, mintAmount);
+  }
+  await sendIxs(
+    conn,
+    [payer],
+    createPoolIx({
+      program: RAYDIUM_CPMM.devnet,
+      ammConfig: RAYDIUM_AMM_CONFIG_0,
+      createPoolFee: RAYDIUM_CREATE_POOL_FEE.devnet,
+      creator: payer.publicKey,
+      mintA: usdcMint,
+      mintB: indexMint,
+      amountA: usdc,
+      amountB: fraction,
+    }),
+  );
+  const ammPool = poolAddresses(RAYDIUM_CPMM.devnet, RAYDIUM_AMM_CONFIG_0, usdcMint, indexMint).pool;
+  const info = await conn.getAccountInfo(ammPool);
+  const raydium = decodePool(ammPool, info.owner, info.data);
+
+  const oracle = findOracle(indexMint);
+  await p.oracle.methods
+    .initialize({ raydium: {} }, params)
+    .accounts({ admin: provider.wallet.publicKey, programData: null, basket: indexMint, ammPool, oracle })
+    .rpc();
+  return { ammPool, basket: indexMint, oracle, usdcMint, indexMint, raydium, refreshAccounts: refreshAccounts(raydium) };
+}

@@ -42,10 +42,22 @@ const PROGRAMS = ["card_vault", "oracle", "clp_pool", "perp", "mock_amm"];
  * is tested against the real program rather than a fake. Dumped with
  * `solana program dump -u m CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d`.
  */
-const EXTERNAL = [["CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d", "tests/fixtures/mpl_core.so"]];
+const EXTERNAL = [
+  ["CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d", "tests/fixtures/mpl_core.so"],
+  // Raydium CPMM as devnet runs it, so the oracle's Raydium adapter reads
+  // pools the real program created. `solana program dump -u d DRaycp…`.
+  ["DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb", "tests/fixtures/raydium_cpmm.so"],
+];
 
-// A live Collector Crypt card, exported from mainnet with getAccountInfo.
-const ACCOUNTS = [["CvsHTsAjWdaxViomzmfzqkVFsNkps6Jzs8d24jjMzP43", "tests/fixtures/cc_wartortle_account.json"]];
+const ACCOUNTS = [
+  // A live Collector Crypt card, exported from mainnet with getAccountInfo.
+  ["CvsHTsAjWdaxViomzmfzqkVFsNkps6Jzs8d24jjMzP43", "tests/fixtures/cc_wartortle_account.json"],
+  // Raydium's devnet fee config index 0 (0.25% trade fee) and the wrapped-SOL
+  // account its create-pool fee is paid into: the program refuses to create a
+  // pool without both. `solana account -u d <key> --output json-compact`.
+  ["5MxLgy9oPdTC3YgkiePHqr3EoCRD9uLVYRQS2ANAs7wy", "tests/fixtures/raydium_amm_config_0.json"],
+  ["3oE58BKVt8KuYkGxx8zBojugnymWmBiyafWgMrnb6eYy", "tests/fixtures/raydium_create_pool_fee.json"],
+];
 
 // NODE_OPTIONS on this machine carries a stale preload that breaks child node
 // processes; clearing it keeps the harness self-contained.
@@ -81,10 +93,10 @@ function deployAll(deployerKeypair) {
       console.error(`missing ${so} — run \`anchor build\` first`);
       return false;
     }
-    // loader-v4, not `solana program deploy`. Anchor 1.2 emits SBPF v3, and
-    // the legacy loader's ELF parser rejects it outright with
-    // "invalid file header". This is also the command the team needs on
-    // devnet — see docs/deploying.md.
+    // loader-v4 here, which a fresh local validator enables. NOT on devnet:
+    // SIMD-0167 (loader-v4) is inactive there as of 9 Oct 2026, so devnet
+    // takes `solana program deploy` (loader v3) of the SBPF v1 binaries
+    // `npm run build:programs` produces — see scripts/devnet.mjs.
     const r = run("solana", [
       "program-v4", "deploy", so,
       "--program-keypair", programId,

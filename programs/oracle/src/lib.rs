@@ -45,6 +45,7 @@ pub mod oracle {
             &ctx.accounts.admin.key(),
         )?;
         validate_params(&params)?;
+        adapter::validate_pool(adapter, &ctx.accounts.amm_pool, &ctx.accounts.basket.key())?;
         let o = &mut ctx.accounts.oracle;
         o.basket = ctx.accounts.basket.key();
         o.amm_pool = ctx.accounts.amm_pool.key();
@@ -91,7 +92,7 @@ pub mod oracle {
             return Ok(());
         }
 
-        let reserves = adapter::read_reserves(o.adapter, &ctx.accounts.amm_pool)?;
+        let reserves = adapter::read_reserves(o.adapter, &ctx.accounts.amm_pool, ctx.remaining_accounts, &o.basket)?;
         require!(reserves.fraction > 0, OracleError::EmptyPool);
         let spot_u128 = m(div_wad_floor(
             reserves.usdc as u128,
@@ -355,7 +356,9 @@ pub struct Initialize<'info> {
     /// CHECK: v3-loader program data. Verified against `program` in
     /// `require_deployer`; absent under loader v4.
     pub program_data: Option<UncheckedAccount<'info>>,
-    /// CHECK: basket identifier; used only as a seed and a label.
+    /// CHECK: basket identifier and the oracle's seed. For a real AMM it is
+    /// the index token's mint, which `adapter::validate_pool` requires the
+    /// pool to pair; for the mock it is only a label.
     pub basket: UncheckedAccount<'info>,
     /// CHECK: external AMM pool. Validated by the adapter in `refresh_price`.
     pub amm_pool: UncheckedAccount<'info>,
@@ -383,6 +386,8 @@ pub struct RefreshPrice<'info> {
     )]
     pub oracle: Account<'info, OracleAccount>,
     /// CHECK: deserialized by the adapter selected by `oracle.adapter`.
+    /// Adapters that keep reserves outside the pool account read them from
+    /// the remaining accounts (Raydium: vault 0, vault 1) and verify each.
     pub amm_pool: UncheckedAccount<'info>,
 }
 

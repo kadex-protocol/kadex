@@ -1,18 +1,16 @@
 /**
- * @kadex/oracle — off-chain AMM reserve adapters.
+ * @kadex/oracle — off-chain AMM reserve adapters, the twins of
+ * `programs/oracle/src/adapter.rs`.
  *
- * # Blocker #1
- *
- * The on-chain layout of the real fraction/USDC pool is NOT yet confirmed.
- * The `mock` adapter exists so the team can work from day 1 without anyone
- * writing code that fakes a finished integration. The real adapters throw
- * until someone confirms the layout.
- *
- * When that happens, only this file and `programs/oracle/src/adapter.rs`
- * change.
+ * `mock` reads the mock AMM, `raydium` reads a Raydium CPMM pool (see
+ * `raydium.ts`). `meteora` and `orca` throw: an adapter that does not exist
+ * must fail, never return a plausible number.
  */
 
 import type { Connection, PublicKey } from "@solana/web3.js";
+import { decodePool, readRaydium, refreshAccounts } from "./raydium.js";
+
+export * from "./raydium.js";
 
 export interface Reserves {
   /** Reserve in native USDC. This is the `R` in the depth ceiling. */
@@ -23,7 +21,10 @@ export interface Reserves {
 
 export interface AmmAdapter {
   readonly kind: "mock" | "meteora" | "orca" | "raydium";
-  readReserves(conn: Connection, pool: PublicKey): Promise<Reserves>;
+  /** `basket` is the oracle's basket: for a real pool, the index token mint. */
+  readReserves(conn: Connection, pool: PublicKey, basket: PublicKey): Promise<Reserves>;
+  /** Remaining accounts `refresh_price` needs after the pool, in order. */
+  refreshAccounts(conn: Connection, pool: PublicKey): Promise<PublicKey[]>;
 }
 
 /** Mock pool layout: 8 discriminator bytes + two little-endian u64. */
@@ -38,24 +39,37 @@ export const mockAdapter: AmmAdapter = {
       fraction: info.data.readBigUInt64LE(16),
     };
   },
+  async refreshAccounts() {
+    return [];
+  },
 };
 
-const unsupported = (kind: AmmAdapter["kind"]): AmmAdapter => ({
-  kind,
-  async readReserves() {
-    // Fails loudly on purpose. Returning zero, or a plausible number, would
-    // be worse: the market would open on an invented price.
-    throw new Error(
-      `adapter ${kind} not implemented — on-chain layout unconfirmed (Blocker #1)`,
-    );
+export const raydiumAdapter: AmmAdapter = {
+  kind: "raydium",
+  async readReserves(conn, pool, basket) {
+    return (await readRaydium(conn, pool, basket)).reserves;
   },
-});
+  async refreshAccounts(conn, pool) {
+    const info = await conn.getAccountInfo(pool, "confirmed");
+    if (!info) throw new Error(`pool ${pool.toBase58()} does not exist`);
+    return refreshAccounts(decodePool(pool, info.owner, info.data));
+  },
+};
+
+const unsupported = (kind: AmmAdapter["kind"]): AmmAdapter => {
+  // Fails loudly on purpose. Returning zero, or a plausible number, would
+  // be worse: the market would open on an invented price.
+  const refuse = async (): Promise<never> => {
+    throw new Error(`adapter ${kind} not implemented — only mock and raydium (CPMM) read reserves`);
+  };
+  return { kind, readReserves: refuse, refreshAccounts: refuse };
+};
 
 export const adapters: Record<AmmAdapter["kind"], AmmAdapter> = {
   mock: mockAdapter,
   meteora: unsupported("meteora"),
   orca: unsupported("orca"),
-  raydium: unsupported("raydium"),
+  raydium: raydiumAdapter,
 };
 
 /** `price = usdc_reserve / fraction_reserve`, in WAD. */
