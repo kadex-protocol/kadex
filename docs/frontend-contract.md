@@ -137,6 +137,26 @@ owner at `POSITION_OWNER_OFFSET`) and sends `openPositionIx` and
 `closePositionIx` through `apps/web/lib/tradeTx.ts`, prepending
 `refresh_price` the same way.
 
+## Vaulting a card
+
+The card page reads the asset's state on the cluster the app points at, not
+from Collector Crypt, and offers only what the program would accept:
+
+```ts
+import { readCoreCard, vaultAction, fractionalizeCoreIx, redeemCoreIx } from "@kadex/sdk";
+
+const state = await readCoreCard(connection, asset, wallet);  // owner, registry, card, vault, wallet fractions
+const action = vaultAction(state, wallet);
+// "vault" | "redeem" | "redeemShort" | "notOwner" | "notWhitelisted" | "disabled" | "missing"
+```
+
+`vault` sends `fractionalize_core` (creating the fraction account first);
+`redeem` sends `redeem_core`, which burns the whole supply. `redeemShort` says
+how many the wallet holds against how many it needs. Both actions ask for a
+second click that states the fraction count before signing.
+`tests/integration/vault-sdk.test.mjs` runs each state against the real
+Metaplex Core program and shows the program refusing what the button refuses.
+
 ## Price history
 
 No account stores past prices: every `refresh_price` emits `PriceRefreshed`
@@ -161,8 +181,6 @@ light RPC returns less, and the chart shows what it gets.
 
 ## What does not exist yet
 
-- the vault screen sends nothing: no SDK builders for `fractionalize_core` /
-  `redeem_core`, and "Vault this card" has no handler (#6)
 - no LP position view (#8) and no vault inventory (#7)
 - the basket constituents and weights are the `CONSTITUENTS` constant in
   `apps/web/lib/market.ts`, not read from chain (#1, #10)

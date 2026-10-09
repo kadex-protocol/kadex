@@ -13,9 +13,9 @@ cd kadex
 npm install
 npm run sync-keys        # keys/ -> target/deploy/ — fixed program IDs, don't skip
 npm run build:programs   # NOT `anchor build` — see docs/deploying.md
-cargo test --workspace   # 152 tests, under a second
+cargo test --workspace   # 173 tests, under a second
 npm run test:parity      # 21 Rust <-> TS parity tests
-npm run test:integration # 59 on-chain tests, boots a validator
+npm run test:integration # 74 on-chain tests, boots a validator
 ```
 
 If `cargo test` passes and `npm run build:programs` ends with "all programs
@@ -42,7 +42,7 @@ they cannot be deployed anywhere. `docs/deploying.md` explains the shim.
 | `apps/keeper` | done — permissionless refresh loop, 5 s |
 | `apps/liquidator` | done — reads state, refreshes if needed, liquidates |
 | `apps/external-feed` | done — dry run unless `PUBLISH=1` |
-| `apps/web` | trade (open, list, close), Earn/pool (deposit, withdraw), portfolio, card marketplace, methodology. Runs on sample data with no cluster configured |
+| `apps/web` | trade (open, list, close), Earn/pool (deposit, withdraw), portfolio, card marketplace with vault and redeem, methodology. Runs on sample data with no cluster configured |
 
 **Not built yet** — each is a GitHub issue:
 
@@ -53,7 +53,6 @@ they cannot be deployed anywhere. `docs/deploying.md` explains the shim.
 | Seed script from real vaulted cards | #3 |
 | Real AMM adapter (only `Mock` works) | #4 |
 | Devnet deployment | #5 |
-| "Vault this card" sends nothing | #6 |
 | LP position view, vault inventory | #8, #7 |
 | Launch basket and weights | #10 |
 
@@ -67,7 +66,7 @@ follows it:
 3. the handler moves tokens and writes state
 4. the handler emits an event
 
-**The handler decides nothing.** That is why 152 tests run in under a second
+**The handler decides nothing.** That is why 173 tests run in under a second
 with no validator. Two tests enforce it:
 
 - `handlers_stay_thin` — a handler over 45 lines fails the build

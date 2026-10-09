@@ -34,7 +34,7 @@ import {
   getMint,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { IDLS, USDC, newProvider, funded, mustFail, balance } from "./_harness.mjs";
+import { IDLS, USDC, newProvider, funded, mustFail, balance, ensureVaultRegistry } from "./_harness.mjs";
 
 const VAULT_SEEDS = {
   registry: Buffer.from("registry"),
@@ -121,12 +121,8 @@ describe("card vault", () => {
     ctx = await newProvider();
     vault = new anchor.Program(IDLS.cardVault, ctx.provider);
     registry = findRegistry();
-    collection = await createCoreCollection(ctx.provider);
-
-    await vault.methods
-      .initializeRegistry(collection)
-      .accounts({ admin: ctx.payer.publicKey, programData: null, registry })
-      .rpc();
+    // One registry per program, shared with vault-sdk.test.mjs.
+    collection = await ensureVaultRegistry(ctx, vault, () => createCoreCollection(ctx.provider));
   });
 
   /**

@@ -6,9 +6,9 @@ import { useParams } from "next/navigation";
 import { fmtUsd } from "@/lib/market";
 import { SOLANA_ADDRESS, loadVaultCard, loadVaultCards, type VaultCard } from "@/lib/collectorCrypt";
 import { askOverAppraisal, gradeLine, shortAddress, titleParts } from "@/lib/cardText";
-import { useWallet } from "@/lib/wallet";
 import { CardStage } from "@/components/CardStage";
 import { TiltSlab } from "@/components/TiltSlab";
+import { VaultActions } from "@/components/VaultActions";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Could not reach Collector Crypt.");
 
@@ -45,7 +45,6 @@ function Strip({ title, cards }: { title: string; cards: VaultCard[] }) {
 
 export default function CardPage() {
   const { address } = useParams<{ address: string }>();
-  const { status, publicKey, connect } = useWallet();
   const [card, setCard] = useState<VaultCard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [back, setBack] = useState(false);
@@ -97,11 +96,8 @@ export default function CardPage() {
     );
   }
 
-  const connected = status === "connected" && publicKey !== null;
-  const wallet = publicKey?.toBase58() ?? null;
   const t = card ? titleParts(card) : null;
   const value = card?.vaultable ? card.insuredValueUsdc : 0n;
-  const owned = card !== null && wallet !== null && card.ownerWallet === wallet;
   const faces = card ? [card.frontImage, card.backImage].filter((s): s is string => s !== null) : [];
   const premium = card ? askOverAppraisal(card) : null;
 
@@ -161,15 +157,7 @@ export default function CardPage() {
           </div>
 
           <div className="cta">
-            {connected ? (
-              <button className="btn block" disabled={value <= 0n || !owned}>
-                {value <= 0n ? "Not vaultable" : owned ? "Vault this card" : "Only its owner can vault"}
-              </button>
-            ) : (
-              <button className="btn block" onClick={() => void connect()} disabled={status === "connecting"}>
-                {status === "connecting" ? "Connecting…" : "Connect wallet"}
-              </button>
-            )}
+            <VaultActions address={address} vaultable={value > 0n} />
             <a
               className="btn"
               href={`https://collectorcrypt.com/assets/solana/${address}`}
@@ -218,7 +206,8 @@ export default function CardPage() {
           )}
 
           <p className="fine">
-            Vaulting requires the programs to be deployed. Nothing is signed or settled here yet.
+            Vaulting happens on the cluster the app points at: ownership and lock state are read from it, not from
+            Collector Crypt.
           </p>
         </div>
       </div>

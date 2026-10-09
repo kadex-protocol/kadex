@@ -388,3 +388,25 @@ export async function setupRaydiumOracle(
     .rpc();
   return { ammPool, basket: indexMint, oracle, usdcMint, indexMint, raydium, refreshAccounts: refreshAccounts(raydium) };
 }
+
+/**
+ * The card-vault registry is one account per program, and test files run in
+ * parallel against one validator: whoever gets there first creates it, the
+ * others reuse it. Returns the registry's collection, which every Core card
+ * a suite creates must belong to (the deployer is its authority either way).
+ */
+export async function ensureVaultRegistry({ conn, payer }, vault, makeCollection) {
+  const registry = PublicKey.findProgramAddressSync([Buffer.from("registry")], new PublicKey(IDLS.cardVault.address))[0];
+  const existing = async () => (await conn.getAccountInfo(registry)) && (await vault.account.registry.fetch(registry)).collection;
+  const found = await existing();
+  if (found) return found;
+  const collection = await makeCollection();
+  try {
+    await vault.methods.initializeRegistry(collection).accounts({ admin: payer.publicKey, programData: null, registry }).rpc();
+    return collection;
+  } catch (e) {
+    const raced = await existing();
+    if (raced) return raced;
+    throw e;
+  }
+}

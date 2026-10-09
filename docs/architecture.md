@@ -59,7 +59,7 @@ This is enforced, not agreed:
 - `perp::tests::handlers_stay_thin` fails if a handler grows past 45 lines,
   which is almost always a rule that leaked out of `kadex-risk`
 
-That is why 152 tests run in under a second with no SBF build and no validator.
+That is why 173 tests run in under a second with no SBF build and no validator.
 
 ## Token custody
 

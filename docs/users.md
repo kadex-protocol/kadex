@@ -4,14 +4,13 @@ Five roles. Only three of them care about cards; the other two are the ones
 that make the market work.
 
 Last reviewed 9 Oct 2026. Every role has a screen. What is still missing is an
-LP position view (#8), a vault inventory view (#7), and a working vault
-deposit (#6).
+LP position view (#8) and a vault inventory view (#7).
 
 | # | Role | Wants | Screen | State |
 |---|---|---|---|---|
 | 1 | Speculator | directional exposure without owning | Market, Portfolio | **built** |
 | 2 | Liquidity provider | yield for being the counterparty | Pool, Portfolio | **built** |
-| 3 | Card owner | liquidity without selling | Vault | **screen built, deposit not wired (#6)** |
+| 3 | Card owner | liquidity without selling | Vault | **built** — vault and redeem send on a cluster |
 | 4 | Dealer hedging stock | insurance on inventory | Market → Hedge | **built** |
 | 5 | Arbitrageur | the long/short borrow spread | Market ticket | **built** |
 

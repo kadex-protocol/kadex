@@ -25,9 +25,9 @@ four apps.
 | `packages/oracle` | TS | adapters, mock only |
 | `packages/collector-crypt` | TS | API client, listing median |
 | `apps/keeper` `apps/liquidator` `apps/external-feed` | TS | done |
-| `apps/web` | Next.js | trade and pool flows send transactions; vault does not (#6) |
+| `apps/web` | Next.js | trade, pool and vault flows send transactions |
 
-Tests: 152 Rust, 21 parity, 12 price history, 59 on-chain integration, 18 + 8 Collector Crypt.
+Tests: 173 Rust, 21 parity, 12 price history, 23 Raydium reader, 74 on-chain integration, 32 + 8 Collector Crypt.
 
 ## 2. Declared deviations from the spec
 
