@@ -21,8 +21,8 @@
 
   <p align="center">
     <img alt="Solana" src="https://img.shields.io/badge/Solana-Anchor%201.2-14F195?style=flat-square">
-    <img alt="Rust tests" src="https://img.shields.io/badge/rust%20tests-173-blue?style=flat-square">
-    <img alt="On-chain tests" src="https://img.shields.io/badge/on--chain%20tests-77-blue?style=flat-square">
+    <img alt="Rust tests" src="https://img.shields.io/badge/rust%20tests-185-blue?style=flat-square">
+    <img alt="On-chain tests" src="https://img.shields.io/badge/on--chain%20tests-78-blue?style=flat-square">
     <img alt="Cards by Collector Crypt" src="https://img.shields.io/badge/cards-Collector%20Crypt-orange?style=flat-square">
     <img alt="Hackathon" src="https://img.shields.io/badge/Colosseum-2026-black?style=flat-square">
   </p>
@@ -36,7 +36,7 @@
 </div>
 
 <p align="center">
-  <strong>5</strong> programs · <strong>12</strong> economic invariants · <strong>173</strong> rule tests in under a second · <strong>0</strong> oracle keys
+  <strong>5</strong> programs · <strong>12</strong> economic invariants · <strong>185</strong> rule tests in under a second · <strong>0</strong> oracle keys
 </p>
 
 > [!TIP]
@@ -277,7 +277,7 @@ Five roles, each with a screen built for it — detailed in [`docs/users.md`](do
 | **Dealer hedging stock** | Insurance on inventory | Hedge mode — a short sized in the value of the stock it protects |
 | **Arbitrageur** | The long/short borrow spread | Both borrow rates permanently visible in the ticket and the market bar |
 
-And the hard requirements: **built on Solana** ✅ · **functional programs, not a mockup** ✅ (77 tests against a local validator) · **public repository** ✅.
+And the hard requirements: **built on Solana** ✅ · **functional programs, not a mockup** ✅ (78 tests against a local validator) · **public repository** ✅.
 
 > 🔗 **Proof it's on-chain:** the five program IDs are fixed in [`Anchor.toml`](Anchor.toml) and [`keys/`](keys), and `npm run test:integration` boots a validator, deploys all five, and runs the full lifecycle — vault, deposit, open, liquidate, settle, redeem.
 
@@ -312,11 +312,11 @@ npm run web                            # http://localhost:3000
 # 2) Programs
 npm run sync-keys                      # keys/ -> target/deploy/ (fixed program IDs)
 npm run build:programs                 # NOT a bare `anchor build` — see docs/deploying.md
-cargo test --workspace                 # 173 rule tests, under a second
-npm run test:parity                    # 21 Rust <-> TS parity tests
+cargo test --workspace                 # 185 rule tests, under a second
+npm run test:parity                    # 23 Rust <-> TS parity tests
 npm run test:history                   # 18 price-history and LP-activity tests
 npm run test:raydium                   # 23 Raydium reader tests on a captured devnet pool
-npm run test:integration               # 77 tests against a local validator
+npm run test:integration               # 78 tests against a local validator
 
 # 3) Web app against a real local cluster (separate terminal)
 npm run dev:chain                      # validator + all five programs + a seeded market

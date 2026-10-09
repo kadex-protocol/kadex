@@ -24,7 +24,7 @@
 use kadex_math::{
     accrue_borrow_index, apply_bps_ceil, borrow_owed as owed, borrow_rate_hourly,
     div_wad_floor, equity as eq, health_wad, liquidation_price as liq_price, min_margin,
-    mul_wad_ceil, mul_wad_floor, oi_allowed, oi_cap_depth, oi_cap_solvency, pnl as raw_pnl,
+    mul_div_floor, mul_wad_ceil, mul_wad_floor, oi_allowed, oi_cap_depth, oi_cap_solvency, pnl as raw_pnl,
     side_multiplier, to_u64, utilization, MathError, Side,
 };
 
@@ -147,6 +147,16 @@ pub struct MarketRisk {
     pub borrow_idx_long: u128,
     pub borrow_idx_short: u128,
     pub last_accrual_ts: i64,
+    /// Sum of `notional * RAY / borrow_idx_entry` across open longs.
+    ///
+    /// The borrow twin of `units_long`. A position owes
+    /// `notional * idx_now / idx_entry - notional`, so summing
+    /// `notional / idx_entry` lets the whole side's unpaid borrow be read with
+    /// one multiply: `idx_now * borrow_units / RAY - oi`. Without it the pool
+    /// could not see borrow owed until each position closed.
+    pub borrow_units_long: u128,
+    /// Same, for open shorts.
+    pub borrow_units_short: u128,
 }
 
 impl MarketRisk {
@@ -159,7 +169,33 @@ impl MarketRisk {
             borrow_idx_long: RAY,
             borrow_idx_short: RAY,
             last_accrual_ts: now,
+            borrow_units_long: 0,
+            borrow_units_short: 0,
         }
+    }
+
+    /// Borrow units of a position of `notional` stamped at `borrow_idx`.
+    /// Floors, like `units_of`, so adding and removing the same position
+    /// moves the sum by exactly the same amount.
+    pub fn borrow_units_of(notional: u64, borrow_idx: u128) -> RiskResult<u128> {
+        if borrow_idx == 0 {
+            return Err(RiskError::Math);
+        }
+        Ok(mul_div_floor(notional as u128, RAY, borrow_idx)?)
+    }
+
+    /// Borrow every open position owes and has not paid, at the indices as
+    /// they stand. Floors per side and never goes below zero: it can only
+    /// understate what positions owe one by one, never overstate it.
+    pub fn accrued_borrow(&self) -> RiskResult<u64> {
+        let side = |idx: u128, units: u128, oi: u64| -> RiskResult<u128> {
+            let grown = mul_div_floor(units, idx, RAY)?;
+            Ok(grown.saturating_sub(oi as u128))
+        };
+        let total = side(self.borrow_idx_long, self.borrow_units_long, self.oi_long)?
+            .checked_add(side(self.borrow_idx_short, self.borrow_units_short, self.oi_short)?)
+            .ok_or(RiskError::Math)?;
+        Ok(to_u64(total)?)
     }
 
     /// Aggregate unrealized PnL of every open position, signed, at `price`.
@@ -209,32 +245,44 @@ impl MarketRisk {
 
     /// Record an opened position. Notional and units move together; letting
     /// them drift would corrupt every NAV afterwards.
+    ///
+    /// The position is stamped at the side's CURRENT borrow index, so callers
+    /// accrue first — which `open_position` already does.
     pub fn add_position(&mut self, side: Side, notional: u64, entry_price: u64) -> RiskResult<()> {
         let units = Self::units_of(notional, entry_price)?;
+        let borrow_units = Self::borrow_units_of(notional, self.borrow_index(side))?;
         match side {
             Side::Long => {
                 self.oi_long = self.oi_long.checked_add(notional).ok_or(RiskError::Math)?;
                 self.units_long = self.units_long.checked_add(units).ok_or(RiskError::Math)?;
+                self.borrow_units_long = self.borrow_units_long.checked_add(borrow_units).ok_or(RiskError::Math)?;
             }
             Side::Short => {
                 self.oi_short = self.oi_short.checked_add(notional).ok_or(RiskError::Math)?;
                 self.units_short = self.units_short.checked_add(units).ok_or(RiskError::Math)?;
+                self.borrow_units_short = self.borrow_units_short.checked_add(borrow_units).ok_or(RiskError::Math)?;
             }
         }
         Ok(())
     }
 
     /// Record a closed or liquidated position.
-    pub fn remove_position(&mut self, side: Side, notional: u64, entry_price: u64) -> RiskResult<()> {
+    ///
+    /// `borrow_idx_entry` is the index the position was stamped with, so its
+    /// borrow units leave exactly as they arrived.
+    pub fn remove_position(&mut self, side: Side, notional: u64, entry_price: u64, borrow_idx_entry: u128) -> RiskResult<()> {
         let units = Self::units_of(notional, entry_price)?;
+        let borrow_units = Self::borrow_units_of(notional, borrow_idx_entry)?;
         match side {
             Side::Long => {
                 self.oi_long = self.oi_long.saturating_sub(notional);
                 self.units_long = self.units_long.saturating_sub(units);
+                self.borrow_units_long = self.borrow_units_long.saturating_sub(borrow_units);
             }
             Side::Short => {
                 self.oi_short = self.oi_short.saturating_sub(notional);
                 self.units_short = self.units_short.saturating_sub(units);
+                self.borrow_units_short = self.borrow_units_short.saturating_sub(borrow_units);
             }
         }
         Ok(())
@@ -415,6 +463,15 @@ pub fn accrue(mk: &mut MarketRisk, now: i64, cap: u64, p: &RiskParams) -> RiskRe
     mk.borrow_idx_short = accrue_borrow_index(mk.borrow_idx_short, rs, elapsed)?;
     mk.last_accrual_ts = now;
     Ok(())
+}
+
+/// Unpaid borrow of the whole book, as it would stand at `now`: the indices
+/// brought forward exactly as `accrue` would, then `accrued_borrow`. The pool
+/// calls this with the cap it computes itself, the same inputs perp uses.
+pub fn borrow_owed_at(mk: &MarketRisk, now: i64, cap: u64, p: &RiskParams) -> RiskResult<u64> {
+    let mut projected = *mk;
+    accrue(&mut projected, now, cap, p)?;
+    projected.accrued_borrow()
 }
 
 // ---------------------------------------------------------------------------
@@ -910,10 +967,67 @@ mod tests {
         mk.add_position(Side::Long, 1_000, par).unwrap();
         mk.add_position(Side::Short, 400, par).unwrap();
         assert_eq!(mk.oi_total().unwrap(), 1_400);
-        mk.remove_position(Side::Long, 1_000, par).unwrap();
+        mk.remove_position(Side::Long, 1_000, par, RAY).unwrap();
         assert_eq!(mk.oi_long, 0);
         assert_eq!(mk.units_long, 0, "units must unwind with notional");
+        assert_eq!(mk.borrow_units_long, 0, "borrow units must unwind with notional");
         assert_eq!(mk.oi_total().unwrap(), 400);
+    }
+
+    #[test]
+    fn the_book_owes_what_its_positions_owe_one_by_one() {
+        let p = params();
+        let par = WAD as u64;
+        let mut mk = MarketRisk::new(0);
+        // Two longs stamped at different indices, a short at a third.
+        mk.add_position(Side::Long, 1_000 * USDC, par).unwrap();
+        accrue(&mut mk, 3_600, 10_000 * USDC, &p).unwrap();
+        let second_idx = mk.borrow_idx_long;
+        mk.add_position(Side::Long, 3_000 * USDC, par).unwrap();
+        mk.add_position(Side::Short, 2_000 * USDC, par).unwrap();
+        let short_idx = mk.borrow_idx_short;
+        accrue(&mut mk, 3 * 3_600, 10_000 * USDC, &p).unwrap();
+
+        let one_by_one = owed(1_000 * USDC, RAY, mk.borrow_idx_long).unwrap()
+            + owed(3_000 * USDC, second_idx, mk.borrow_idx_long).unwrap()
+            + owed(2_000 * USDC, short_idx, mk.borrow_idx_short).unwrap();
+        let book = mk.accrued_borrow().unwrap();
+        assert!(book > 0, "borrow accrued over three hours");
+        assert!(book <= one_by_one, "the book never claims more than the positions owe");
+        assert!(one_by_one - book <= 3, "and is short by rounding only: {one_by_one} vs {book}");
+    }
+
+    #[test]
+    fn borrow_owed_at_now_matches_accruing_then_reading() {
+        let p = params();
+        let mut mk = MarketRisk::new(0);
+        mk.add_position(Side::Long, 5_000 * USDC, WAD as u64).unwrap();
+        let projected = borrow_owed_at(&mk, 7_200, 10_000 * USDC, &p).unwrap();
+        let mut accrued = mk;
+        accrue(&mut accrued, 7_200, 10_000 * USDC, &p).unwrap();
+        assert_eq!(projected, accrued.accrued_borrow().unwrap());
+        assert_eq!(mk.last_accrual_ts, 0, "projecting does not move the stored book");
+    }
+
+    #[test]
+    fn closing_every_position_leaves_no_borrow_on_the_book() {
+        let p = params();
+        let par = WAD as u64;
+        let mut mk = MarketRisk::new(0);
+        mk.add_position(Side::Long, 1_234_567, par).unwrap();
+        let a = mk.borrow_idx_long;
+        accrue(&mut mk, 9_000, 50_000 * USDC, &p).unwrap();
+        mk.add_position(Side::Long, 7_654_321, par).unwrap();
+        let b = mk.borrow_idx_long;
+        mk.remove_position(Side::Long, 1_234_567, par, a).unwrap();
+        mk.remove_position(Side::Long, 7_654_321, par, b).unwrap();
+        assert_eq!((mk.oi_long, mk.borrow_units_long), (0, 0));
+        assert_eq!(mk.accrued_borrow().unwrap(), 0);
+    }
+
+    #[test]
+    fn negative_a_zero_borrow_index_is_an_error_not_a_division_by_zero() {
+        assert_eq!(MarketRisk::borrow_units_of(1, 0), Err(RiskError::Math));
     }
 
     #[test]

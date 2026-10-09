@@ -292,12 +292,19 @@ submission, not resolved. Nothing in the backend changes this either way.
 - **No index token yet.** Each card has its own fraction mint and a pool takes
   one. A basket mint that holds the weighted cards is product work, not a fix
   (#1).
-- **NAV ignores borrow owed but not yet paid**, which understates it slightly
-  until positions close (#14). Conservative for withdrawals; a depositor buys in a
-  little cheap.
-- **`settle_position` refuses rather than pays part** if a winning payout ever
-  exceeds the sleeve. The withdrawal gate and the solvency ceiling are what
-  keep that from happening.
+- ~~NAV ignores borrow owed but not yet paid~~ — **fixed 9 Oct (#14)** for
+  deposits. The book carries per-side borrow units, so the pool brings the
+  borrow indices to `now` with the same `accrue` perp uses and counts the
+  unpaid borrow in the deposit NAV. The withdrawal NAV still does not count
+  it, on purpose: an LP must not leave with borrow a trader has not paid and
+  may never pay. Exact when nothing accrued since the book's snapshot; if the
+  permissionless `accrue_borrow` ran in between while the cap moved, the
+  one-step projection is marginally lower than perp's stepwise index.
+- **`settle_position` refuses rather than pays part** — **kept, decided 9 Oct
+  (#14).** A partial payout would make one trader's shortfall final while
+  later closers were paid in full. It now fails as `PayoutExceedsSleeve` and
+  leaves the position open. The solvency ceiling keeps it from happening for
+  moves up to `delta_max`: `OI * delta_max <= U * phi`, tested at the ceiling.
 - **Program keypairs in `keys/`** are fine for devnet and must not be used on
   mainnet — see `docs/deploying.md`.
 

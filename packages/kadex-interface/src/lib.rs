@@ -49,31 +49,71 @@ pub const PERP_PROGRAM_ID: Pubkey = pubkey!("BcVwJ91Jd1k7xUNcGYzRygq2ubaCYn7p5Me
 /// of the last close. Between closes it went stale, and NAV with it: opens
 /// and price moves were invisible to every deposit and withdrawal. Storing
 /// the book instead lets the pool mark it at whatever the oracle says now.
+///
+/// CHANGED 9 Oct 2026 (issue #14), per the process at the top of this file.
+/// Why: deposit NAV ignored borrow owed but not yet paid, so a depositor
+/// bought in cheap at the existing LPs' expense. The book now carries the
+/// borrow indices, their accrual time and the per-side borrow units, so the
+/// pool can bring the indices to `now` with the same `kadex_risk::accrue`
+/// perp uses and read the whole book's unpaid borrow. Affects: the `Pool`
+/// account layout (clp-pool), the `Market` account (perp, new borrow-unit
+/// fields appended), `record_open` / `settle_position` arguments, and the SDK
+/// decoders and `navIssue`. Nothing was deployed when it changed.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq, InitSpace)]
 pub struct BookSnapshot {
     pub oi_long: u64,
     pub oi_short: u64,
     pub units_long: u128,
     pub units_short: u128,
+    pub borrow_idx_long: u128,
+    pub borrow_idx_short: u128,
+    pub last_accrual_ts: i64,
+    pub borrow_units_long: u128,
+    pub borrow_units_short: u128,
 }
 
 impl BookSnapshot {
     pub fn of(m: &kadex_risk::MarketRisk) -> Self {
-        Self { oi_long: m.oi_long, oi_short: m.oi_short, units_long: m.units_long, units_short: m.units_short }
+        Self {
+            oi_long: m.oi_long,
+            oi_short: m.oi_short,
+            units_long: m.units_long,
+            units_short: m.units_short,
+            borrow_idx_long: m.borrow_idx_long,
+            borrow_idx_short: m.borrow_idx_short,
+            last_accrual_ts: m.last_accrual_ts,
+            borrow_units_long: m.borrow_units_long,
+            borrow_units_short: m.borrow_units_short,
+        }
     }
 
-    /// Unrealized trader PnL at `price`. Positive: traders ahead, pool behind.
-    pub fn unrealized_pnl(&self, price: u64) -> core::result::Result<i128, kadex_risk::RiskError> {
+    /// The book back as the plain struct `kadex-risk` works with.
+    pub fn risk(&self) -> kadex_risk::MarketRisk {
         kadex_risk::MarketRisk {
             oi_long: self.oi_long,
             oi_short: self.oi_short,
             units_long: self.units_long,
             units_short: self.units_short,
-            borrow_idx_long: 0,
-            borrow_idx_short: 0,
-            last_accrual_ts: 0,
+            borrow_idx_long: self.borrow_idx_long,
+            borrow_idx_short: self.borrow_idx_short,
+            last_accrual_ts: self.last_accrual_ts,
+            borrow_units_long: self.borrow_units_long,
+            borrow_units_short: self.borrow_units_short,
         }
-        .unrealized_pnl(price)
+    }
+
+    /// Unrealized trader PnL at `price`. Positive: traders ahead, pool behind.
+    pub fn unrealized_pnl(&self, price: u64) -> core::result::Result<i128, kadex_risk::RiskError> {
+        self.risk().unrealized_pnl(price)
+    }
+
+    /// Borrow the open book owes and has not paid, brought to `now` at `cap`.
+    /// An empty book (indices never stamped) owes nothing.
+    pub fn borrow_owed_at(&self, now: i64, cap: u64, p: &RiskParams) -> core::result::Result<u64, kadex_risk::RiskError> {
+        if self.oi_total() == 0 || self.borrow_idx_long == 0 || self.borrow_idx_short == 0 {
+            return Ok(0);
+        }
+        kadex_risk::borrow_owed_at(&self.risk(), now, cap, p)
     }
 
     pub fn oi_total(&self) -> u64 {

@@ -144,7 +144,8 @@ const RAY = 1_000_000_000_000n;
 export async function loadMarket(): Promise<MarketSnapshot> {
   if (CLUSTER) {
     const chain = await readChain(CLUSTER);
-    const marks = marksOf(chain.oracle);
+    // `now` so a deposit quote counts the borrow the book owes up to this moment, as the program will.
+    const marks = marksOf(chain.oracle, chain.now);
     const market: MarketView = chain.market
       ? marketView(chain.pool.perpMarket, chain.market)
       : { address: chain.pool.perpMarket, oiLong: 0n, oiShort: 0n, borrowIdxLong: RAY, borrowIdxShort: RAY, lastAccrualTs: 0n, openPositions: 0 };

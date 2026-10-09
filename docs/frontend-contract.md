@@ -112,6 +112,18 @@ A deposit is priced at the high mark and a withdrawal at the low one, so a
 quote has to use `navIssue` for CLP minted and `navRedeem` for CLP burned.
 `tests/integration/sdk.test.mjs` holds both to what the program pays out.
 
+`navIssue` also counts the borrow the open book owes and has not paid
+(`bookBorrowOwed`), brought to `marks.now`. Build marks with the time, or the
+quote ignores borrow accrued since the book's last snapshot:
+
+```ts
+const marks = marksOf(oracle, nowUnixSeconds);   // depth comes from the oracle
+```
+
+`tests/integration/activity.test.mjs` shows a deposit minting exactly the
+shares `navIssue` quotes at the deposit's block time, and more if borrow were
+ignored. `Pool` is 554 bytes and `Market` 197 since this change (#14).
+
 ## Pointing the web app at a cluster
 
 With neither variable set the app runs on sample data and says so.

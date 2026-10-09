@@ -373,12 +373,14 @@ pub struct Marks {
     pub high: u64,
     /// Window-minimum AMM depth.
     pub depth: u64,
+    /// When the marks were read. Unpaid borrow is brought to this moment.
+    pub now: i64,
 }
 
 impl Marks {
     /// One price for everything. Tests and quiet markets.
     pub fn flat(price: u64) -> Self {
-        Self { trade: price, low: price, high: price, depth: 0 }
+        Self { trade: price, low: price, high: price, depth: 0, now: 0 }
     }
 }
 
@@ -414,12 +416,28 @@ impl Pool {
         m(nav(self.usdc_sleeve, self.card_sleeve_value(marks.low)?, pnl, 0))
     }
 
-    /// NAV for CLP being ISSUED: cards at the high mark, and the whole open
-    /// book at today's price. Never below `nav_redeem`, so a deposit followed
-    /// by a withdrawal cannot come out ahead.
+    /// NAV for CLP being ISSUED: cards at the high mark, the whole open book
+    /// at today's price, and the borrow that book owes and has not yet paid.
+    /// Never below `nav_redeem`, so a deposit followed by a withdrawal cannot
+    /// come out ahead.
+    ///
+    /// Unpaid borrow is a claim on traders, so it lowers what the pool owes
+    /// them. It counts here and NOT in `nav_redeem`, for the same reason
+    /// unrealized losses do: an LP must not leave with money traders have not
+    /// paid, and a depositor must not buy in below what the book is owed.
     pub fn nav_issue(&self, marks: &Marks) -> Result<u64> {
         let pnl = self.trader_pnl(marks.trade)?;
-        m(nav(self.usdc_sleeve, self.card_sleeve_value(marks.high)?, pnl, 0))
+        let owed = self.borrow_owed(marks)? as i128;
+        let net = pnl.checked_sub(owed).ok_or(error!(PoolError::Overflow))?;
+        m(nav(self.usdc_sleeve, self.card_sleeve_value(marks.high)?, net, 0))
+    }
+
+    /// Borrow the open book owes, brought to `marks.now` exactly as perp's
+    /// accrual would: same indices, same cap (from this sleeve and the
+    /// oracle's depth), same `kadex_risk::accrue`.
+    pub fn borrow_owed(&self, marks: &Marks) -> Result<u64> {
+        let cap = self.capacity(marks.depth)?.cap;
+        r(self.book.borrow_owed_at(marks.now, cap, &self.params.risk()))
     }
 
     /// The NAV shown to LPs: the conservative one.
@@ -507,6 +525,13 @@ impl Pool {
 
     /// The sleeve after a position settles: margin back in, payout and fee
     /// out. Refuses rather than pay what the sleeve does not have.
+    /// Refuses rather than pays part (issue #14, decided 9 Oct 2026): a
+    /// partial payout would make one trader's shortfall final while later
+    /// closers were paid in full. The solvency ceiling is what keeps this from
+    /// happening at all: `OI * delta_max <= U * phi`, so a move of
+    /// `delta_max` at full open interest pays winners at most `phi` of the
+    /// sleeve. The refusal is for moves past that, and it leaves the
+    /// position open, not lost.
     pub fn sleeve_after_settle(&self, margin_released: u64, to_recipient: u64, fee: u64) -> Result<u64> {
         let available = self
             .usdc_sleeve
@@ -515,7 +540,7 @@ impl Pool {
         let out = to_recipient.checked_add(fee).ok_or(PoolError::Overflow)?;
         available
             .checked_sub(out)
-            .ok_or(error!(PoolError::InsufficientLiquidity))
+            .ok_or(error!(PoolError::PayoutExceedsSleeve))
     }
 
     /// Split a fee that is in the vault but not yet in the sleeve. The LPs'
@@ -713,6 +738,7 @@ macro_rules! oracle_reader {
                     low: view.mark_price(),
                     high: view.issue_price(),
                     depth: view.depth,
+                    now,
                 })
             }
         }
@@ -1081,6 +1107,87 @@ mod tests {
         Marks::flat(PAR)
     }
 
+    /// The same long, with `hours` of borrow accrued on the book since it opened.
+    fn with_borrow(notional: u64, hours: i64) -> (Pool, Marks) {
+        let p = with_long(notional, notional / 5);
+        let marks = Marks { now: hours * 3_600, depth: 60_000 * USDC, ..flat() };
+        (p, marks)
+    }
+
+    #[test]
+    fn at_the_solvency_ceiling_a_delta_max_move_pays_winners_from_the_sleeve() {
+        let mut p = pool();
+        let params = p.params.risk();
+        let cap = risk::capacity(p.usdc_sleeve, u64::MAX / 4, &params).unwrap().cap_solvency;
+        let mut mk = MarketRisk::new(0);
+        mk.add_position(Side::Long, cap, PAR).unwrap();
+        p.book = BookSnapshot::of(&mk);
+        // The price moves by exactly delta_max against the pool.
+        let moved = PAR + (PAR as u128 * params.delta_max as u128 / WAD) as u64;
+        let owed = p.trader_pnl(moved).unwrap() as u64;
+        let budget = (p.usdc_sleeve as u128 * params.phi as u128 / WAD) as u64;
+        assert!(owed <= budget, "winners are owed {owed}, the invariant allows {budget}");
+        assert!(p.sleeve_after_settle(0, owed, 0).is_ok(), "and the whole payout clears in one close");
+    }
+
+    #[test]
+    fn negative_a_payout_past_the_sleeve_is_refused_by_name_not_paid_in_part() {
+        let p = pool();
+        let err = p.sleeve_after_settle(0, p.usdc_sleeve + 1, 0).unwrap_err();
+        assert_eq!(err, error!(PoolError::PayoutExceedsSleeve));
+        assert_eq!(p.sleeve_after_settle(0, p.usdc_sleeve, 0).unwrap(), 0, "exactly the sleeve still clears");
+    }
+
+    /// Pinned in tests/parity.test.mjs: the SDK's `navIssue` must give the
+    /// same answer, or the deposit screen quotes shares the program will not mint.
+    #[test]
+    fn parity_vector_a_day_of_borrow_on_a_10k_long() {
+        let (p, marks) = with_borrow(10_000 * USDC, 24);
+        assert_eq!(p.borrow_owed(&marks).unwrap(), 198_000_000);
+        assert_eq!(p.nav_issue(&marks).unwrap(), 200_198_000_000);
+    }
+
+    #[test]
+    fn deposit_nav_counts_the_borrow_the_book_owes() {
+        let (p, marks) = with_borrow(10_000 * USDC, 24);
+        let owed = p.borrow_owed(&marks).unwrap();
+        assert!(owed > 0, "a day of borrow on a $10k long");
+        let without = { let mut q = p.clone(); q.book.borrow_idx_long = 0; q.nav_issue(&marks).unwrap() };
+        assert_eq!(p.nav_issue(&marks).unwrap(), without + owed, "issue NAV is higher by exactly what is owed");
+    }
+
+    #[test]
+    fn withdrawal_nav_does_not_count_borrow_traders_have_not_paid() {
+        let (p, marks) = with_borrow(10_000 * USDC, 24);
+        let (q, _) = with_borrow(10_000 * USDC, 0);
+        assert_eq!(p.nav_redeem(&marks).unwrap(), q.nav_redeem(&flat()).unwrap());
+    }
+
+    #[test]
+    fn the_pool_projects_borrow_exactly_as_perp_accrues_it() {
+        let (p, marks) = with_borrow(10_000 * USDC, 24);
+        let params = p.params.risk();
+        let cap = risk::capacity(p.usdc_sleeve, marks.depth, &params).unwrap().cap;
+        let mut mk = p.book.risk();
+        risk::accrue(&mut mk, marks.now, cap, &params).unwrap();
+        assert_eq!(p.borrow_owed(&marks).unwrap(), mk.accrued_borrow().unwrap());
+    }
+
+    #[test]
+    fn an_empty_book_owes_nothing_and_deposit_nav_is_unchanged() {
+        let p = pool();
+        let marks = Marks { now: 1_000_000, ..flat() };
+        assert_eq!(p.borrow_owed(&marks).unwrap(), 0);
+        assert_eq!(p.nav_issue(&marks).unwrap(), p.nav_issue(&flat()).unwrap());
+    }
+
+    #[test]
+    fn a_deposit_then_withdrawal_still_cannot_come_out_ahead_with_borrow_owed() {
+        let (p, marks) = with_borrow(10_000 * USDC, 48);
+        let out = round_trip(p, 50_000 * USDC, &marks);
+        assert!(out <= 50_000 * USDC, "round trip returned {out}");
+    }
+
     /// Deposit `amount` USDC, then redeem every share it bought, without
     /// anything else happening in between. Returns USDC-equivalent out.
     fn round_trip(mut p: Pool, amount: u64, marks: &Marks) -> u64 {
@@ -1131,7 +1238,7 @@ mod tests {
     fn deposit_then_withdraw_across_the_slow_mark_gap_prints_nothing() {
         // fast price above the slow one: cards issue high, redeem low
         let p = pool();
-        let m = Marks { trade: PAR * 13 / 10, low: PAR, high: PAR * 13 / 10, depth: 0 };
+        let m = Marks { trade: PAR * 13 / 10, low: PAR, high: PAR * 13 / 10, depth: 0, now: 0 };
         assert!(round_trip(p, 100_000 * USDC, &m) <= 100_000 * USDC * 13 / 10);
         let out = {
             let mut p = pool();

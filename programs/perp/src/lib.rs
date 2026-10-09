@@ -215,6 +215,11 @@ pub struct Market {
     pub last_accrual_ts: i64,
     pub open_positions: u32,
     pub bump: u8,
+    /// Sum of `notional * RAY / borrow_idx_entry` per side: lets the pool read
+    /// the book's unpaid borrow in O(1) (issue #14). Appended last so every
+    /// earlier field keeps its offset.
+    pub borrow_units_long: u128,
+    pub borrow_units_short: u128,
 }
 
 /// Bring both borrow indices up to `now`, at the utilization that held
@@ -249,6 +254,8 @@ impl Market {
             borrow_idx_long: self.borrow_idx_long,
             borrow_idx_short: self.borrow_idx_short,
             last_accrual_ts: self.last_accrual_ts,
+            borrow_units_long: self.borrow_units_long,
+            borrow_units_short: self.borrow_units_short,
         }
     }
 
@@ -260,6 +267,8 @@ impl Market {
         self.borrow_idx_long = r.borrow_idx_long;
         self.borrow_idx_short = r.borrow_idx_short;
         self.last_accrual_ts = r.last_accrual_ts;
+        self.borrow_units_long = r.borrow_units_long;
+        self.borrow_units_short = r.borrow_units_short;
     }
 
     pub fn signer_seeds<'a>(&'a self, pool: &'a Pubkey) -> [&'a [u8]; 3] {
@@ -576,7 +585,7 @@ macro_rules! settler {
             pub fn unwind(&mut self, pos: kadex_risk::PositionRisk) -> Result<BookSnapshot> {
                 let mk = &mut self.market;
                 let mut state = mk.risk();
-                r(state.remove_position(pos.side, pos.notional, pos.entry_price))?;
+                r(state.remove_position(pos.side, pos.notional, pos.entry_price, pos.borrow_idx_entry))?;
                 mk.set_risk(state);
                 mk.open_positions = mk.open_positions.saturating_sub(1);
                 Ok(BookSnapshot::of(&state))

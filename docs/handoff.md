@@ -13,9 +13,9 @@ cd kadex
 npm install
 npm run sync-keys        # keys/ -> target/deploy/ — fixed program IDs, don't skip
 npm run build:programs   # NOT `anchor build` — see docs/deploying.md
-cargo test --workspace   # 173 tests, under a second
-npm run test:parity      # 21 Rust <-> TS parity tests
-npm run test:integration # 77 on-chain tests, boots a validator
+cargo test --workspace   # 185 tests, under a second
+npm run test:parity      # 23 Rust <-> TS parity tests
+npm run test:integration # 78 on-chain tests, boots a validator
 ```
 
 If `cargo test` passes and `npm run build:programs` ends with "all programs
@@ -64,7 +64,7 @@ follows it:
 3. the handler moves tokens and writes state
 4. the handler emits an event
 
-**The handler decides nothing.** That is why 173 tests run in under a second
+**The handler decides nothing.** That is why 185 tests run in under a second
 with no validator. Two tests enforce it:
 
 - `handlers_stay_thin` — a handler over 45 lines fails the build

@@ -38,4 +38,6 @@ pub enum PoolError {
     SleeveTargetExceeded,
     #[msg("Pool NAV is zero: it owes more than it holds and takes no deposits")]
     Insolvent,
+    #[msg("Winning payout exceeds the liquid sleeve: the position stays open, nothing is paid in part")]
+    PayoutExceedsSleeve,
 }

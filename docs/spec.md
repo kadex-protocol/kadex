@@ -189,7 +189,8 @@ market-cap-weighted basket on Solana.
 
 - NAV circularity is **reduced, not solved**: the slow mark removes the
   single-transaction attack, not a push held for hours.
-- NAV ignores borrow owed but not yet paid (#14).
+- A winning payout larger than the liquid sleeve is refused, not paid in part;
+  the solvency ceiling keeps it from arising for moves up to `delta_max` (#14).
 - Upgrade authority is the deployer on devnet (#12).
 - Regulatory: securities, derivatives and gambling regimes overlap. Declared,
   not resolved.

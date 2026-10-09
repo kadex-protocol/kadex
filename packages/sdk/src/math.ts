@@ -69,6 +69,17 @@ export function sideMultiplier(oiSide: bigint, oiOpposite: bigint, psi: bigint):
   return WAD + mulWadFloor(psi, divWadFloor(oiSide - oiOpposite, total));
 }
 
+/**
+ * Advance a RAY borrow index by `elapsed` seconds at an hourly WAD rate.
+ * Rounds up twice, like `kadex_math::accrue_borrow_index`.
+ */
+export function accrueBorrowIndex(indexRay: bigint, rateHourlyWad: bigint, elapsedSecs: bigint): bigint {
+  if (elapsedSecs < 0n) throw new Error("negative elapsed time");
+  if (elapsedSecs === 0n || rateHourlyWad === 0n) return indexRay;
+  const factor = mulDivCeil(rateHourlyWad, elapsedSecs, 3_600n);
+  return indexRay + mulDivCeil(indexRay, factor, WAD);
+}
+
 /** Borrow owed between two indices. Rounds up. */
 export function borrowOwed(notional: bigint, idxEntry: bigint, idxNow: bigint): bigint {
   if (idxEntry === 0n) throw new Error("bad index");

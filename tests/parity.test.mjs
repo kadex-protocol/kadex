@@ -258,3 +258,39 @@ test("the capacity the UI shows matches the chain", () => {
     "a 2x safety factor must roughly halve the ceiling",
   );
 });
+
+// ── issue #14: deposit NAV counts the borrow the book owes ──────────────────
+// Pinned against clp_pool::tests::parity_vector_a_day_of_borrow_on_a_10k_long.
+import { bookBorrowOwed, navIssue } from "../packages/sdk/dist/chain.js";
+
+test("the deposit NAV's unpaid borrow matches the Rust: a day on a $10k long", () => {
+  const U = 1_000_000n;
+  const params = {
+    cardSleeveTarget: 300_000n, phi: 500_000n, deltaMax: 300_000n, mu: 300_000n, deltaLiq: 187_500n,
+    baseLeverage: 5_000_000n, maintenanceMargin: 62_500n, r0: 50n, r1: 500n, psi: 500_000n,
+    openCloseFeeBps: 10, liquidatorFeeBps: 100, depositHaircutBps: 300, maxCardWeight: 150_000n,
+    lpFeeShareBps: 7500, reduceOnlyUtilization: 950_000n, attackSafety: 2_000_000n,
+  };
+  const pool = {
+    usdcSleeve: 140_000n * U,
+    fractionBalance: 60_000n * U,
+    clpSupply: 200_000n * U,
+    params,
+    book: {
+      oiLong: 10_000n * U, oiShort: 0n, unitsLong: 10_000n * U, unitsShort: 0n,
+      borrowIdxLong: m.RAY, borrowIdxShort: m.RAY, lastAccrualTs: 0n,
+      borrowUnitsLong: 10_000n * U, borrowUnitsShort: 0n,
+    },
+  };
+  const marks = { trade: m.WAD, low: m.WAD, high: m.WAD, depth: 60_000n * U, now: 24n * 3_600n };
+  assert.equal(bookBorrowOwed(pool, marks), 198_000_000n);
+  assert.equal(navIssue(pool, marks), 200_198_000_000n);
+  assert.equal(bookBorrowOwed(pool, { ...marks, now: 0n }), 0n, "no time, no borrow");
+});
+
+test("accrueBorrowIndex matches the Rust rounding: up, twice", () => {
+  assert.equal(m.accrueBorrowIndex(m.RAY, 0n, 3_600n), m.RAY, "no rate, no growth");
+  assert.equal(m.accrueBorrowIndex(m.RAY, 1_000n, 0n), m.RAY, "no time, no growth");
+  assert.equal(m.accrueBorrowIndex(m.RAY, 1_000n, 1n), m.RAY + 1_000_000n, "one second of 0.1%/h rounds the factor up to 1 and the growth to 1e6");
+  assert.throws(() => m.accrueBorrowIndex(m.RAY, 1n, -1n));
+});

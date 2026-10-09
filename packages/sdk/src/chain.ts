@@ -20,9 +20,9 @@ export const DISCRIMINATORS = {
   closePosition: [123, 134, 81, 0, 49, 68, 98, 98],
 } as const;
 
-export const POOL_SIZE = 482;
+export const POOL_SIZE = 554;
 export const ORACLE_SIZE = 1265;
-export const MARKET_SIZE = 165;
+export const MARKET_SIZE = 197;
 export const POSITION_SIZE = 130;
 export const POSITION_OWNER_OFFSET = 8;
 const TOKEN_AMOUNT_OFFSET = 64;
@@ -85,6 +85,11 @@ export interface Book {
   oiShort: bigint;
   unitsLong: bigint;
   unitsShort: bigint;
+  borrowIdxLong: bigint;
+  borrowIdxShort: bigint;
+  lastAccrualTs: bigint;
+  borrowUnitsLong: bigint;
+  borrowUnitsShort: bigint;
 }
 
 export interface PoolAccount {
@@ -132,6 +137,9 @@ export interface MarketAccount {
   borrowIdxShort: bigint;
   lastAccrualTs: bigint;
   openPositions: number;
+  /** Sum of `notional * RAY / borrow_idx_entry` per side (issue #14). */
+  borrowUnitsLong: bigint;
+  borrowUnitsShort: bigint;
 }
 
 function enumAt<T>(names: T[], index: number, what: string): T {
@@ -154,7 +162,17 @@ export function decodePool(data: Uint8Array): PoolAccount {
     usdcSleeve: r.u64(),
     fractionBalance: r.u64(),
     clpSupply: r.u64(),
-    book: { oiLong: r.u64(), oiShort: r.u64(), unitsLong: r.u128(), unitsShort: r.u128() },
+    book: {
+      oiLong: r.u64(),
+      oiShort: r.u64(),
+      unitsLong: r.u128(),
+      unitsShort: r.u128(),
+      borrowIdxLong: r.u128(),
+      borrowIdxShort: r.u128(),
+      lastAccrualTs: r.i64(),
+      borrowUnitsLong: r.u128(),
+      borrowUnitsShort: r.u128(),
+    },
     badDebt: r.u64(),
     marginHeld: r.u64(),
     accruedFeesLp: r.u64(),
@@ -210,17 +228,15 @@ export function decodeMarket(data: Uint8Array): MarketAccount {
   const oracle = r.key();
   const oiLong = r.u64();
   const oiShort = r.u64();
-  r.skip(32);
-  return {
-    pool,
-    oracle,
-    oiLong,
-    oiShort,
-    borrowIdxLong: r.u128(),
-    borrowIdxShort: r.u128(),
-    lastAccrualTs: r.i64(),
-    openPositions: r.u32(),
-  };
+  r.skip(32); // units_long, units_short
+  const borrowIdxLong = r.u128();
+  const borrowIdxShort = r.u128();
+  const lastAccrualTs = r.i64();
+  const openPositions = r.u32();
+  r.skip(1); // bump
+  const borrowUnitsLong = r.u128();
+  const borrowUnitsShort = r.u128();
+  return { pool, oracle, oiLong, oiShort, borrowIdxLong, borrowIdxShort, lastAccrualTs, openPositions, borrowUnitsLong, borrowUnitsShort };
 }
 
 export interface PositionAccount {
@@ -258,14 +274,20 @@ export interface Marks {
   trade: bigint;
   low: bigint;
   high: bigint;
+  /** Window-minimum AMM depth: the input to the cap borrow accrues at. */
+  depth?: bigint;
+  /** Unix seconds that unpaid borrow is brought to. Without it, the book's own accrual time. */
+  now?: bigint;
 }
 
-export function marksOf(oracle: Pick<OracleAccount, "price" | "slowTwap">): Marks {
+export function marksOf(oracle: Pick<OracleAccount, "price" | "slowTwap"> & Partial<Pick<OracleAccount, "depthUsdc">>, now?: bigint): Marks {
   const { price, slowTwap } = oracle;
   return {
     trade: price,
     low: slowTwap === 0n || price < slowTwap ? price : slowTwap,
     high: price > slowTwap ? price : slowTwap,
+    depth: oracle.depthUsdc,
+    now,
   };
 }
 
@@ -292,8 +314,37 @@ export function poolView(address: PublicKey, pool: PoolAccount, marks: Marks): P
   };
 }
 
+/**
+ * Borrow the open book owes and has not paid, brought to `marks.now` exactly
+ * as the program does (`BookSnapshot::borrow_owed_at`): the cap from this
+ * sleeve and depth, both sides' rates at it, both indices accrued, then
+ * `index * borrow_units / RAY - oi` per side, floored, never below zero.
+ */
+export function bookBorrowOwed(pool: Pick<PoolAccount, "book" | "usdcSleeve" | "params">, marks: Pick<Marks, "depth" | "now">): bigint {
+  const b = pool.book;
+  if (b.oiLong + b.oiShort === 0n || b.borrowIdxLong === 0n || b.borrowIdxShort === 0n) return 0n;
+  const p = pool.params;
+  const capSolvency = m.oiCapSolvency(pool.usdcSleeve, p.phi, p.deltaMax);
+  const capDepth = m.oiCapDepth(marks.depth ?? 0n, p.deltaLiq, m.mulWadCeil(p.mu, p.attackSafety));
+  const cap = m.oiAllowed(capSolvency, capDepth);
+  const elapsed = marks.now === undefined || marks.now <= b.lastAccrualTs ? 0n : marks.now - b.lastAccrualTs;
+  const base = m.borrowRateHourly(p.r0, p.r1, m.utilization(b.oiLong + b.oiShort, cap));
+  const idxLong = m.accrueBorrowIndex(b.borrowIdxLong, m.mulWadCeil(base, m.sideMultiplier(b.oiLong, b.oiShort, p.psi)), elapsed);
+  const idxShort = m.accrueBorrowIndex(b.borrowIdxShort, m.mulWadCeil(base, m.sideMultiplier(b.oiShort, b.oiLong, p.psi)), elapsed);
+  const side = (idx: bigint, units: bigint, oi: bigint) => {
+    const grown = m.mulDivFloor(units, idx, m.RAY);
+    return grown > oi ? grown - oi : 0n;
+  };
+  return side(idxLong, b.borrowUnitsLong, b.oiLong) + side(idxShort, b.borrowUnitsShort, b.oiShort);
+}
+
+/**
+ * NAV as the program prices CLP being issued (`Pool::nav_issue`): cards at
+ * the high mark, the whole book at today's price, and its unpaid borrow.
+ */
 export function navIssue(pool: PoolAccount, marks: Marks): bigint {
-  return m.nav(pool.usdcSleeve, m.mulWadFloor(pool.fractionBalance, marks.high), bookPnl(pool.book, marks.trade), 0n);
+  const owed = bookBorrowOwed(pool, marks);
+  return m.nav(pool.usdcSleeve, m.mulWadFloor(pool.fractionBalance, marks.high), bookPnl(pool.book, marks.trade) - owed, 0n);
 }
 
 export function oracleView(address: PublicKey, oracle: OracleAccount, now: bigint): OracleView {
