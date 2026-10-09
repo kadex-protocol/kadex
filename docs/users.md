@@ -1,22 +1,17 @@
 # Who uses this, and which screen serves them
 
 Five roles. Only three of them care about cards; the other two are the ones
-that make the market work, and the current frontend barely speaks to either.
+that make the market work.
 
-Last reviewed 5 Oct 2026.
-
-> **Update 5 Oct.** The UI was rebuilt dark, and the two cheapest items on the
-> list at the bottom of this file shipped with it: the borrow spread is now
-> permanently visible in the ticket (role 5), and Hedge mode reframes the short
-> side for dealers, sizing in inventory value (role 4). Portfolio exists, which
-> serves roles 1 and 2. What is still missing is a vault inventory view for
-> role 3.
+Last reviewed 9 Oct 2026. Every role has a screen. What is still missing is an
+LP position view (#8), a vault inventory view (#7), and a working vault
+deposit (#6).
 
 | # | Role | Wants | Screen | State |
 |---|---|---|---|---|
 | 1 | Speculator | directional exposure without owning | Market, Portfolio | **built** |
 | 2 | Liquidity provider | yield for being the counterparty | Pool, Portfolio | **built** |
-| 3 | Card owner | liquidity without selling | Vault | **built** |
+| 3 | Card owner | liquidity without selling | Vault | **screen built, deposit not wired (#6)** |
 | 4 | Dealer hedging stock | insurance on inventory | Market → Hedge | **built** |
 | 5 | Arbitrageur | the long/short borrow spread | Market ticket | **built** |
 
@@ -39,8 +34,8 @@ entry and the liquidation price → connects wallet → opens.
 Served. The ticket shows all four. The liquidation price comes from the same
 function the program uses, so it is the real one.
 
-**Missing:** no way to see an open position's health, because there are no
-positions yet.
+Open positions are listed on the trade screen with their health and
+liquidation price, and can be closed from there.
 
 ## 2 — The liquidity provider
 
@@ -61,7 +56,7 @@ nice-to-have:
 
 Served, including the distinction in 5, which is the one most protocols blur.
 
-**Missing:** no position view. An LP cannot see what their CLP is worth, what
+**Missing (#8):** no position view. An LP cannot see what their CLP is worth, what
 they have earned, or how utilisation is trending. That is the whole reason
 someone opens the app on day two, and it does not exist.
 
@@ -81,12 +76,12 @@ fractions minted and the burn-all condition → vaults it.
 
 Served, and 3 is stated before the deposit button rather than after it.
 
-**Missing:** no inventory view. Someone who has vaulted three cards has no
+**Missing (#7):** no inventory view. Someone who has vaulted three cards has no
 screen showing what is locked and what it would take to redeem each.
 
 ---
 
-## 4 — The dealer hedging inventory — NOT SERVED
+## 4 — The dealer hedging inventory
 
 Holds $50k of stock. Not betting against cards; **buying insurance**. If the
 market falls, they lose on the shelf and gain on the short.
@@ -95,7 +90,7 @@ This is the realistic source of short flow. Collectors do not short — the
 culture is buy-and-hold — so without hedgers the book is one-sided, which is
 the structural risk in `docs/issues.md`.
 
-**What they need, and none of it exists:**
+**What they need** — served by Hedge mode in the trade ticket:
 
 - framing as hedging, not speculation. "Short" reads as betting against the
   hobby; "protect inventory value" reads as prudence, and it is the same trade
@@ -105,11 +100,10 @@ the structural risk in `docs/issues.md`.
   premium they are deciding whether to pay
 - what happens if the market rises: the hedge loses and the shelf gains
 
-**Smallest useful version:** a `/hedge` route that is the trade ticket with
-Short preselected, inventory-value sizing, and the monthly cost in the
-headline. Same instruction underneath.
+Shipped as Hedge mode: the same ticket with Short preselected and sizing in
+inventory value. Same instruction underneath.
 
-## 5 — The arbitrageur — NOT SERVED
+## 5 — The arbitrageur
 
 No opinion about cards. Sees long paying 29.5%/month and short paying 19.7%,
 shorts the perp, buys fractions, banks the spread.
@@ -125,24 +119,14 @@ precisely by paying these people to show up.
 - a machine-readable version of the same. An arbitrageur does not refresh a
   page; they poll
 
-**Smallest useful version:** add the opposite side's rate and the spread to
-the ticket readout. Two lines. It is the cheapest thing on this page and it
-targets the flow the design most needs.
+Both rates and the spread are now always visible in the ticket. Still
+missing: a machine-readable endpoint for bots.
 
 ---
 
-## What this says about priorities
+## What is left
 
-The three built screens serve the people who **want** to be here. The two
-missing ones serve the people the market **needs** in order to work.
-
-If one-sided flow is the structural risk — and the A/B says `psi` only helps
-when someone responds to it — then shipping nothing for hedgers and
-arbitrageurs means relying on a mechanism with no audience.
-
-In order of value for effort:
-
-1. **Show the borrow spread** in the ticket. Two lines. Serves role 5.
-2. **A position view** for LPs. Serves role 2, and it is why anyone returns.
-3. **A `/hedge` framing** of the short side. Serves role 4, needs no new
-   program code — only different copy and a different sizing input.
+1. **A position view** for LPs (#8). It is why anyone returns.
+2. **A vault inventory** for card owners (#7).
+3. **A machine-readable feed** of rates, utilisation and capacity for
+   arbitrageurs. They poll; they do not refresh a page.

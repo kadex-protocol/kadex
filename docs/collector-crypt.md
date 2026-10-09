@@ -152,4 +152,4 @@ a question to answer before switching it on, not after.
 Reading their chain data proves the token exists. It does not prove the card
 does. The trust moves from our admin to Collector Crypt, PSA and a Delaware
 vault — better, because they have a business to lose, but it is delegation
-rather than elimination. See `docs/custody.md` when it exists.
+rather than elimination. See `docs/custody.md`.

@@ -132,8 +132,16 @@ The pool page then reads the chain and sends `deposit_usdc`,
 and prepending `refresh_price` when the oracle is past half its staleness
 limit. The wallet signs; the app sends through its own RPC.
 
+The trade screen reads the wallet's positions (`decodePosition`, filtered by
+owner at `POSITION_OWNER_OFFSET`) and sends `openPositionIx` and
+`closePositionIx` through `apps/web/lib/tradeTx.ts`, prepending
+`refresh_price` the same way.
+
 ## What does not exist yet
 
-- trade, portfolio and vault screens still run on sample data: positions are
-  not fetched and `open_position` / `close_position` are not sent from the app
-- price history: nothing on-chain records it
+- the vault screen sends nothing: no SDK builders for `fractionalize_core` /
+  `redeem_core`, and "Vault this card" has no handler (#6)
+- no LP position view (#8) and no vault inventory (#7)
+- price history: nothing records it, so the chart is empty on a real cluster (#9)
+- the basket constituents and weights are the `CONSTITUENTS` constant in
+  `apps/web/lib/market.ts`, not read from chain (#1, #10)

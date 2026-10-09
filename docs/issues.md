@@ -4,7 +4,9 @@ Status of the twelve. Four are closed in code, three are decisions nobody can
 make for you, three were already structural, one is a communication job, one is
 accepted.
 
-Last reviewed 6 Oct 2026.
+Last reviewed 9 Oct 2026. Work still to do is tracked as
+[GitHub issues](https://github.com/kadex-protocol/kadex/issues); this file
+keeps the reasoning behind each design decision.
 
 > **Audit of 6 Oct 2026.** Two findings were reproduced on a local validator
 > before being fixed: twelve `refresh_price` calls in one transaction moved the
@@ -288,9 +290,10 @@ submission, not resolved. Nothing in the backend changes this either way.
 **Still open, deliberately:**
 
 - **No index token yet.** Each card has its own fraction mint and a pool takes
-  one. A basket mint that holds the weighted cards is product work, not a fix.
+  one. A basket mint that holds the weighted cards is product work, not a fix
+  (#1).
 - **NAV ignores borrow owed but not yet paid**, which understates it slightly
-  until positions close. Conservative for withdrawals; a depositor buys in a
+  until positions close (#14). Conservative for withdrawals; a depositor buys in a
   little cheap.
 - **`settle_position` refuses rather than pays part** if a winning payout ever
   exceeds the sleeve. The withdrawal gate and the solvency ceiling are what
