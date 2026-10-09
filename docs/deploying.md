@@ -81,15 +81,44 @@ node -e "console.log(require('fs').readFileSync('target/deploy/oracle.so').readU
 
 ## Devnet
 
+`scripts/devnet.mjs` does it all and is safe to re-run: each step checks the
+chain and skips what exists, and records addresses and signatures (never keys)
+in `deployments/devnet.json`.
+
 ```sh
 npm run build:programs
-solana config set --url devnet
-solana program deploy target/deploy/oracle.so \
-  --program-id keys/oracle-keypair.json
+node scripts/devnet.mjs check      # balances, what is deployed, SOL needed
+node scripts/devnet.mjs all        # programs, mints, pool, protocol, verify
 ```
 
-Repeat per program. The IDs are fixed in `keys/` so all three developers and
-the frontend hit the same addresses.
+`KADEX_DEPLOYER` is the keypair (default `~/.config/solana/id.json`); it becomes
+the upgrade authority and must be the one that initializes. `DEVNET_RPC`
+overrides the RPC.
+
+- **Loader.** Devnet takes `solana program deploy` (loader v3). Loader v4
+  (SIMD-0167) is **inactive on devnet** as of 9 Oct 2026, so the
+  `program-v4 deploy` the local harness uses would fail there.
+- **SOL.** About 6.6 SOL at the peak: ~4.4 of program rent for oracle,
+  clp_pool and perp, a refundable deploy buffer the size of the largest, the
+  0.15 SOL Raydium create-pool fee, and account rent. `check` prints the exact
+  figure. Fund from https://faucet.solana.com (GitHub sign-in raises the
+  allowance); `solana airdrop` is rate-limited.
+- **What it creates.** A 6-decimal **index token** ("Kadex Card Index (devnet
+  test)", `tKDX`, Metaplex metadata, mint authority the deployer, no freeze
+  authority), a 6-decimal **Kadex Devnet USD** (`kdUSD` — not USDC: a $25k-deep
+  pool cannot be funded from the Circle devnet faucet), and a **Raydium CPMM
+  pool** on fee config 0 (0.25%) seeded with 50,000 of each: $1.00 per index
+  token, $50k of depth. The pool's address is a PDA of the config and the two
+  mints, so a second run cannot create a duplicate.
+- **What it does not claim.** The index token is a devnet demonstration
+  instrument. It is not backed by, and cannot be redeemed for, any card.
+
+The same script runs against the local validator for a dry run:
+
+```sh
+KADEX_DEPLOYMENT=/tmp/local.json DEVNET_RPC=http://127.0.0.1:8899 \
+  node scripts/with-validator.mjs node scripts/devnet.mjs all
+```
 
 ## Local validator
 

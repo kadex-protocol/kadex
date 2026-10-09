@@ -129,22 +129,24 @@ Invariants: `docs/invariants.md`. Program boundaries: `docs/architecture.md`.
 
 ## Where it stops today
 
-The chain works for **one fraction mint per pool**. Each card's index weight
-is stored and never read, nothing combines cards into an index, and the
-five-card basket in the app is a constant. The only AMM the oracle can read is
-the mock one, and local liquidity is minted by a test script, backed by no
-cards.
+**Priced from a real AMM.** The oracle reads a Raydium CPMM constant-product
+pool, validating the pool, both vaults and Raydium's authority and excluding
+owed fees (`docs/oracle.md`). `scripts/devnet.mjs` creates an index token, a
+devnet USD, the pool and the protocol on devnet, re-runnably.
 
-So the next pieces are the ones that turn "one card's fraction" into "an index
-of cards":
+**The index token is a demonstration instrument.** It is one SPL mint the
+deployer controls, seeded into the pool. It is not backed by, and cannot be
+redeemed for, any card. Each card's index weight is stored on its vault record
+and read by nothing; the five-card basket in the app is a constant.
+
+What turns "a token the market prices" into "an index of cards":
 
 | | GitHub |
 |---|---|
-| Index token: basket mint of weighted vaulted cards | #1 |
+| Basket mint backed by weighted vaulted cards, redeemable | #1 |
 | Launch basket: which cards, which weights | #10 |
-| First AMM liquidity: who and how much | #2, seed script #3 |
-| Real AMM adapter | #4 |
-| Devnet deployment | #5 |
+| Who provides launch liquidity, and how much | #2 |
+| Devnet deployment (needs ~7 SOL on the deployer) | #5 |
 
 ## Reference designs
 

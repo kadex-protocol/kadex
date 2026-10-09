@@ -96,21 +96,57 @@ PDA is per basket and the market binds to it, so a permissionless `initialize`
 let the first caller choose the AMM account and the parameters. The `Mock`
 adapter additionally refuses any account the mock AMM program does not own.
 
-## Blocker #1 — the real AMM layout
+## The Raydium CPMM adapter
 
-**The on-chain layout of the real fraction/USDC pool is not yet confirmed.**
+Blocker #1 is closed for one venue. The index token trades in a **Raydium
+CPMM** pool (`raydium-io/raydium-cp-swap`), a plain two-reserve
+constant-product AMM, so `usdc_reserve / index_reserve` is the exact spot and
+every defence above applies unchanged. Concentrated-liquidity and bin pools
+(Orca Whirlpools, Raydium CLMM, Meteora DLMM) were ruled out: their reserves do
+not give the price directly. Meteora DAMM routes liquidity through lending
+vaults, so its token accounts are not its reserves either.
 
-The `Meteora`, `Orca` and `Raydium` adapters return an error in Rust
-(`AdapterUnsupported`) and throw in TypeScript. This is deliberate: returning
-zero, or a plausible number, would be worse, because the market would open on
-an invented price.
+| Check | Rejects |
+|---|---|
+| owner is Raydium CPMM (mainnet `CPMMoo8L…` or devnet `DRaycpLY…`) | a pool from any other program |
+| 637 bytes, `PoolState` discriminator | any other account |
+| both token programs classic SPL Token | Token-2022 sides |
+| both mints 6 decimals | anything that would need rescaling — refused, not rescaled |
+| swaps enabled (status bit 2 clear) | a frozen pool whose reserves nobody can trade |
+| the oracle's `basket` is exactly one of the two mints | an unpaired or self-paired pool |
+| each vault is the one the pool records, an initialized SPL account of that side's mint, owned by Raydium's authority PDA (`vault_and_lp_mint_auth_seed` + the pool's bump) | swapped, substituted, look-alike or frozen vaults |
+| fees owed ≤ vault balance; fee counters do not overflow | wrapped arithmetic |
 
-The `Mock` adapter reads its own layout (8 discriminator bytes + two
-little-endian u64) and covers devnet and tests.
+**Reserves are not the vault balances.** Each vault also holds protocol, fund
+and creator fees the pool owes and has not paid out; usable reserves are the
+balance minus those, exactly Raydium's `vault_amount_without_fee`. A devnet
+pool found while building this held 800,001 units of which 800,000 were fees.
 
-When the real layout is confirmed, **only** these change:
+**Orientation comes from the basket.** For a real pool the oracle's `basket` is
+the index token's mint. The side whose mint is the basket is the index; the
+other is USDC. `initialize` refuses a pool that does not pair the basket.
 
-- `programs/oracle/src/adapter.rs`
-- `packages/oracle/src/index.ts`
+**The vaults arrive as remaining accounts.** `refresh_price` takes the pool
+account as before and, for Raydium, its two vaults after it, in order. The
+program trusts none of them; `refreshAccountsFor` in `@kadex/sdk` finds them
+for callers (keeper, liquidator, web app).
 
-Nothing in `perp`, `clp-pool` or the frontend is touched.
+Rust: `programs/oracle/src/adapter.rs`. TypeScript twin:
+`packages/oracle/src/raydium.ts`. Both are tested on the same Raydium pool
+captured from devnet (`tests/fixtures/raydium_cpmm_pool.json`), with the same
+expected numbers, and the on-chain suite (`tests/integration/raydium.test.mjs`)
+runs against Raydium's real devnet binary.
+
+`Meteora` and `Orca` still return `AdapterUnsupported` / throw.
+
+### Not checked by the oracle
+
+- **That the pool's quote mint is the CLP pool's USDC.** The oracle knows the
+  index mint (its basket); `clp-pool` binds its own `usdc_mint` and
+  `fraction_mint` and does not compare them with the oracle's pool. Both are
+  created by the upgrade authority, so this is a deployment invariant
+  (`scripts/devnet.mjs` creates them together), not a runtime check. Adding it
+  touches `clp-pool`.
+- **Liquidity depth beyond the existing floor.** Thin pools are handled by
+  `min_pool_depth` ($25k, window minimum) and the depth ceiling on open
+  interest, unchanged.
