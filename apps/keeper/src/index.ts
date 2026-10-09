@@ -47,6 +47,7 @@ import {
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import { PROGRAM_IDS } from "@kadex/types";
+import { decodeOracle, refreshAccountsFor } from "@kadex/sdk";
 
 /**
  * Anchor's instruction discriminator: the first 8 bytes of
@@ -67,6 +68,8 @@ interface Config {
   keypairPath: string;
   oracle: PublicKey;
   ammPool: PublicKey;
+  /** Accounts the adapter reads after the pool (Raydium: the two vaults). */
+  extra: PublicKey[];
   intervalMs: number;
 }
 
@@ -81,6 +84,7 @@ function loadConfig(): Config {
     keypairPath: need("KEEPER_KEYPAIR").replace(/^~/, process.env.HOME ?? "~"),
     oracle: new PublicKey(need("ORACLE")),
     ammPool: new PublicKey(need("AMM_POOL")),
+    extra: [],
     // 5s, and the binding reason is liquidation rather than staleness.
     //
     // Liquidation uses the CLAMPED oracle price, which moves at most 5% per
@@ -106,6 +110,7 @@ function refreshPriceIx(cfg: Config, caller: PublicKey): TransactionInstruction 
       { pubkey: caller, isSigner: true, isWritable: false },
       { pubkey: cfg.oracle, isSigner: false, isWritable: true },
       { pubkey: cfg.ammPool, isSigner: false, isWritable: false },
+      ...cfg.extra.map((pubkey) => ({ pubkey, isSigner: false, isWritable: false })),
     ],
     data: REFRESH_PRICE,
   });
@@ -125,9 +130,20 @@ async function main(): Promise<void> {
   const conn = new Connection(cfg.rpcUrl, "confirmed");
   const signer = loadKeypair(cfg.keypairPath);
 
+  // The oracle says which AMM it reads; a real pool also needs its vaults.
+  // Fail at start, not on every tick, if AMM_POOL is not the oracle's pool.
+  const oracleInfo = await conn.getAccountInfo(cfg.oracle, "confirmed");
+  if (!oracleInfo) throw new Error(`oracle ${cfg.oracle.toBase58()} does not exist on ${cfg.rpcUrl}`);
+  const oracle = decodeOracle(oracleInfo.data);
+  if (!oracle.ammPool.equals(cfg.ammPool)) {
+    throw new Error(`AMM_POOL ${cfg.ammPool.toBase58()} is not the oracle's pool ${oracle.ammPool.toBase58()}`);
+  }
+  cfg.extra = await refreshAccountsFor(conn, oracle);
+
   console.log(`[keeper] rpc      ${cfg.rpcUrl}`);
   console.log(`[keeper] oracle   ${cfg.oracle.toBase58()}`);
-  console.log(`[keeper] amm pool ${cfg.ammPool.toBase58()}`);
+  console.log(`[keeper] amm pool ${cfg.ammPool.toBase58()} (${oracle.adapter})`);
+  for (const k of cfg.extra) console.log(`[keeper] + vault  ${k.toBase58()}`);
   console.log(`[keeper] caller   ${signer.publicKey.toBase58()}`);
   console.log(`[keeper] every    ${cfg.intervalMs}ms`);
 

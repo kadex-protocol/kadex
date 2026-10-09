@@ -1,7 +1,7 @@
 import type { PublicKey } from "@solana/web3.js";
 import {
   POSITION_OWNER_OFFSET, POSITION_SIZE, PROGRAM_IDS,
-  decodeMarket, decodeOracle, decodePool, decodePosition, decodeTokenAmount, findAta, findPool,
+  decodeMarket, decodeOracle, decodePool, decodePosition, decodeTokenAmount, findAta, findPool, refreshAccountsFor,
   type MarketAccount, type OracleAccount, type PoolAccount, type PositionAccount,
 } from "@kadex/sdk";
 import type { Cluster } from "./cluster";
@@ -11,6 +11,8 @@ export interface ChainState {
   pool: PoolAccount;
   oracle: OracleAccount;
   market: MarketAccount | null;
+  /** Accounts `refresh_price` needs after the AMM pool (Raydium: its vaults). */
+  refreshAccounts: PublicKey[];
   now: bigint;
 }
 
@@ -22,11 +24,13 @@ export async function readChain({ connection, usdcMint, rpcUrl }: Cluster): Prom
 
   const [oracleInfo, marketInfo] = await connection.getMultipleAccountsInfo([pool.oracle, pool.perpMarket]);
   if (!oracleInfo) throw new Error("The pool's oracle account does not exist.");
+  const oracle = decodeOracle(oracleInfo.data);
   return {
     poolAddress,
     pool,
-    oracle: decodeOracle(oracleInfo.data),
+    oracle,
     market: marketInfo ? decodeMarket(marketInfo.data) : null,
+    refreshAccounts: await refreshAccountsFor(connection, oracle),
     now: BigInt(Math.floor(Date.now() / 1000)),
   };
 }

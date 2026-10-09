@@ -42,6 +42,10 @@ import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { getOrCreateAssociatedTokenAccount, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { PROGRAM_IDS, WAD } from "@kadex/types";
 import * as math from "@kadex/sdk/math";
+import { refreshAccountsFor, type AmmAdapterKind } from "@kadex/sdk";
+
+/** Anchor decodes an enum as `{ raydium: {} }`; the SDK names it "raydium". */
+const adapterKind = (decoded: object): AmmAdapterKind => Object.keys(decoded)[0] as AmmAdapterKind;
 
 /** Anchor account discriminator: first 8 bytes of sha256("account:<Name>"). */
 function accountDiscriminator(name: string): Buffer {
@@ -207,6 +211,11 @@ async function main(): Promise<void> {
           ? await (oracleProgram.methods as any)
               .refreshPrice()
               .accounts({ caller: signer.publicKey, oracle: mk0.oracle, ammPool: oracle.ammPool })
+              .remainingAccounts(
+                (await refreshAccountsFor(conn, { adapter: adapterKind(oracle.adapter), ammPool: oracle.ammPool })).map(
+                  (pubkey) => ({ pubkey, isSigner: false, isWritable: false }),
+                ),
+              )
               .instruction()
           : null;
 

@@ -1,5 +1,6 @@
-import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
-import type { MarketState, MarketView, OracleState, OracleView, PoolParams, PoolView, Side } from "@kadex/types";
+import { PublicKey, SystemProgram, TransactionInstruction, type Connection } from "@solana/web3.js";
+import type { AmmAdapterKind, MarketState, MarketView, OracleState, OracleView, PoolParams, PoolView, Side } from "@kadex/types";
+import { decodePool as decodeRaydiumPool, refreshAccounts as raydiumRefreshAccounts } from "@kadex/oracle/raydium";
 import { PROGRAM_IDS, findPosition } from "@kadex/types";
 import * as m from "./math.js";
 
@@ -28,6 +29,8 @@ const TOKEN_AMOUNT_OFFSET = 64;
 
 const MARKET_STATES: MarketState[] = ["active", "reduceOnly", "settled"];
 const ORACLE_STATES: OracleState[] = ["ok", "stale", "shallowDepth", "diverged", "uninitialized", "catchingUp"];
+/** `AmmAdapter` in kadex-interface, in declaration order. */
+const AMM_ADAPTERS: AmmAdapterKind[] = ["mock", "meteora", "orca", "raydium"];
 
 class Reader {
   private offset = 8;
@@ -108,6 +111,7 @@ export interface PoolAccount {
 export interface OracleAccount {
   basket: PublicKey;
   ammPool: PublicKey;
+  adapter: AmmAdapterKind;
   price: bigint;
   twap: bigint;
   spot: bigint;
@@ -182,7 +186,8 @@ export function decodeOracle(data: Uint8Array): OracleAccount {
   const r = new Reader(data, "OracleAccount", ORACLE_SIZE, DISCRIMINATORS.oracle);
   const basket = r.key();
   const ammPool = r.key();
-  r.skip(1 + 32);
+  const adapter = enumAt(AMM_ADAPTERS, r.u8(), "AmmAdapter");
+  r.skip(32);
   const price = r.u64();
   const twap = r.u64();
   const spot = r.u64();
@@ -196,7 +201,7 @@ export function decodeOracle(data: Uint8Array): OracleAccount {
   const maxStalenessSecs = r.u32();
   r.skip(8 + 8 + 8 + 4);
   const state = enumAt(ORACLE_STATES, r.u8(), "OracleState");
-  return { basket, ammPool, price, twap, spot, slowTwap, depthUsdc, lastUpdateTs, externalMedian, maxStalenessSecs, state };
+  return { basket, ammPool, adapter, price, twap, spot, slowTwap, depthUsdc, lastUpdateTs, externalMedian, maxStalenessSecs, state };
 }
 
 export function decodeMarket(data: Uint8Array): MarketAccount {
@@ -348,12 +353,32 @@ export function createAtaIdempotentIx(payer: PublicKey, owner: PublicKey, mint: 
   });
 }
 
-export function refreshPriceIx(caller: PublicKey, oracle: PublicKey, ammPool: PublicKey): TransactionInstruction {
+/**
+ * `extra` are the accounts the oracle's adapter reads after the pool:
+ * nothing for the mock, the two vaults for Raydium. `refreshAccountsFor`
+ * finds them.
+ */
+export function refreshPriceIx(caller: PublicKey, oracle: PublicKey, ammPool: PublicKey, extra: readonly PublicKey[] = []): TransactionInstruction {
   return new TransactionInstruction({
     programId: PROGRAM_IDS.oracle,
-    keys: [signer(caller, false), writable(oracle), readonly(ammPool)],
+    keys: [signer(caller, false), writable(oracle), readonly(ammPool), ...extra.map((k) => readonly(k))],
     data: Buffer.from(DISCRIMINATORS.refreshPrice),
   });
+}
+
+/**
+ * The remaining accounts `refresh_price` needs for this oracle. The program
+ * verifies every one against the pool, so this only has to find them.
+ */
+export async function refreshAccountsFor(
+  connection: Connection,
+  oracle: Pick<OracleAccount, "adapter" | "ammPool">,
+): Promise<PublicKey[]> {
+  if (oracle.adapter === "mock") return [];
+  if (oracle.adapter !== "raydium") throw new Error(`adapter ${oracle.adapter} is not supported`);
+  const info = await connection.getAccountInfo(oracle.ammPool, "confirmed");
+  if (!info) throw new Error(`AMM pool ${oracle.ammPool.toBase58()} does not exist`);
+  return raydiumRefreshAccounts(decodeRaydiumPool(oracle.ammPool, info.owner, info.data));
 }
 
 export interface PoolAccounts {

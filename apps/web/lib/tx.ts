@@ -6,9 +6,9 @@ import type { Cluster } from "./cluster";
 export type Sign = (tx: Transaction) => Promise<Transaction>;
 
 export function refreshIfAging(chain: ChainState, caller: PublicKey): TransactionInstruction[] {
-  const { oracle, pool, now } = chain;
+  const { oracle, pool, now, refreshAccounts } = chain;
   const halfLife = { lastUpdateTs: oracle.lastUpdateTs, maxStalenessSecs: Math.floor(oracle.maxStalenessSecs / 2) };
-  return oracleIsFresh(halfLife, now) ? [] : [refreshPriceIx(caller, pool.oracle, oracle.ammPool)];
+  return oracleIsFresh(halfLife, now) ? [] : [refreshPriceIx(caller, pool.oracle, oracle.ammPool, refreshAccounts)];
 }
 
 export async function sendInstructions(
