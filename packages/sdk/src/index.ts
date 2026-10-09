@@ -9,4 +9,5 @@
 export * as math from "./math.js";
 export * from "./views.js";
 export * from "./chain.js";
+export * from "./history.js";
 export * from "@kadex/types";

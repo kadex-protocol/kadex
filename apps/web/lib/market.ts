@@ -31,6 +31,9 @@ import {
 } from "@kadex/sdk";
 import { readChain, readPositions, readTokenBalances } from "./chain";
 import { CLUSTER } from "./cluster";
+import { HISTORY_POINTS, HISTORY_STEP_SECS, type IndexHistoryWire } from "./history";
+
+export { HISTORY_STEP_SECS };
 
 export const IS_SAMPLE = CLUSTER === null;
 
@@ -214,8 +217,6 @@ export interface IndexPoint {
   price: bigint;
 }
 
-const HISTORY_POINTS = 288;
-export const HISTORY_STEP_SECS = 300;
 const HISTORY_SEED = 20261007;
 
 function seeded(seed: number) {
@@ -228,9 +229,29 @@ function seeded(seed: number) {
   };
 }
 
-// Sample series only: there is no on-chain price history to read yet.
+/**
+ * The mark price over the last 24 hours, one point per five minutes.
+ *
+ * On a cluster it comes from the oracle's `PriceRefreshed` events via
+ * `/api/index-history`, with the price just read appended so the chart ends
+ * where the ticket quotes. An empty list means no refresh is in the window,
+ * and the chart says so rather than drawing a line.
+ */
 export async function loadIndexHistory(snapshot: MarketSnapshot): Promise<IndexPoint[]> {
-  if (!IS_SAMPLE) return [];
+  if (!IS_SAMPLE) {
+    const res = await fetch("/api/index-history");
+    if (!res.ok) return [];
+    const body = (await res.json()) as IndexHistoryWire;
+    const points = body.points.map((p) => ({ ts: p.ts, price: BigInt(p.price) }));
+    const latest = snapshot.oracle.lastUpdateTs;
+    if (latest > 0n) {
+      const ts = Math.floor(Number(latest) / HISTORY_STEP_SECS) * HISTORY_STEP_SECS;
+      const last = points[points.length - 1];
+      if (last && last.ts === ts) last.price = snapshot.oracle.price;
+      else if (!last || last.ts < ts) points.push({ ts, price: snapshot.oracle.price });
+    }
+    return points;
+  }
   const random = seeded(HISTORY_SEED);
   const now = Math.floor(Date.now() / 1000 / HISTORY_STEP_SECS) * HISTORY_STEP_SECS;
   const prices = [Number(snapshot.oracle.price)];

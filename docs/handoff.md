@@ -15,7 +15,7 @@ npm run sync-keys        # keys/ -> target/deploy/ — fixed program IDs, don't 
 npm run build:programs   # NOT `anchor build` — see docs/deploying.md
 cargo test --workspace   # 152 tests, under a second
 npm run test:parity      # 21 Rust <-> TS parity tests
-npm run test:integration # 58 on-chain tests, boots a validator
+npm run test:integration # 59 on-chain tests, boots a validator
 ```
 
 If `cargo test` passes and `npm run build:programs` ends with "all programs
@@ -37,7 +37,7 @@ they cannot be deployed anywhere. `docs/deploying.md` explains the shim.
 | `programs/card-vault` | done — SPL and Metaplex Core cards, whitelist, redeem |
 | `programs/clp-pool` | done — deposit, withdraw, settle, settled redemption, fees |
 | `programs/perp` | done — open, close, liquidate, borrow |
-| `packages/types` `packages/sdk` | PDAs, decoders, LP and trade instructions, maths |
+| `packages/types` `packages/sdk` | PDAs, decoders, LP and trade instructions, price history, maths |
 | `packages/collector-crypt` | API client, listing median |
 | `apps/keeper` | done — permissionless refresh loop, 5 s |
 | `apps/liquidator` | done — reads state, refreshes if needed, liquidates |
@@ -55,7 +55,6 @@ they cannot be deployed anywhere. `docs/deploying.md` explains the shim.
 | Devnet deployment | #5 |
 | "Vault this card" sends nothing | #6 |
 | LP position view, vault inventory | #8, #7 |
-| Price history for the chart | #9 |
 | Launch basket and weights | #10 |
 
 ## 3. The pattern — copy this shape

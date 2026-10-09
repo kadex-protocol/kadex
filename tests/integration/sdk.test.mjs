@@ -24,6 +24,7 @@ import {
   withdrawIx,
 } from "../../packages/sdk/dist/chain.js";
 import { navRedeem } from "../../packages/sdk/dist/views.js";
+import { readPriceHistory, toSeries } from "../../packages/sdk/dist/history.js";
 import * as math from "../../packages/sdk/dist/math.js";
 import { findPosition } from "../../packages/types/dist/index.js";
 
@@ -180,6 +181,26 @@ describe("@kadex/sdk against the deployed programs", () => {
     assert.equal(await ctx.conn.getAccountInfo(address), null);
     const back = (await tokens(accounts().usdc)) - (before - order.margin - fee);
     assert.ok(back > 0n && back <= order.margin, `closing returns margin net of fee and borrow, got ${back}`);
+  });
+
+  test("price history read from the logs matches what the oracle account says", async () => {
+    const sig = await send(refreshPriceIx(lp.publicKey, env.oracle, env.ammPool));
+    const stored = decodeOracle(await raw(env.oracle));
+    const { events, newest } = await readPriceHistory(ctx.conn, env.oracle, { from: 0, step: 1 });
+    assert.ok(events.length > 0, "at least the refresh just sent");
+    const last = events[events.length - 1];
+    assert.equal(last.price, stored.price);
+    assert.equal(last.ts, stored.lastUpdateTs);
+    assert.equal(last.depthUsdc, stored.depthUsdc);
+    assert.ok(last.oracle.equals(env.oracle));
+    assert.equal(newest, sig, "the newest signature is the one to resume from");
+
+    const again = await readPriceHistory(ctx.conn, env.oracle, { from: 0, step: 1, until: newest });
+    assert.deepEqual(again.events, [], "resuming from the newest signature reads nothing old");
+
+    const now = Number(stored.lastUpdateTs);
+    const series = toSeries(events, 300, now - 3_600, now);
+    assert.equal(series[series.length - 1].price, stored.price, "the chart ends at the oracle price");
   });
 
   test("the program refuses an SDK deposit of zero", async () => {

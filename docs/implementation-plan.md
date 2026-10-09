@@ -27,7 +27,7 @@ four apps.
 | `apps/keeper` `apps/liquidator` `apps/external-feed` | TS | done |
 | `apps/web` | Next.js | trade and pool flows send transactions; vault does not (#6) |
 
-Tests: 152 Rust, 21 parity, 58 on-chain integration, 18 + 8 Collector Crypt.
+Tests: 152 Rust, 21 parity, 12 price history, 59 on-chain integration, 18 + 8 Collector Crypt.
 
 ## 2. Declared deviations from the spec
 

@@ -137,11 +137,32 @@ owner at `POSITION_OWNER_OFFSET`) and sends `openPositionIx` and
 `closePositionIx` through `apps/web/lib/tradeTx.ts`, prepending
 `refresh_price` the same way.
 
+## Price history
+
+No account stores past prices: every `refresh_price` emits `PriceRefreshed`
+into its transaction's logs, and that is the record.
+
+```ts
+import { readPriceHistory, toSeries } from "@kadex/sdk";
+
+const { events, newest } = await readPriceHistory(connection, oracle, { from, step: 300 });
+const points = toSeries(events, 300, from, now);   // one point per bucket, carried forward
+// next time: { from, step: 300, until: newest } reads only what is new
+```
+
+It lists the oracle's signatures, keeps a few per bucket, and fetches only
+those transactions. An event counts only if it was logged while the oracle
+program was executing, so another program cannot forge one. The web app runs
+this server side in `/api/index-history` and caches it for 30 seconds; the
+chart appends the price just read so it ends where the ticket quotes.
+
+Limit: history goes back as far as the RPC keeps transactions. A pruned or
+light RPC returns less, and the chart shows what it gets.
+
 ## What does not exist yet
 
 - the vault screen sends nothing: no SDK builders for `fractionalize_core` /
   `redeem_core`, and "Vault this card" has no handler (#6)
 - no LP position view (#8) and no vault inventory (#7)
-- price history: nothing records it, so the chart is empty on a real cluster (#9)
 - the basket constituents and weights are the `CONSTITUENTS` constant in
   `apps/web/lib/market.ts`, not read from chain (#1, #10)
