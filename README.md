@@ -22,7 +22,7 @@
   <p align="center">
     <img alt="Solana" src="https://img.shields.io/badge/Solana-Anchor%201.2-14F195?style=flat-square">
     <img alt="Rust tests" src="https://img.shields.io/badge/rust%20tests-152-blue?style=flat-square">
-    <img alt="On-chain tests" src="https://img.shields.io/badge/on--chain%20tests-58-blue?style=flat-square">
+    <img alt="On-chain tests" src="https://img.shields.io/badge/on--chain%20tests-59-blue?style=flat-square">
     <img alt="Cards by Collector Crypt" src="https://img.shields.io/badge/cards-Collector%20Crypt-orange?style=flat-square">
     <img alt="Hackathon" src="https://img.shields.io/badge/Colosseum-2026-black?style=flat-square">
   </p>
@@ -213,7 +213,7 @@ The value is the same asset creating three products: Vault brings the cards on-c
 [![React][react-badge]][react-url]
 
 - **Chain:** Solana · five Anchor programs — `oracle`, `card-vault`, `clp-pool`, `perp`, `mock-amm`
-- **Risk:** `slab-math` (fixed point, no floats) · `slab-risk` (every rule, no Anchor, no Solana) · `slab-interface` (frozen account contracts)
+- **Risk:** `kadex-math` (fixed point, no floats) · `kadex-risk` (every rule, no Anchor, no Solana) · `kadex-interface` (frozen account contracts)
 - **Front:** Next.js 15 (App Router) · React 19 · hand-written CSS design system with switchable themes · native wallet detection
 - **SDK:** `@kadex/types` · `@kadex/sdk` (PDAs, account decoding, instruction builders, Rust-parity maths) · `@kadex/oracle` · `@kadex/collector-crypt`
 - **Bots:** permissionless price keeper · liquidator · external price feed
@@ -257,9 +257,9 @@ The core idea: **the only thing crossing the boundary is the oracle account**. `
 - **Two ceilings, the lower one wins:** open interest is capped by both pool solvency and AMM depth. An opening that would breach either is refused in the same transaction.
 - **Utilization-priced borrow:** the rate climbs quadratically, so the pool becomes expensive before it is cornered.
 - **The card sleeve never pays a winning trader:** payouts come from USDC only; bad debt is explicit, not hidden in NAV.
-- **Thin handlers, enforced by tests:** a handler over 45 lines fails the build, and so does `slab-risk` gaining a Solana dependency.
+- **Thin handlers, enforced by tests:** a handler over 45 lines fails the build, and so does `kadex-risk` gaining a Solana dependency.
 
-> 📄 **Go deeper.** [`docs/architecture.md`](docs/architecture.md) covers program boundaries, token custody, and arithmetic scales; [`docs/invariants.md`](docs/invariants.md) lists the twelve rules with the test that guards each; [`docs/oracle.md`](docs/oracle.md) documents every defence and the attack it blocks; [`docs/deploying.md`](docs/deploying.md) explains the build and the fixed program IDs.
+> 📄 **Go deeper.** [`docs/spec.md`](docs/spec.md) is the whole design end to end and where it stops today; [`docs/architecture.md`](docs/architecture.md) covers program boundaries, token custody, and arithmetic scales; [`docs/invariants.md`](docs/invariants.md) lists the twelve rules with the test that guards each; [`docs/oracle.md`](docs/oracle.md) documents every defence and the attack it blocks; [`docs/deploying.md`](docs/deploying.md) explains the build and the fixed program IDs.
 
 <p align="right">(<a href="#readme-top">Back to top</a>)</p>
 
@@ -277,7 +277,7 @@ Five roles, each with a screen built for it — detailed in [`docs/users.md`](do
 | **Dealer hedging stock** | Insurance on inventory | Hedge mode — a short sized in the value of the stock it protects |
 | **Arbitrageur** | The long/short borrow spread | Both borrow rates permanently visible in the ticket and the market bar |
 
-And the hard requirements: **built on Solana** ✅ · **functional programs, not a mockup** ✅ (58 tests against a local validator) · **public repository** ✅.
+And the hard requirements: **built on Solana** ✅ · **functional programs, not a mockup** ✅ (59 tests against a local validator) · **public repository** ✅.
 
 > 🔗 **Proof it's on-chain:** the five program IDs are fixed in [`Anchor.toml`](Anchor.toml) and [`keys/`](keys), and `npm run test:integration` boots a validator, deploys all five, and runs the full lifecycle — vault, deposit, open, liquidate, settle, redeem.
 
@@ -314,7 +314,8 @@ npm run sync-keys                      # keys/ -> target/deploy/ (fixed program 
 npm run build:programs                 # NOT a bare `anchor build` — see docs/deploying.md
 cargo test --workspace                 # 152 rule tests, under a second
 npm run test:parity                    # 21 Rust <-> TS parity tests
-npm run test:integration               # 58 tests against a local validator
+npm run test:history                   # 12 price-history parser tests
+npm run test:integration               # 59 tests against a local validator
 
 # 3) Web app against a real local cluster (separate terminal)
 npm run dev:chain                      # validator + all five programs + a seeded market
@@ -344,10 +345,10 @@ npm run dev:chain                      # validator + all five programs + a seede
 Kadex/
 ├─ apps/        # web, keeper, liquidator, external-feed
 ├─ programs/    # oracle, card-vault, clp-pool, perp, mock-amm
-├─ packages/    # slab-math, slab-risk, slab-interface (Rust) · types, sdk, oracle, collector-crypt (TS)
-├─ tests/       # parity, integration (local validator), Collector Crypt
+├─ packages/    # kadex-math, kadex-risk, kadex-interface (Rust) · types, sdk, oracle, collector-crypt (TS)
+├─ tests/       # parity, price history, integration (local validator), Collector Crypt
 ├─ scripts/     # build, validator harness, dev chain, whitelist
-└─ docs/        # architecture, invariants, oracle, deploying, users
+└─ docs/        # spec, architecture, invariants, oracle, custody, deploying, users
 ```
 
 <p align="right">(<a href="#readme-top">Back to top</a>)</p>
@@ -365,6 +366,8 @@ Kadex/
 - [x] **SDK** — PDAs, account decoding, instruction builders, Rust ↔ TS parity tests
 - [x] **Collector Crypt integration** — live marketplace, per-card pages, Core whitelist
 - [x] **Web app** — Trade, Earn, Vault, Portfolio, wallet detection, real deposits and positions on a local cluster
+- [x] **Price history** — the index chart read back from on-chain `PriceRefreshed` events, no indexer
+- [ ] **Index token** — one basket mint backed by the weighted vaulted cards ([#1](https://github.com/kadex-protocol/kadex/issues/1))
 - [ ] **Public devnet deploy** — hosted app and demo video with the submission
 - [ ] **Real AMM adapter** — replace `mock-amm` with a live venue for the fraction pool
 - [ ] **Mainnet readiness** — fresh program keypairs, audit, upgrade-authority handoff
