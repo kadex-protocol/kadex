@@ -11,4 +11,5 @@ export * from "./views.js";
 export * from "./chain.js";
 export * from "./history.js";
 export * from "./vault.js";
+export * from "./activity.js";
 export * from "@kadex/types";

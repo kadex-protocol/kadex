@@ -3,8 +3,7 @@
 Five roles. Only three of them care about cards; the other two are the ones
 that make the market work.
 
-Last reviewed 9 Oct 2026. Every role has a screen. What is still missing is an
-LP position view (#8).
+Last reviewed 9 Oct 2026. Every role has a screen.
 
 | # | Role | Wants | Screen | State |
 |---|---|---|---|---|
@@ -55,9 +54,10 @@ nice-to-have:
 
 Served, including the distinction in 5, which is the one most protocols blur.
 
-**Missing (#8):** no position view. An LP cannot see what their CLP is worth, what
-they have earned, or how utilisation is trending. That is the whole reason
-someone opens the app on day two, and it does not exist.
+**Position.** "Your position" on the Earn page shows the CLP held, what a full
+withdrawal returns from each sleeve, the return since the first deposit (fees
+and trader PnL together, labelled as such) and utilisation through time, all
+read from the programs' own events.
 
 ## 3 — The card owner
 
@@ -126,6 +126,5 @@ missing: a machine-readable endpoint for bots.
 
 ## What is left
 
-1. **A position view** for LPs (#8). It is why anyone returns.
-2. **A machine-readable feed** of rates, utilisation and capacity for
+1. **A machine-readable feed** of rates, utilisation and capacity for
    arbitrageurs. They poll; they do not refresh a page.

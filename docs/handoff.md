@@ -15,7 +15,7 @@ npm run sync-keys        # keys/ -> target/deploy/ — fixed program IDs, don't 
 npm run build:programs   # NOT `anchor build` — see docs/deploying.md
 cargo test --workspace   # 173 tests, under a second
 npm run test:parity      # 21 Rust <-> TS parity tests
-npm run test:integration # 75 on-chain tests, boots a validator
+npm run test:integration # 77 on-chain tests, boots a validator
 ```
 
 If `cargo test` passes and `npm run build:programs` ends with "all programs
@@ -51,9 +51,7 @@ they cannot be deployed anywhere. `docs/deploying.md` explains the shim.
 | Index token: a basket mint of weighted vaulted cards | #1 |
 | Who provides the first AMM liquidity | #2 |
 | Seed script from real vaulted cards | #3 |
-| Real AMM adapter (only `Mock` works) | #4 |
 | Devnet deployment | #5 |
-| LP position view | #8 |
 | Launch basket and weights | #10 |
 
 ## 3. The pattern — copy this shape

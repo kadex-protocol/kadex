@@ -61,16 +61,15 @@ const EXIT = /^Program (\w+) (success|failed)/;
 const DATA = "Program data: ";
 
 /**
- * Every `PriceRefreshed` for `oracle` in one transaction's logs, in order.
- *
- * Follows the invoke stack so a line counts only when the oracle program was
- * the one running. Lines that do not decode are skipped, never thrown on: a
- * transaction can carry other programs' events.
+ * Every `Program data:` payload logged while `program` was the one executing,
+ * in order. Follows the invoke stack, so another program cannot forge an
+ * event by logging the same bytes, nor borrow a CPI's frame. Undecodable
+ * lines are skipped, never thrown on.
  */
-export function priceEventsFromLogs(logs: readonly string[], oracle: PublicKey): PriceRefreshed[] {
+export function programData(logs: readonly string[], program: PublicKey): Uint8Array[] {
   const stack: string[] = [];
-  const oracleProgram = PROGRAM_IDS.oracle.toBase58();
-  const events: PriceRefreshed[] = [];
+  const id = program.toBase58();
+  const out: Uint8Array[] = [];
   for (const line of logs) {
     const invoke = INVOKE.exec(line);
     if (invoke) {
@@ -81,19 +80,29 @@ export function priceEventsFromLogs(logs: readonly string[], oracle: PublicKey):
       stack.pop();
       continue;
     }
-    if (!line.startsWith(DATA) || stack[stack.length - 1] !== oracleProgram) continue;
-    let bytes: Uint8Array;
+    if (!line.startsWith(DATA) || stack[stack.length - 1] !== id) continue;
     try {
-      bytes = Uint8Array.from(atob(line.slice(DATA.length).trim()), (c) => c.charCodeAt(0));
+      out.push(Uint8Array.from(atob(line.slice(DATA.length).trim()), (c) => c.charCodeAt(0)));
     } catch {
       continue;
     }
-    if (bytes.length !== PRICE_REFRESHED_SIZE) continue;
-    if (PRICE_REFRESHED_DISCRIMINATOR.some((byte, i) => bytes[i] !== byte)) continue;
-    const event = decodePriceRefreshed(bytes);
-    if (event.oracle.equals(oracle)) events.push(event);
   }
-  return events;
+  return out;
+}
+
+/** True when `bytes` starts with `discriminator` and is exactly `size` long. */
+export const isEvent = (bytes: Uint8Array, discriminator: readonly number[], size: number) =>
+  bytes.length === size && discriminator.every((b, i) => bytes[i] === b);
+
+/**
+ * Every `PriceRefreshed` for `oracle` in one transaction's logs, in order.
+ * Only events logged while the oracle program was running count.
+ */
+export function priceEventsFromLogs(logs: readonly string[], oracle: PublicKey): PriceRefreshed[] {
+  return programData(logs, PROGRAM_IDS.oracle)
+    .filter((b) => isEvent(b, PRICE_REFRESHED_DISCRIMINATOR, PRICE_REFRESHED_SIZE))
+    .map(decodePriceRefreshed)
+    .filter((e) => e.oracle.equals(oracle));
 }
 
 const bucketOf = (ts: number, step: number) => Math.floor(ts / step) * step;

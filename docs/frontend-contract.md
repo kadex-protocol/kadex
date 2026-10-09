@@ -157,6 +157,23 @@ second click that states the fraction count before signing.
 `tests/integration/vault-sdk.test.mjs` runs each state against the real
 Metaplex Core program and shows the program refusing what the button refuses.
 
+## LP position
+
+```ts
+import { readLpEvents, lpReturn, readUtilisation } from "@kadex/sdk";
+
+const events = await readLpEvents(connection, pool, wallet);   // the wallet's Deposited / Withdrawn / Redeemed
+const r = lpReturn(events, valueNow, priceAt);                 // contributed, withdrawn, return, firstDepositTs
+const trend = await readUtilisation(connection, market);       // OI and utilisation at each open and close
+```
+
+Return is fees and trader PnL together: both move the value of a share, so
+they cannot be separated per LP. A fraction deposit's event carries no price,
+so it is valued at the index price nearest before it and marked approximate.
+Utilisation at an open is exact (the event carries `oi_after` and `cap`); a
+close subtracts that position's notional and keeps the last cap seen. Both
+read the last 300 transactions of the wallet and of the market.
+
 ## Vault inventory
 
 ```ts
@@ -195,6 +212,5 @@ light RPC returns less, and the chart shows what it gets.
 
 ## What does not exist yet
 
-- no LP position view (#8)
 - the basket constituents and weights are the `CONSTITUENTS` constant in
   `apps/web/lib/market.ts`, not read from chain (#1, #10)

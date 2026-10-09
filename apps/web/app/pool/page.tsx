@@ -21,6 +21,7 @@ import {
 import { CLUSTER } from "@/lib/cluster";
 import { sendPoolAction, type PoolAction } from "@/lib/poolTx";
 import { explainTxError, shortSignature } from "@/lib/tx";
+import { LpPosition } from "@/components/LpPosition";
 
 type TicketSide = "deposit" | "withdraw";
 interface Receipt {
@@ -135,6 +136,8 @@ export default function PoolPage() {
           </p>
         </section>
       </div>
+
+      <LpPosition data={data} balances={balances} wallet={connected ? publicKey : null} />
 
       <div className="earn2">
         <section className="panel ticket">
