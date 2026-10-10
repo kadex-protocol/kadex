@@ -88,7 +88,7 @@ in `deployments/devnet.json`.
 ```sh
 npm run build:programs
 node scripts/devnet.mjs check      # balances, what is deployed, SOL needed
-node scripts/devnet.mjs all        # programs, mints, pool, protocol, verify
+node scripts/devnet.mjs all        # programs, mints, pool, protocol, verify, env
 ```
 
 `KADEX_DEPLOYER` is the keypair (default `~/.config/solana/id.json`); it becomes
@@ -98,10 +98,11 @@ overrides the RPC.
 - **Loader.** Devnet takes `solana program deploy` (loader v3). Loader v4
   (SIMD-0167) is **inactive on devnet** as of 9 Oct 2026, so the
   `program-v4 deploy` the local harness uses would fail there.
-- **SOL.** About 6.6 SOL at the peak: ~4.4 of program rent for oracle,
-  clp_pool and perp, a refundable deploy buffer the size of the largest, the
-  0.15 SOL Raydium create-pool fee, and account rent. `check` prints the exact
-  figure. Fund from https://faucet.solana.com (GitHub sign-in raises the
+- **SOL.** About 6.6 SOL at the peak for oracle, clp_pool and perp: ~4.4 of
+  program rent, a refundable deploy buffer the size of the largest, the
+  0.15 SOL Raydium create-pool fee, and account rent. card_vault adds its own
+  rent on top, and the `env` step sends 1 SOL to the faucet wallet. `check`
+  prints the exact figure for the programs. Fund from https://faucet.solana.com (GitHub sign-in raises the
   allowance); `solana airdrop` is rate-limited.
 - **What it creates.** A 6-decimal **index token** ("Kadex Card Index (devnet
   test)", `tKDX`, Metaplex metadata, mint authority the deployer, no freeze
@@ -119,6 +120,56 @@ The same script runs against the local validator for a dry run:
 KADEX_DEPLOYMENT=/tmp/local.json DEVNET_RPC=http://127.0.0.1:8899 \
   node scripts/with-validator.mjs node scripts/devnet.mjs all
 ```
+
+### The whole app on devnet, for a recorded demo
+
+On Windows run all of this from WSL, where the toolchain is.
+
+1. **Build.** `npm ci`, `npm run typecheck` (the scripts import the packages'
+   `dist/`), then `npm run build:programs`. If that stops with `e_flags=3`,
+   let `anchor build` write the IDLs and build each of the five programs with
+   the 3.1.10 release: `cargo-build-sbf --arch v1 --manifest-path
+   programs/<name>/Cargo.toml --sbf-out-dir target/deploy`.
+2. **Rehearse on a local validator.** `npm run test:integration`, then
+   `npm run dev:chain -- <wallet>` and open the app. It is the same web code
+   path with a mock AMM, and it costs no devnet SOL.
+3. **Decide the pool size before the first devnet run.** `SEED` in
+   `scripts/devnet.mjs` is 50,000/50,000, which carries about $7.5k of open
+   interest: one $1,000 margin at 5x takes two thirds of it. The script cannot
+   enlarge the pool after it exists.
+4. **Fund the deployer and deploy.** `node scripts/devnet.mjs check`, fund
+   what it asks for, then `node scripts/devnet.mjs all`. The last step, `env`,
+   creates a faucet wallet (never the deployer), sends it 1 SOL and 100,000
+   kdUSD, and writes four lines to `apps/web/.env.local`, keeping every other
+   line: `NEXT_PUBLIC_KADEX_RPC_URL`, `NEXT_PUBLIC_KADEX_USDC_MINT`,
+   `NEXT_PUBLIC_KADEX_NETWORK` and `KADEX_FAUCET_KEYPAIR`.
+5. **Start the app.** `npm run web`, restarted after any change to
+   `.env.local`. Off mainnet the wallet picker also offers a demo wallet, and
+   any wallet that connects is sent 0.05 SOL and 1,000 kdUSD by the faucet.
+   `node scripts/devnet.mjs fund <wallet> [usd]` mints more.
+6. **Give the wallet test cards.** Copy the connected wallet's address and run
+   `node scripts/devnet.mjs cards <wallet>`. It creates a Core collection,
+   initializes the vault registry with it, and makes copies of seven real
+   Collector Crypt cards owned by that wallet, whitelisted at the real
+   appraisal with equal weights (capped at 15%). `KADEX_CARDS=<address>,…`
+   picks the cards. The vault page then lists them first, and their card
+   pages vault and redeem the copy.
+7. **Keep the price fresh.** `npm run keeper` and `npm run liquidator`, each
+   in its own terminal. Both read the addresses from
+   `deployments/devnet.json`; `KADEX_SERVICE_KEYPAIR` picks the payer.
+8. **Make the price move on camera.** `npm run devnet:market -- swing 0.03
+   600 15`. Each swap carries `refresh_price`, so it works without a keeper.
+   The oracle keeps its 30-minute TWAP on devnet, so the price on screen
+   follows a swing slowly: about a tenth of a 3% swing over ten minutes.
+
+What this does not give you:
+
+- Vaulted fractions cannot be deposited into the pool. Each card has its own
+  fraction mint and the pool binds one, the index token (#1).
+- Real Collector Crypt cards cannot be vaulted on devnet. They are mainnet
+  assets; only the copies made in step 6 exist here.
+- The copies point their metadata at the card's Collector Crypt page, not at
+  a JSON file, so a wallet shows them without a picture.
 
 ## Local validator
 
