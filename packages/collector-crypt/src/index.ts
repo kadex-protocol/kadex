@@ -271,6 +271,16 @@ export async function fetchMarketplacePage(
   };
 }
 
+/**
+ * A card's current appraisal alone: one request, and it keeps answering after
+ * the card is vaulted, when it can no longer be listed.
+ */
+export async function fetchAppraisal(nftAddress: string, opts: ClientOptions = {}): Promise<bigint> {
+  const raw = await getJson(`/cards/publicNft/${encodeURIComponent(nftAddress)}`, opts);
+  if (!isRecord(raw)) throw new Error(`Collector Crypt has no card ${nftAddress}`);
+  return parseUsdc(raw.insuredValue);
+}
+
 export async function fetchCard(nftAddress: string, opts: ClientOptions = {}): Promise<CollectorCard> {
   const path = `/cards/publicNft/${encodeURIComponent(nftAddress)}`;
   const [card, market] = await Promise.all([getJson(path, opts), getJson(`${path}/market`, opts)]);

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Connection, PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { PROGRAM_IDS, WAD } from "@kadex/types";
 import {
+  fetchAppraisal,
   fetchListing,
   impliedFractionPrice,
   mapLimited,
@@ -129,4 +130,59 @@ export async function readExternalMedian(
   const weights = new Map(whitelisted.map((c) => [c.asset.toBase58(), c.weightBps]));
   const reading = externalMedianFrom(found.filter((c): c is CollectorCard => c !== null), minSamples, weights);
   return { ...reading, unpriced: [...reading.unpriced, ...failed] };
+}
+
+/**
+ * What the feed publishes: each card's current Collector Crypt appraisal over
+ * the appraisal it was whitelisted at (its `fractions_per_card`, one fraction
+ * per dollar), as a price per fraction in WAD, weighted median by
+ * `weight_bps`. 1.00 means the basket is appraised where it launched.
+ *
+ * Not asks: a vaulted card is owned by its vault PDA and cannot be listed,
+ * so once the basket is deposited the asks median has no samples at all, and
+ * before that asks sit a median 1.5x above appraisal market-wide (issue #11).
+ */
+export function appraisalIndexFrom(
+  whitelisted: readonly WhitelistedCoreCard[],
+  appraisals: ReadonlyMap<string, bigint>,
+  minSamples: number,
+): ExternalMedianReading {
+  const samples: ExternalMedianReading["samples"] = [];
+  const unpriced: ExternalMedianReading["unpriced"] = [];
+  for (const c of whitelisted) {
+    const asset = c.asset.toBase58();
+    const now = appraisals.get(asset);
+    if (now === undefined) unpriced.push({ asset, reason: "no appraisal" });
+    else if (now <= 0n || c.fractionsPerCard <= 0n) unpriced.push({ asset, reason: "appraisal is zero" });
+    else samples.push({ asset, price: (now * WAD) / c.fractionsPerCard, weightBps: c.weightBps });
+  }
+  const enough = samples.length >= minSamples;
+  return {
+    median: enough ? medianWad(samples.map((s) => s.price)) : null,
+    index: enough ? weightedMedianWad(samples.map((s) => ({ price: s.price, weight: BigInt(s.weightBps) }))) : null,
+    samples,
+    unpriced,
+  };
+}
+
+/** Every enabled whitelisted card's appraisal drift; one request per card. */
+export async function readAppraisalIndex(
+  conn: Connection,
+  minSamples: number,
+  opts: ClientOptions = {},
+  concurrency = 8,
+): Promise<ExternalMedianReading> {
+  const whitelisted = (await whitelistedCoreCards(conn)).filter((c) => c.enabled);
+  const appraisals = new Map<string, bigint>();
+  const failed: ExternalMedianReading["unpriced"] = [];
+  await mapLimited(whitelisted, concurrency, async ({ asset }) => {
+    const address = asset.toBase58();
+    try {
+      appraisals.set(address, await fetchAppraisal(address, opts));
+    } catch (e) {
+      failed.push({ asset: address, reason: e instanceof Error ? e.message : String(e) });
+    }
+  });
+  const reading = appraisalIndexFrom(whitelisted, appraisals, minSamples);
+  return { ...reading, unpriced: [...reading.unpriced.filter((u) => !failed.some((f) => f.asset === u.asset)), ...failed] };
 }

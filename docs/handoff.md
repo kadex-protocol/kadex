@@ -41,7 +41,7 @@ they cannot be deployed anywhere. `docs/deploying.md` explains the shim.
 | `packages/collector-crypt` | API client, listing median |
 | `apps/keeper` | done — permissionless refresh loop, 5 s |
 | `apps/liquidator` | done — reads state, refreshes if needed, liquidates |
-| `apps/external-feed` | done — dry run unless `PUBLISH=1` |
+| `apps/external-feed` | done — publishes appraisal drift; dry run unless `PUBLISH=1` |
 | `apps/web` | trade (open, list, close), Earn/pool (deposit, withdraw), portfolio, card marketplace with vault and redeem, methodology. Runs on sample data with no cluster configured |
 
 **Not built yet** — each is a GitHub issue:

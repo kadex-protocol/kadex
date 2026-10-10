@@ -199,23 +199,48 @@ with `fractionalize_core`. Re-run the script to refresh; the whitelist script
 refuses a basket whose appraisals have moved since it was written, because
 the weights would no longer match the sleeve.
 
-### The median, and why the feed starts in dry run
+### The external reference: appraisal drift, not asks (#11)
 
-A fraction is $1 of `insuredValue`, so `listing.price / insuredValue` is the
-price per fraction a listing implies — the same unit as `oracle.price`. The
-feed publishes the **weighted median** (`index`) of that ratio over
-whitelisted Core cards with an active USDC listing, each card counted by its
-on-chain `weight_bps`, and nothing at all below `MIN_SAMPLES` (default 3). The
-plain median is logged beside it; with equal weights the two agree.
+**What the feed publishes.** For each enabled whitelisted card, its current
+`insuredValue` over the appraisal it was whitelisted at (`fractions_per_card`,
+one fraction per dollar): a price per fraction in WAD, the unit of
+`oracle.price`. The weighted median by `weight_bps` goes to
+`set_external_median`; nothing below `MIN_SAMPLES` (default 5). It reads
+1.000 at launch and moves only when Collector Crypt re-appraises a card.
+`SOURCE=asks` publishes the asks median instead; both are logged every tick.
 
-It is a median because asks are not fills. On 7 Oct 2026 one page of 100
-listings ran from 0.89x to 307x the appraisal, with a median of 1.26x.
+**Why not asks.** Measured 10 Oct 2026 over 4,734 appraised Core USDC
+listings:
 
-That 1.26 is also why `PUBLISH=1` is opt-in. Against an AMM price of 1.00 it
-is a 21% divergence, past `max_divergence` (15%), and publishing it puts the
-oracle in `Diverged`, which stops new positions. Whether asks sit above
-appraisals because the appraisals are stale or because sellers are hopeful is
-a question to answer before switching it on, not after.
+| | p10 | median | p90 | listed below 0.87x |
+|---|---|---|---|---|
+| ask / appraisal, all | 1.00 | 1.52 | 5.00 | 1% |
+| $1,000–$6,000 only | 1.00 | 1.48 | 4.80 | 1% |
+
+Asks start at the appraisal and run up from it, the same in every value
+band: the appraisal is a floor sellers price above, not a stale number the
+market has left behind. A median of asks is therefore biased high by
+construction. And it would go empty at launch: a vaulted card is owned by
+its vault PDA and cannot be listed, so once the treasury deposits the basket
+no whitelisted card has an ask. The API returns only active listings (130
+checked, none closed), so sales cannot correct it either; see #18.
+
+**What it is and is not.** An appraisal is a valuation, not a tradable
+price. It only gates: when the AMM price is more than `max_divergence` (15%)
+from it, `evaluate_state` returns `Diverged` and `require_tradeable` refuses
+new positions; closing and liquidation are unaffected. It never prices
+anything, and if the feed stops, the bound lapses after `max_staleness_secs`
+rather than halting the market.
+
+**The trade-off, stated.** If Collector Crypt re-appraises rarely, the
+reference stays near 1.00 and new positions pause whenever the AMM moves more
+than 15% from the launch value, until appraisals catch up or the bound is
+reviewed. That is the defence working as a circuit breaker, but it can pause
+a legitimate move. Watch the logged asks/appraisal gap; executed sales (#18)
+are the better reference once they can be read.
+
+**Turning it on.** After the basket is whitelisted and deposited:
+`PUBLISH=1 FEED_KEYPAIR=… ORACLE=… npx tsx apps/external-feed/src/index.ts`.
 
 ## What this does not solve
 

@@ -113,7 +113,7 @@ still paid from the margin and the shortfall is recorded as bad debt.
 |---|---|
 | `apps/keeper` | `refresh_price` every 5 s. Run at least two, on different machines |
 | `apps/liquidator` | scans positions, refreshes if needed, sends `liquidate` |
-| `apps/external-feed` | publishes the Collector Crypt listing median. Dry run unless `PUBLISH=1` |
+| `apps/external-feed` | publishes the basket's Collector Crypt appraisal drift as `external_median` (#11). Dry run unless `PUBLISH=1` |
 
 ## 6. How the code is structured
 

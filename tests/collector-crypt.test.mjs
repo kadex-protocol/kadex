@@ -305,3 +305,26 @@ test("mapLimited keeps order and never runs more than n at once", async () => {
   assert.deepEqual(out, [50, 10, 40, 20, 30]);
   assert.equal(peak, 2);
 });
+
+test("the appraisal index is current appraisal over whitelisted appraisal, weighted", async () => {
+  const { appraisalIndexFrom } = await import("../packages/collector-crypt/dist/chain.js");
+  const { PublicKey } = await import("@solana/web3.js");
+  const key = (n) => new PublicKey(Buffer.alloc(32, n));
+  const wl = [
+    { asset: key(1), fractionsPerCard: 5_000n * 1_000_000n, weightBps: 6_000, enabled: true }, // re-appraised +10%
+    { asset: key(2), fractionsPerCard: 2_000n * 1_000_000n, weightBps: 2_000, enabled: true }, // unchanged
+    { asset: key(3), fractionsPerCard: 2_000n * 1_000_000n, weightBps: 2_000, enabled: true }, // halved
+    { asset: key(4), fractionsPerCard: 1_000n * 1_000_000n, weightBps: 1, enabled: true }, // no answer
+  ];
+  const now = new Map([
+    [key(1).toBase58(), 5_500n * 1_000_000n],
+    [key(2).toBase58(), 2_000n * 1_000_000n],
+    [key(3).toBase58(), 1_000n * 1_000_000n],
+  ]);
+  const r = appraisalIndexFrom(wl, now, 3);
+  assert.deepEqual(r.samples.map((s) => s.price), [1_100_000n, 1_000_000n, 500_000n]);
+  assert.equal(r.index, 1_100_000n, "the card holding 60% of the weight sets it");
+  assert.equal(r.median, 1_000_000n);
+  assert.deepEqual(r.unpriced.map((u) => u.reason), ["no appraisal"]);
+  assert.equal(appraisalIndexFrom(wl, now, 4).index, null, "three answers, four required: nothing");
+});

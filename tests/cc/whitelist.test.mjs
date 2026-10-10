@@ -6,6 +6,7 @@ import { PublicKey, Transaction } from "@solana/web3.js";
 import { IDLS, newProvider, programs, setupOracle, refresh, stateName, mustFail } from "../integration/_harness.mjs";
 import { COLLECTOR_CRYPT_COLLECTION, fetchCard } from "../../packages/collector-crypt/dist/index.js";
 import {
+  readAppraisalIndex,
   readExternalMedian,
   readOraclePrice,
   setExternalMedianIx,
@@ -18,10 +19,10 @@ const WARTORTLE = "CvsHTsAjWdaxViomzmfzqkVFsNkps6Jzs8d24jjMzP43";
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`../fixtures/${name}`, import.meta.url), "utf8"));
 
-function collectorCrypt(askUsd) {
+function collectorCrypt(askUsd, insuredUsd = "70") {
   const market = fixture("cc_card_market.json");
   const routes = {
-    [`/cards/publicNft/${WARTORTLE}`]: fixture("cc_card.json"),
+    [`/cards/publicNft/${WARTORTLE}`]: { ...fixture("cc_card.json"), insuredValue: insuredUsd },
     [`/cards/publicNft/${WARTORTLE}/market`]: { ...market, listing: { ...market.listing, price: askUsd } },
     // What the feed reads: one marketplace search by mint, appraisal and listing together.
     [`/marketplace?search=${WARTORTLE}`]: {
@@ -106,6 +107,19 @@ describe("collector crypt, end to end", () => {
     const account = await ctx.p.oracle.account.oracleAccount.fetch(oracleEnv.oracle);
     assert.equal(account.externalMedian.toString(), "1100000");
     assert.notEqual(stateName(account.state), "diverged");
+  });
+
+  test("the appraisal index is 1.00 at launch and follows a re-appraisal", async () => {
+    const flat = await readAppraisalIndex(ctx.conn, 1, { fetch: collectorCrypt("2550") });
+    assert.equal(flat.index, 1_000_000n, "appraised where it was whitelisted, whatever the ask");
+    const up = await readAppraisalIndex(ctx.conn, 1, { fetch: collectorCrypt("2550", "77") });
+    assert.equal(up.index, 1_100_000n);
+    const none = await readAppraisalIndex(ctx.conn, 2, { fetch: collectorCrypt("2550") });
+    assert.equal(none.index, null, "one card, two required");
+
+    await ctx.provider.sendAndConfirm(new Transaction().add(setExternalMedianIx(ctx.payer.publicKey, oracleEnv.oracle, flat.index)));
+    const account = await ctx.p.oracle.account.oracleAccount.fetch(oracleEnv.oracle);
+    assert.notEqual(stateName(account.state), "diverged", "a basket appraised at launch value keeps a 1.00 market tradeable");
   });
 
   test("the real asking price, 36x the appraisal, trips the divergence bound", async () => {
