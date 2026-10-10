@@ -224,5 +224,6 @@ light RPC returns less, and the chart shows what it gets.
 
 ## What does not exist yet
 
-- the basket constituents and weights are the `CONSTITUENTS` constant in
-  `apps/web/lib/market.ts`, not read from chain (#1, #10)
+- the basket constituents and weights come from `deployments/basket.json`
+  (the launch basket, #10) through `CONSTITUENTS` in `apps/web/lib/market.ts`,
+  not read from chain (#1)

@@ -156,7 +156,7 @@ export default function PortfolioPage() {
                           <tr key={i}>
                             <td>
                               <span className="asset">
-                                <Thumb art={c.art} />
+                                <Thumb src={c.image} />
                                 <span>
                                   <span className="nm">{c.name}</span>
                                   <span className="id">Index: {BRAND.toUpperCase()}-{c.id}</span>

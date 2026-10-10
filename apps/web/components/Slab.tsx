@@ -1,10 +1,9 @@
 /**
  * A graded card in its acrylic case.
  *
- * The artwork is photographic, cropped from the project's own reference
- * renders. The case, certification label and barcode around it are drawn, so
- * the image only ever has to supply the card face — which is what makes the
- * crops reusable at any size.
+ * The artwork is the card's own photo from Collector Crypt. The case,
+ * certification label and barcode around it are drawn, so the image only
+ * ever has to supply the card face.
  *
  * Deterministic: the barcode is derived from the reference string, so the same
  * card renders identically every time. A collectible that redraws itself
@@ -12,8 +11,6 @@
  */
 
 import type { Constituent } from "@/lib/market";
-
-export type ArtKey = "charizard" | "pikachu" | "jordan" | "lotus" | "luke";
 
 /** Same reference, same bars, every render. */
 function bars(seed: string, n: number) {
@@ -43,17 +40,17 @@ export function Slab({ item }: { item: Constituent }) {
         <span style={{ gridColumn: "1 / -1", textAlign: "right" }}>{item.ref}</span>
       </div>
       <div className="slab-win">
-        <img src={`/cards/${item.art}.jpg`} alt={`${item.name}, graded ${item.grade}`} loading="lazy" />
+        <img src={item.image} alt={`${item.name}, graded ${item.grade}`} loading="lazy" />
       </div>
     </figure>
   );
 }
 
 /** The small square used inside tables. */
-export function Thumb({ art, alt = "" }: { art: ArtKey; alt?: string }) {
+export function Thumb({ src, alt = "" }: { src: string; alt?: string }) {
   return (
     <span className="thumb">
-      <img src={`/cards/${art}.jpg`} alt={alt} loading="lazy" />
+      <img src={src} alt={alt} loading="lazy" />
     </span>
   );
 }

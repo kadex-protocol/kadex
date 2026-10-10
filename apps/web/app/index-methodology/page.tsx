@@ -60,7 +60,7 @@ export default function IndexPage() {
                   <tr key={c.id}>
                     <td>
                       <span className="asset">
-                        <Thumb art={c.art} />
+                        <Thumb src={c.image} />
                         <span>
                           <span className="nm">{c.name}</span>
                           <span className="id">{c.year} · {c.category}</span>

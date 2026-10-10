@@ -137,14 +137,14 @@ devnet USD, the pool and the protocol on devnet, re-runnably.
 **The index token is a demonstration instrument.** It is one SPL mint the
 deployer controls, seeded into the pool. It is not backed by, and cannot be
 redeemed for, any card. Each card's index weight is stored on its vault record
-and read by nothing; the five-card basket in the app is a constant.
+and read by nothing. The launch basket, ten real Collector Crypt cards, is
+chosen by rule in `deployments/basket.json` (see `docs/collector-crypt.md`).
 
 What turns "a token the market prices" into "an index of cards":
 
 | | GitHub |
 |---|---|
 | Basket mint backed by weighted vaulted cards, redeemable | #1 |
-| Launch basket: which cards, which weights | #10 |
 | Who provides launch liquidity, and how much | #2 |
 | Devnet deployment (needs ~7 SOL on the deployer) | #5 |
 

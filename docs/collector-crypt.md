@@ -170,13 +170,34 @@ the parser agrees with me; this one proves it agrees with the chain.
 | Piece | Where | Run |
 |---|---|---|
 | API client | `packages/collector-crypt` | `npm run test:cc` |
+| Choose the launch basket | `scripts/select-basket.mjs` | `DRY_RUN=1 node scripts/select-basket.mjs` |
 | Whitelist a card at its appraisal | `scripts/whitelist-core.mjs` | `DRY_RUN=1 node scripts/whitelist-core.mjs <asset> --weight-bps <n>` |
+| Whitelist the whole basket | `scripts/whitelist-core.mjs` | `DRY_RUN=1 node scripts/whitelist-core.mjs --basket deployments/basket.json` |
 | `external_median` feed | `apps/external-feed` | `FEED_KEYPAIR=… ORACLE=… npx tsx apps/external-feed/src/index.ts` |
 | Real cards on the vault screen | `apps/web/app/vault`, through `/api/collector-crypt/*` | `npm run web` |
 | The whole path against a validator | `tests/cc/whitelist.test.mjs` | `npm run test:cc:chain` |
 
 `weight_bps` has no default in the whitelist script. The appraisal comes from
 their API; a card's share of the index is our decision and nobody else's.
+
+### The launch basket (#10)
+
+`deployments/basket.json`: ten cards chosen by `scripts/select-basket.mjs`
+from live listings on 10 Oct 2026, by rules rather than by hand.
+
+| Rule | Why |
+|---|---|
+| Core, appraised, live USDC ask within 0.8–1.25× the appraisal | the treasury can buy it near the value its fractions mint at, and its ask keeps the external median near 1.00 |
+| PSA, Beckett or CGC; trading cards only | graded and comparable; no watches or comics |
+| Appraisal $1,000–$6,000, one card per name | no single card dominates; not one print five times |
+| 6 Pokémon, 2 One Piece, 2 other TCG | the market's actual mix; no sports card was listed above $250 |
+| Weight = share of the basket's total appraisal | with one of each deposited, it equals the card's share of the sleeve, which `max_card_weight` (15%) caps; a card over it is swapped for the next |
+
+Result: 6.60%–14.12% each, $37,900 appraised, $39,134 to buy at the asks.
+**Depositor:** the protocol treasury buys each card at its ask and vaults it
+with `fractionalize_core`. Re-run the script to refresh; the whitelist script
+refuses a basket whose appraisals have moved since it was written, because
+the weights would no longer match the sleeve.
 
 ### The median, and why the feed starts in dry run
 

@@ -52,7 +52,6 @@ they cannot be deployed anywhere. `docs/deploying.md` explains the shim.
 | Who provides the first AMM liquidity | #2 |
 | Seed script from real vaulted cards | #3 |
 | Devnet deployment | #5 |
-| Launch basket and weights | #10 |
 
 ## 3. The pattern — copy this shape
 

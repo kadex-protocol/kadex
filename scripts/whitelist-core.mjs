@@ -46,7 +46,32 @@ export async function whitelistCoreCard(program, card, weightBps) {
   return { ...plan, signature };
 }
 
+/**
+ * Every card of a basket file (scripts/select-basket.mjs), each at its weight.
+ * Refuses the whole basket if any card's live appraisal moved since the file
+ * was written: the weights are shares of those appraisals, so they would no
+ * longer match the sleeve. Re-run select-basket.mjs then.
+ */
+export function planBasket(basket, liveCards) {
+  const total = basket.cards.reduce((t, c) => t + c.weightBps, 0);
+  if (total !== 10_000) throw new Error(`basket weights sum to ${total} bps, not 10000`);
+  return basket.cards.map((entry) => {
+    const card = liveCards.get(entry.asset);
+    if (!card) throw new Error(`${entry.asset} (${entry.name}) is not on Collector Crypt any more`);
+    const filed = BigInt(Math.round(Number(entry.appraisalUsd) * 1e6));
+    if (card.insuredValueUsdc !== filed) {
+      throw new Error(`${entry.name}: appraisal is now ${card.insuredValueUsdc} native USDC, the basket has ${filed}; re-run scripts/select-basket.mjs`);
+    }
+    return { entry, card, plan: planWhitelist(card, entry.weightBps) };
+  });
+}
+
 function parseArgs(argv) {
+  const b = argv.indexOf("--basket");
+  if (b !== -1) {
+    if (!argv[b + 1]) throw new Error("usage: node scripts/whitelist-core.mjs --basket <deployments/basket.json>");
+    return { basket: argv[b + 1] };
+  }
   const [address, ...rest] = argv;
   const flag = rest.indexOf("--weight-bps");
   if (!address || flag === -1 || rest[flag + 1] === undefined) {
@@ -55,8 +80,40 @@ function parseArgs(argv) {
   return { address, weightBps: Number(rest[flag + 1]) };
 }
 
+function loadProgram() {
+  const keypairPath = process.env.ADMIN_KEYPAIR;
+  if (!keypairPath) throw new Error("missing env ADMIN_KEYPAIR (or set DRY_RUN=1)");
+  const admin = Keypair.fromSecretKey(
+    Uint8Array.from(JSON.parse(readFileSync(keypairPath.replace(/^~/, process.env.HOME ?? "~"), "utf8"))),
+  );
+  const conn = new Connection(process.env.RPC_URL ?? "http://127.0.0.1:8899", "confirmed");
+  const provider = new anchor.AnchorProvider(conn, new anchor.Wallet(admin), { commitment: "confirmed" });
+  const idl = JSON.parse(
+    readFileSync(join(process.env.IDL_DIR ?? join(ROOT, "target", "idl"), "card_vault.json"), "utf8"),
+  );
+  return new anchor.Program(idl, provider);
+}
+
+async function mainBasket(path) {
+  const basket = JSON.parse(readFileSync(path, "utf8"));
+  const live = new Map();
+  for (const { asset } of basket.cards) live.set(asset, await fetchCard(asset));
+  const plans = planBasket(basket, live);
+  for (const { entry, plan } of plans) {
+    console.log(`${String(plan.weightBps).padStart(5)} bps  ${String(plan.fractionsPerCard).padStart(13)} fractions  ${entry.name}`);
+  }
+  if (process.env.DRY_RUN === "1") return console.log("dry run: nothing sent");
+  const program = loadProgram();
+  for (const { entry, card } of plans) {
+    const { signature } = await whitelistCoreCard(program, card, entry.weightBps);
+    console.log(`whitelisted  ${entry.asset}  sig=${signature}`);
+  }
+}
+
 async function main() {
-  const { address, weightBps } = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2));
+  if (args.basket) return mainBasket(args.basket);
+  const { address, weightBps } = args;
   const card = await fetchCard(address);
   const plan = planWhitelist(card, weightBps);
 
@@ -74,17 +131,7 @@ async function main() {
     return;
   }
 
-  const keypairPath = process.env.ADMIN_KEYPAIR;
-  if (!keypairPath) throw new Error("missing env ADMIN_KEYPAIR (or set DRY_RUN=1)");
-  const admin = Keypair.fromSecretKey(
-    Uint8Array.from(JSON.parse(readFileSync(keypairPath.replace(/^~/, process.env.HOME ?? "~"), "utf8"))),
-  );
-  const conn = new Connection(process.env.RPC_URL ?? "http://127.0.0.1:8899", "confirmed");
-  const provider = new anchor.AnchorProvider(conn, new anchor.Wallet(admin), { commitment: "confirmed" });
-  const idl = JSON.parse(
-    readFileSync(join(process.env.IDL_DIR ?? join(ROOT, "target", "idl"), "card_vault.json"), "utf8"),
-  );
-  const { signature } = await whitelistCoreCard(new anchor.Program(idl, provider), card, weightBps);
+  const { signature } = await whitelistCoreCard(loadProgram(), card, weightBps);
   console.log(`whitelisted      sig=${signature}`);
 }
 

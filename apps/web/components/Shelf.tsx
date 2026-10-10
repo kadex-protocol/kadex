@@ -1,7 +1,7 @@
 import { CONSTITUENTS } from "@/lib/market";
 import { Slab } from "./Slab";
 
-/** The five constituents on a plinth, as objects in a lit case. */
+/** The first constituents on a plinth, as objects in a lit case. */
 export function Shelf({ count = 5 }: { count?: number }) {
   return (
     <div className="hero-art">

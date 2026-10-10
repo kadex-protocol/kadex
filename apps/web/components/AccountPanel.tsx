@@ -82,7 +82,7 @@ export function AccountPanel({ portfolio, positions, snapshot, onTrade, onClosed
                     <tr key={i}>
                       <td>
                         <span className="asset">
-                          <Thumb art={c.art} />
+                          <Thumb src={c.image} />
                           <span>
                             <span className="nm">{c.name}</span>
                             <span className="id">{r.leverage}x · margin ${fmtUsd(r.margin, 2)}</span>
@@ -120,7 +120,7 @@ export function AccountPanel({ portfolio, positions, snapshot, onTrade, onClosed
               return (
                 <li key={h.constituentId}>
                   <span className="asset">
-                    <Thumb art={c.art} />
+                    <Thumb src={c.image} />
                     <span>
                       <span className="nm">{c.name}</span>
                       <span className="id">{c.year} · {c.grade}</span>
