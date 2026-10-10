@@ -12,3 +12,4 @@ test-ledger/
 tsconfig.tsbuildinfo
 
 .next.stale-*/
+deployments/local.json

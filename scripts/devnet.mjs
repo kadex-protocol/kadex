@@ -6,12 +6,15 @@
  * signatures only — never a key).
  *
  *   node scripts/devnet.mjs check      what is deployed, what it will cost
- *   node scripts/devnet.mjs programs   deploy oracle, clp_pool, perp
+ *   node scripts/devnet.mjs programs   deploy oracle, clp_pool, perp, card_vault
  *   node scripts/devnet.mjs mints      index token (+ metadata) and devnet USD
  *   node scripts/devnet.mjs pool       Raydium CPMM pool, seeded
  *   node scripts/devnet.mjs protocol   oracle, CLP pool, perp market
  *   node scripts/devnet.mjs verify     refresh, compare Rust and TS, open + close a position
- *   node scripts/devnet.mjs all        every step in order
+ *   node scripts/devnet.mjs env        faucet key, funded; point apps/web/.env.local at this deployment
+ *   node scripts/devnet.mjs all        every step above, in order
+ *   node scripts/devnet.mjs cards <wallet>        test copies of real cards, owned by that wallet
+ *   node scripts/devnet.mjs fund <wallet> [usd]   mint devnet USD to a wallet (default 10,000)
  *
  * Env: DEVNET_RPC (default https://api.devnet.solana.com), KADEX_DEPLOYER
  * (keypair path, default ~/.config/solana/id.json). The deployer becomes the
@@ -43,6 +46,7 @@ import {
   closePositionIx, decodeOracle, decodePool as decodeClpPool, depositUsdcIx, findAta, openPositionIx, refreshPriceIx,
 } from "../packages/sdk/dist/chain.js";
 import { findPosition } from "../packages/types/dist/index.js";
+import { mirrorCards } from "./test-cards.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 // KADEX_DEPLOYMENT lets a local dry run write elsewhere than the devnet record.
@@ -50,6 +54,10 @@ const RECORD = process.env.KADEX_DEPLOYMENT ?? join(ROOT, "deployments/devnet.js
 const RPC = process.env.DEVNET_RPC ?? "https://api.devnet.solana.com";
 const KEYPAIR = (process.env.KADEX_DEPLOYER ?? join(homedir(), ".config/solana/id.json")).replace(/^~/, homedir());
 const USDC = 1_000_000n;
+const ENV_FILE = process.env.KADEX_ENV_FILE ?? join(ROOT, "apps/web/.env.local");
+const NETWORK = process.env.KADEX_NETWORK ?? (/\/\/(localhost|127\.0\.0\.1)[:/]/.test(RPC) ? "local" : "devnet");
+/** What the web app's faucet hands out comes from this wallet, never from the deployer. */
+const FAUCET = { sol: 1, usd: 100_000n * USDC };
 
 /** Raydium devnet fee config index 0: 0.25% trade fee. Read off devnet. */
 const AMM_CONFIG = new PublicKey("5MxLgy9oPdTC3YgkiePHqr3EoCRD9uLVYRQS2ANAs7wy");
@@ -80,6 +88,7 @@ const PROGRAMS = [
   ["oracle", IDLS.oracle.address],
   ["clp_pool", IDLS.clpPool.address],
   ["perp", IDLS.perp.address],
+  ["card_vault", IDLS.cardVault.address],
 ];
 
 // --- record ---------------------------------------------------------------
@@ -105,6 +114,7 @@ const p = {
   oracle: new anchor.Program(IDLS.oracle, provider),
   clpPool: new anchor.Program(IDLS.clpPool, provider),
   perp: new anchor.Program(IDLS.perp, provider),
+  cardVault: new anchor.Program(IDLS.cardVault, provider),
 };
 const send = (...ixs) => sendAndConfirmTransaction(conn, new Transaction().add(...ixs), [payer], { commitment: "confirmed" });
 const exists = async (key) => (await conn.getAccountInfo(key)) !== null;
@@ -332,11 +342,55 @@ async function verify() {
   note("close_position", await send(closePositionIx(accounts, payer.publicKey, position, mine.usdc)));
 }
 
-const steps = { check, programs, mints, pool, protocol, verify };
+async function env() {
+  const usd = new PublicKey(record.mints.usd.address);
+  const lines = existsSync(ENV_FILE) ? readFileSync(ENV_FILE, "utf8").split("\n") : [];
+  const saved = lines.find((line) => line.startsWith("KADEX_FAUCET_KEYPAIR=["))?.slice("KADEX_FAUCET_KEYPAIR=".length);
+  let faucet = saved ? Keypair.fromSecretKey(Uint8Array.from(JSON.parse(saved))) : Keypair.generate();
+  if (faucet.publicKey.equals(payer.publicKey)) faucet = Keypair.generate();
+
+  if ((await conn.getBalance(faucet.publicKey)) < (FAUCET.sol * LAMPORTS_PER_SOL) / 2) {
+    note("fund_faucet_sol", await send(SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: faucet.publicKey, lamports: FAUCET.sol * LAMPORTS_PER_SOL })));
+  }
+  const account = await createAssociatedTokenAccountIdempotent(conn, payer, usd, faucet.publicKey);
+  const have = (await getAccount(conn, account)).amount;
+  if (have < FAUCET.usd / 2n) note("fund_faucet_usd", await mintTo(conn, payer, usd, account, payer, FAUCET.usd - have));
+
+  // Rewrite only the lines this script owns: anything else in the file is the user's.
+  const ours = {
+    NEXT_PUBLIC_KADEX_RPC_URL: process.env.KADEX_BROWSER_RPC ?? RPC,
+    NEXT_PUBLIC_KADEX_USDC_MINT: usd.toBase58(),
+    NEXT_PUBLIC_KADEX_NETWORK: NETWORK,
+    KADEX_FAUCET_KEYPAIR: JSON.stringify([...faucet.secretKey]),
+  };
+  const kept = lines.filter((line) => line.trim() && !(line.split("=")[0].trim() in ours));
+  writeFileSync(ENV_FILE, [...kept, ...Object.entries(ours).map(([k, v]) => `${k}=${v}`)].join("\n") + "\n");
+  record.faucet = { address: faucet.publicKey.toBase58() };
+  save();
+  console.log(`  faucet ${faucet.publicKey.toBase58()}  wrote ${ENV_FILE}`);
+}
+
+async function cards() {
+  const owner = pk(process.argv[3]);
+  if (!owner) throw new Error("usage: node scripts/devnet.mjs cards <wallet that will own the test cards>");
+  await mirrorCards({ conn, payer, vault: p.cardVault, programData: await programData(IDLS.cardVault.address), owner, record, save });
+}
+
+async function fund() {
+  const wallet = pk(process.argv[3]);
+  if (!wallet) throw new Error("usage: node scripts/devnet.mjs fund <wallet> [usd]");
+  const amount = BigInt(process.argv[4] ?? 10_000) * USDC;
+  const usd = new PublicKey(record.mints.usd.address);
+  const account = await createAssociatedTokenAccountIdempotent(conn, payer, usd, wallet);
+  await mintTo(conn, payer, usd, account, payer, amount);
+  console.log(`  minted ${amount / USDC} kdUSD to ${wallet.toBase58()}`);
+}
+
+const steps = { check, programs, mints, pool, protocol, verify, env, cards, fund };
 const which = process.argv[2] ?? "check";
 if (which === "all") {
   if (!(await check())) process.exit(1);
-  for (const s of ["programs", "mints", "pool", "protocol", "verify"]) {
+  for (const s of ["programs", "mints", "pool", "protocol", "verify", "env"]) {
     console.log(`\n== ${s}`);
     await steps[s]();
   }
