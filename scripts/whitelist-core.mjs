@@ -3,10 +3,11 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import anchor from "@coral-xyz/anchor";
-import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { findCard, findFractionMint, findRegistry, findVaultedCard } from "@kadex/types";
 import { fetchCard, isVaultable } from "@kadex/collector-crypt";
+import { loadKeypair } from "@kadex/sdk/node";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
@@ -81,11 +82,7 @@ function parseArgs(argv) {
 }
 
 function loadProgram() {
-  const keypairPath = process.env.ADMIN_KEYPAIR;
-  if (!keypairPath) throw new Error("missing env ADMIN_KEYPAIR (or set DRY_RUN=1)");
-  const admin = Keypair.fromSecretKey(
-    Uint8Array.from(JSON.parse(readFileSync(keypairPath.replace(/^~/, process.env.HOME ?? "~"), "utf8"))),
-  );
+  const admin = loadKeypair(process.env.ADMIN_KEYPAIR, "ADMIN_KEYPAIR (or set DRY_RUN=1)");
   const conn = new Connection(process.env.RPC_URL ?? "http://127.0.0.1:8899", "confirmed");
   const provider = new anchor.AnchorProvider(conn, new anchor.Wallet(admin), { commitment: "confirmed" });
   const idl = JSON.parse(

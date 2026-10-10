@@ -20,7 +20,8 @@ const CARD_FRACTIONS_OFFSET = 8 + 32 + 32;
 const CARD_WEIGHT_OFFSET = CARD_FRACTIONS_OFFSET + 8;
 const CARD_ENABLED_OFFSET = CARD_WEIGHT_OFFSET + 2;
 const CARD_CORE_OFFSET = CARD_ENABLED_OFFSET + 1;
-const ORACLE_PRICE_OFFSET = 8 + 32 + 32 + 1 + 32;
+const ORACLE_ADMIN_OFFSET = 8 + 32 + 32 + 1;
+const ORACLE_PRICE_OFFSET = ORACLE_ADMIN_OFFSET + 32;
 
 export interface WhitelistedCoreCard {
   asset: PublicKey;
@@ -54,6 +55,18 @@ export async function readOraclePrice(conn: Connection, oracle: PublicKey): Prom
   if (!info) throw new Error(`oracle ${oracle.toBase58()} does not exist`);
   if (!info.owner.equals(PROGRAM_IDS.oracle)) throw new Error(`${oracle.toBase58()} is not an oracle account`);
   return info.data.readBigUInt64LE(ORACLE_PRICE_OFFSET);
+}
+
+/**
+ * The key `set_external_median` requires. The program checks it; the feed
+ * checks it at start so a wrong key fails once, plainly, instead of on
+ * every tick as an opaque NotAdmin.
+ */
+export async function readOracleAdmin(conn: Connection, oracle: PublicKey): Promise<PublicKey> {
+  const info = await conn.getAccountInfo(oracle);
+  if (!info) throw new Error(`oracle ${oracle.toBase58()} does not exist`);
+  if (!info.owner.equals(PROGRAM_IDS.oracle)) throw new Error(`${oracle.toBase58()} is not an oracle account`);
+  return new PublicKey(info.data.subarray(ORACLE_ADMIN_OFFSET, ORACLE_ADMIN_OFFSET + 32));
 }
 
 export function setExternalMedianIx(admin: PublicKey, oracle: PublicKey, median: bigint): TransactionInstruction {
@@ -185,4 +198,36 @@ export async function readAppraisalIndex(
   });
   const reading = appraisalIndexFrom(whitelisted, appraisals, minSamples);
   return { ...reading, unpriced: [...reading.unpriced.filter((u) => !failed.some((f) => f.asset === u.asset)), ...failed] };
+}
+
+export interface PublishBounds {
+  /** WAD. Below this the reading is treated as a data fault, not a price. */
+  minIndex: bigint;
+  /** WAD. Above this, likewise. */
+  maxIndex: bigint;
+}
+
+/**
+ * 0.1x to 10x the launch appraisal. A real basket does not move that far
+ * between re-appraisals; a reading outside it is a provider or parsing
+ * fault, and publishing it would put the oracle in Diverged on bad data.
+ */
+export const DEFAULT_PUBLISH_BOUNDS: PublishBounds = { minIndex: WAD / 10n, maxIndex: WAD * 10n };
+
+export type PublishDecision = { publish: true; value: bigint } | { publish: false; reason: string };
+
+/**
+ * Whether a reading may be sent. Never sends zero: `set_external_median(0)`
+ * is accepted on chain and switches the divergence check off, so a failed
+ * read must never become a zero.
+ */
+export function publishDecision(reading: ExternalMedianReading, minSamples: number, bounds: PublishBounds = DEFAULT_PUBLISH_BOUNDS): PublishDecision {
+  if (reading.index === null) {
+    return { publish: false, reason: `${reading.samples.length} priced cards, need ${minSamples}` };
+  }
+  if (reading.index <= 0n) return { publish: false, reason: "index is zero, which would switch the divergence check off" };
+  if (reading.index < bounds.minIndex || reading.index > bounds.maxIndex) {
+    return { publish: false, reason: `index ${reading.index} is outside ${bounds.minIndex}..${bounds.maxIndex} (WAD): treated as a data fault` };
+  }
+  return { publish: true, value: reading.index };
 }

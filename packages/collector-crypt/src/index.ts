@@ -1,5 +1,10 @@
 import { WAD } from "@kadex/types";
-import { type CollectorLimits } from "./limits.js";
+import {
+  DEFAULT_MAX_RETRY_AFTER_MS,
+  DEFAULT_TIMEOUT_MS,
+  isRetryableStatus,
+  type CollectorLimits,
+} from "./limits.js";
 
 export const COLLECTOR_CRYPT_API = "https://api.collectorcrypt.com";
 export const COLLECTOR_CRYPT_COLLECTION = "CCryptUfeFSZ3Fgc9FLeKrhLVAP67FSqi1GuVoj9CRac";
@@ -151,23 +156,47 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function getJson(path: string, opts: ClientOptions): Promise<unknown> {
   const doFetch = opts.fetch ?? globalThis.fetch;
   const apiKey = opts.apiKey ?? apiKeyFromEnv();
-  const { cache, budget, retries = 0 } = opts.limits ?? {};
+  const {
+    cache,
+    budget,
+    retries = 0,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    maxRetryAfterMs = DEFAULT_MAX_RETRY_AFTER_MS,
+  } = opts.limits ?? {};
   const load = async (): Promise<unknown> => {
     for (let attempt = 0; ; attempt += 1) {
       await budget?.take();
-      const res = await doFetch(`${opts.baseUrl ?? COLLECTOR_CRYPT_API}${path}`, {
-        headers: {
-          accept: "application/json",
-          ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
-        },
-      });
-      if ((res.status === 429 || res.status === 503) && attempt < retries) {
+      let res: Awaited<ReturnType<typeof doFetch>>;
+      try {
+        res = await doFetch(`${opts.baseUrl ?? COLLECTOR_CRYPT_API}${path}`, {
+          headers: {
+            accept: "application/json",
+            ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+          },
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+      } catch (e) {
+        // Timeout or network failure: the request may never have arrived.
+        const why = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError") ? `timed out after ${timeoutMs} ms` : "network error";
+        if (attempt < retries) {
+          await sleep(1_000 * 2 ** attempt);
+          continue;
+        }
+        throw new Error(`Collector Crypt ${path} ${why}`);
+      }
+      if (isRetryableStatus(res.status) && attempt < retries) {
         const after = Number(res.headers?.get?.("retry-after"));
-        await sleep(Number.isFinite(after) && after > 0 ? after * 1_000 : 1_000 * 2 ** attempt);
+        const wait = Number.isFinite(after) && after > 0 ? after * 1_000 : 1_000 * 2 ** attempt;
+        if (wait > maxRetryAfterMs) throw new Error(`Collector Crypt ${path} answered ${res.status}, retry after ${after}s`);
+        await sleep(wait);
         continue;
       }
       if (!res.ok) throw new Error(`Collector Crypt ${path} answered ${res.status}`);
-      return res.json();
+      try {
+        return await res.json();
+      } catch {
+        throw new Error(`Collector Crypt ${path} answered ${res.status} with a body that is not JSON`);
+      }
     }
   };
   return cache ? cache.get(`${apiKey ? "key" : "anon"} ${path}`, load) : load();

@@ -7,6 +7,7 @@ import { IDLS, newProvider, programs, setupOracle, refresh, stateName, mustFail 
 import { COLLECTOR_CRYPT_COLLECTION, fetchCard } from "../../packages/collector-crypt/dist/index.js";
 import {
   readAppraisalIndex,
+  readOracleAdmin,
   readExternalMedian,
   readOraclePrice,
   setExternalMedianIx,
@@ -120,6 +121,36 @@ describe("collector crypt, end to end", () => {
     await ctx.provider.sendAndConfirm(new Transaction().add(setExternalMedianIx(ctx.payer.publicKey, oracleEnv.oracle, flat.index)));
     const account = await ctx.p.oracle.account.oracleAccount.fetch(oracleEnv.oracle);
     assert.notEqual(stateName(account.state), "diverged", "a basket appraised at launch value keeps a 1.00 market tradeable");
+  });
+
+  test("the feed's admin check reads the key the program enforces", async () => {
+    assert.ok((await readOracleAdmin(ctx.conn, oracleEnv.oracle)).equals(ctx.payer.publicKey));
+    await assert.rejects(readOracleAdmin(ctx.conn, findRegistry()), /is not an oracle account/);
+  });
+
+  test("a median signed by any other key is refused on chain, and the transaction fails", async () => {
+    const { Keypair } = await import("@solana/web3.js");
+    const stranger = Keypair.generate();
+    const sig = await ctx.conn.requestAirdrop(stranger.publicKey, 1e9);
+    await ctx.conn.confirmTransaction(sig, "confirmed");
+    const before = (await ctx.p.oracle.account.oracleAccount.fetch(oracleEnv.oracle)).externalMedian.toString();
+    const tx = new Transaction().add(setExternalMedianIx(stranger.publicKey, oracleEnv.oracle, 5_000_000n));
+    await mustFail(ctx.provider.connection.sendTransaction(tx, [stranger]), "a stranger published the external median");
+    const after = (await ctx.p.oracle.account.oracleAccount.fetch(oracleEnv.oracle)).externalMedian.toString();
+    assert.equal(after, before);
+  });
+
+  test("the oracle refuses a divergence bound of zero or past 100%", async () => {
+    const account = await ctx.p.oracle.account.oracleAccount.fetch(oracleEnv.oracle);
+    for (const bad of [0, 1_000_001]) {
+      await mustFail(
+        ctx.p.oracle.methods
+          .setParams({ ...account.params, maxDivergence: new anchor.BN(bad) })
+          .accounts({ admin: ctx.payer.publicKey, oracle: oracleEnv.oracle })
+          .rpc(),
+        `max_divergence ${bad} accepted`,
+      );
+    }
   });
 
   test("the real asking price, 36x the appraisal, trips the divergence bound", async () => {

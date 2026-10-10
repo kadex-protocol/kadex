@@ -27,6 +27,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadKeypair, redactUrl } from "@kadex/sdk/node";
 import anchor from "@coral-xyz/anchor";
 import {
   Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, TransactionInstruction,
@@ -99,7 +100,7 @@ const pk = (s) => (s ? new PublicKey(s) : null);
 // --- chain ----------------------------------------------------------------
 
 const conn = new Connection(RPC, "confirmed");
-const payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(KEYPAIR, "utf8"))));
+const payer = loadKeypair(KEYPAIR, "KADEX_DEPLOYER");
 const provider = new anchor.AnchorProvider(conn, new anchor.Wallet(payer), { commitment: "confirmed" });
 const p = {
   oracle: new anchor.Program(IDLS.oracle, provider),
@@ -122,7 +123,7 @@ async function programData(id) {
 
 async function check() {
   const sol = (await conn.getBalance(payer.publicKey)) / LAMPORTS_PER_SOL;
-  console.log(`deployer ${payer.publicKey.toBase58()}  balance ${sol} SOL on ${RPC}`);
+  console.log(`deployer ${payer.publicKey.toBase58()}  balance ${sol} SOL on ${redactUrl(RPC)}`);
   // 0.15 Raydium pool fee + mint, metadata, vault and account rent + fees.
   let need = 0.5;
   // `solana program deploy` writes into a buffer first, which needs the same

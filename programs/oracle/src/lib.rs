@@ -173,6 +173,9 @@ pub fn validate_params(p: &OracleParams) -> Result<()> {
     require!(p.slow_alpha > 0 && p.slow_alpha <= WAD as u64, OracleError::BadParams);
     require!(p.clamp_period_secs > 0, OracleError::BadParams);
     require!(p.min_pool_depth > 0, OracleError::BadParams);
+    // Zero would put the oracle in Diverged on any external median; past 100%
+    // the bound could never trip. Either way it stops being a bound.
+    require!(p.max_divergence > 0 && p.max_divergence <= WAD as u64, OracleError::BadParams);
     Ok(())
 }
 
@@ -716,5 +719,12 @@ mod tests {
         let mut p = OracleParams::default();
         p.clamp_period_secs = 0;
         assert!(validate_params(&p).is_err());
+        let mut p = OracleParams::default();
+        p.max_divergence = 0;
+        assert!(validate_params(&p).is_err(), "a zero bound diverges on any external median");
+        p.max_divergence = WAD as u64 + 1;
+        assert!(validate_params(&p).is_err(), "a bound past 100% can never trip");
+        p.max_divergence = WAD as u64;
+        assert!(validate_params(&p).is_ok());
     }
 }

@@ -23,6 +23,7 @@
     "test:integration": "tsc -b packages/types packages/sdk && node scripts/with-validator.mjs node --test --test-force-exit tests/integration/*.test.mjs",
     "devnet": "node scripts/devnet.mjs",
     "dev:chain": "node scripts/with-validator.mjs node scripts/dev-chain.mjs",
+    "test:services": "tsc -b packages/types packages/sdk && node --test tests/node-config.test.mjs",
     "test:history": "tsc -b packages/types packages/sdk && node --test tests/history.test.mjs tests/activity.test.mjs",
     "test:raydium": "tsc -b packages/types packages/oracle && node --test tests/raydium.test.mjs",
     "test:parity": "tsc -b packages/types packages/sdk && node --test tests/parity.test.mjs",

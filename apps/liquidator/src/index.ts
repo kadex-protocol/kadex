@@ -36,9 +36,10 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { intFromEnv, loadKeypair, redactUrl } from "@kadex/sdk/node";
 import { join } from "node:path";
 import * as anchor from "@coral-xyz/anchor";
-import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 import { getOrCreateAssociatedTokenAccount, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { PROGRAM_IDS, WAD } from "@kadex/types";
 import * as math from "@kadex/sdk/math";
@@ -142,11 +143,6 @@ function isLiquidatable(p: Position, m: MarketState): boolean {
   return math.healthWad(equity, p.notional) < m.maintenanceMargin;
 }
 
-function loadKeypair(path: string): Keypair {
-  const raw = JSON.parse(readFileSync(path.replace(/^~/, process.env.HOME ?? "~"), "utf8")) as number[];
-  return Keypair.fromSecretKey(Uint8Array.from(raw));
-}
-
 const big = (x: { toString(): string }): bigint => BigInt(x.toString());
 
 function loadIdl(name: string) {
@@ -157,23 +153,20 @@ function loadIdl(name: string) {
 async function main(): Promise<void> {
   const rpcUrl = process.env.RPC_URL ?? "http://127.0.0.1:8899";
   const marketStr = process.env.MARKET;
-  const keypairPath = process.env.LIQUIDATOR_KEYPAIR;
-  if (!marketStr || !keypairPath) {
-    throw new Error("set MARKET and LIQUIDATOR_KEYPAIR");
-  }
+  if (!marketStr) throw new Error("missing env MARKET: the perp market to watch");
   const dryRun = process.env.DRY_RUN === "1";
 
   const conn = new Connection(rpcUrl, "confirmed");
   const market = new PublicKey(marketStr);
-  const signer = loadKeypair(keypairPath);
-  const intervalMs = Number(process.env.INTERVAL_MS ?? 5_000);
+  const signer = loadKeypair(process.env.LIQUIDATOR_KEYPAIR, "LIQUIDATOR_KEYPAIR");
+  const intervalMs = intFromEnv("INTERVAL_MS", 5_000, 500);
 
   const provider = new anchor.AnchorProvider(conn, new anchor.Wallet(signer), { commitment: "confirmed" });
   const perp = new anchor.Program(loadIdl("perp"), provider);
   const clpPool = new anchor.Program(loadIdl("clp_pool"), provider);
   const oracleProgram = new anchor.Program(loadIdl("oracle"), provider);
 
-  console.log(`[liquidator] rpc    ${rpcUrl}`);
+  console.log(`[liquidator] rpc    ${redactUrl(rpcUrl)}`);
   console.log(`[liquidator] market ${market.toBase58()}`);
   console.log(`[liquidator] caller ${signer.publicKey.toBase58()}${dryRun ? "  (dry run)" : ""}`);
 
@@ -259,6 +252,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error("[liquidator] fatal:", err);
+  console.error(`[liquidator] fatal: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
 });

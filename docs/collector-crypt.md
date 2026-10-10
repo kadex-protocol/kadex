@@ -239,6 +239,15 @@ reviewed. That is the defence working as a circuit breaker, but it can pause
 a legitimate move. Watch the logged asks/appraisal gap; executed sales (#18)
 are the better reference once they can be read.
 
+**What the feed refuses.** It checks at start that `FEED_KEYPAIR` is the
+oracle's admin (and exits under `PUBLISH=1` if not), and never sends: fewer
+than `MIN_SAMPLES` cards, a zero (which `set_external_median` accepts and
+which switches the check off), or an index outside `MIN_INDEX`..`MAX_INDEX`
+(default 0.1–10), which it treats as a data fault. Provider calls time out
+after 10 s and are retried on 429, 5xx and network errors; a `Retry-After`
+above 30 s gives up instead of stalling. It warns after 600 s without a
+publish, before the bound lapses at `max_staleness_secs`.
+
 **Turning it on.** After the basket is whitelisted and deposited:
 `PUBLISH=1 FEED_KEYPAIR=… ORACLE=… npx tsx apps/external-feed/src/index.ts`.
 
