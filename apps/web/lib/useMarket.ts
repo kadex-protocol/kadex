@@ -14,7 +14,9 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { loadMarket, type MarketSnapshot } from "./market";
+import { IS_SAMPLE, loadMarket, type MarketSnapshot } from "./market";
+
+const REFRESH_MS = IS_SAMPLE ? 5_000 : 10_000;
 
 export interface MarketQuery {
   data: MarketSnapshot | null;
@@ -27,6 +29,11 @@ export function useMarket(): MarketQuery {
   const [state, setState] = useState<Omit<MarketQuery, "reload">>({ data: null, loading: true, error: null });
   const [version, setVersion] = useState(0);
   const reload = useCallback(() => setVersion((v) => v + 1), []);
+
+  useEffect(() => {
+    const timer = setInterval(() => document.hidden || reload(), REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [reload]);
 
   useEffect(() => {
     let live = true;

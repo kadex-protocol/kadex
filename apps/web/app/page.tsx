@@ -1,10 +1,10 @@
 "use client";
 
 import { BRAND } from "@/lib/brand";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  borrowSpread, fmtPct, fmtPrice, fmtUsd, IS_SAMPLE, loadIndexHistory, loadPortfolio, loadPositions,
+  borrowSpread, fmtPct, fmtUsd, IS_SAMPLE, loadIndexHistory, loadPortfolio, loadPositions, priceAt,
   type IndexPoint, type Portfolio,
 } from "@/lib/market";
 import { useMarket } from "@/lib/useMarket";
@@ -16,6 +16,7 @@ import { CardRail } from "@/components/CardRail";
 import { focusTicket, HomeBanner } from "@/components/HomeBanner";
 import { HowItWorks } from "@/components/HowItWorks";
 import { IndexChart } from "@/components/IndexChart";
+import { LivePrice } from "@/components/LiveChart";
 import { TradeTicket } from "@/components/TradeTicket";
 
 const CARDS_SHOWN = 24;
@@ -23,7 +24,7 @@ const CARDS_SHOWN = 24;
 export default function HomePage() {
   const { data, loading, error, reload } = useMarket();
   const [positions, setPositions] = useState<PositionView[]>([]);
-  const { status, publicKey, connect } = useWallet();
+  const { publicKey } = useWallet();
   const [history, setHistory] = useState<IndexPoint[]>([]);
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [cards, setCards] = useState<VaultCard[]>([]);
@@ -44,7 +45,7 @@ export default function HomePage() {
     return () => {
       live = false;
     };
-  }, [publicKey]);
+  }, [publicKey, data]);
 
   useEffect(() => {
     if (!data) return;
@@ -63,7 +64,7 @@ export default function HomePage() {
     };
   }, [publicKey, data]);
 
-  const connected = status === "connected" && publicKey !== null;
+  const markAt = useCallback((ts: number) => priceAt(data, ts), [data]);
   const spread = data ? borrowSpread(data) : null;
   const dayChange =
     history.length > 1
@@ -75,10 +76,9 @@ export default function HomePage() {
     <div className="page home">
       <div className="dash">
         <div className="col">
-          <HomeBanner cards={cards} />
-
           <IndexChart
             points={history}
+            priceAt={markAt}
             head={
               <p className="chart-pair">
                 <span className="mark" aria-hidden="true"><span className="star" /></span>
@@ -87,26 +87,21 @@ export default function HomePage() {
             }
             stats={
               <dl className="chart-stats">
-                <div><dt>Mark</dt><dd>{data ? fmtPrice(data.oracle.price) : "—"}</dd></div>
-                <div>
+                <div className="lead"><dt>Mark</dt><dd><LivePrice priceAt={markAt} /></dd></div>
+                <div className="chg">
                   <dt>24h change</dt>
                   <dd className={dayChange === null ? undefined : dayChange >= 0 ? "up" : "down"}>
-                    {dayChange === null ? "—" : `${dayChange >= 0 ? "+" : "−"}${Math.abs(dayChange).toFixed(2)}%`}
+                    {dayChange === null ? "-" : `${dayChange >= 0 ? "+" : "−"}${Math.abs(dayChange).toFixed(2)}%`}
                   </dd>
                 </div>
-                <div><dt>TWAP</dt><dd>{data ? fmtPrice(data.oracle.twap) : "—"}</dd></div>
-                <div><dt>Open interest</dt><dd>{data ? `${fmtUsd(data.market.oiLong + data.market.oiShort)} $` : "—"}</dd></div>
-                <div><dt>Capacity left</dt><dd>{data ? `${fmtUsd(data.capacity.free)} $` : "—"}</dd></div>
+                <div><dt>Open interest</dt><dd>{data ? `${fmtUsd(data.market.oiLong + data.market.oiShort)} $` : "-"}</dd></div>
+                <div><dt>Capacity left</dt><dd>{data ? `${fmtUsd(data.capacity.free)} $` : "-"}</dd></div>
                 <div className="util">
                   <dt>Utilisation</dt>
                   <dd>
-                    {data ? fmtPct(data.capacity.utilization, 1) : "—"}
+                    {data ? fmtPct(data.capacity.utilization, 1) : "-"}
                     <span className="meter"><i style={{ width: data ? fmtPct(data.capacity.utilization, 1) : "0%" }} /></span>
                   </dd>
-                </div>
-                <div>
-                  <dt>Oracle</dt>
-                  <dd className={data ? (oracleOk ? "up" : "down") : undefined}>{data?.oracle.state ?? "—"}</dd>
                 </div>
                 <div>
                   <dt>Borrow / month</dt>
@@ -117,16 +112,18 @@ export default function HomePage() {
                         {" · "}
                         <span className={spread.crowded === "short" ? "down" : "up"}>S {spread.shortMonthly.toFixed(2)}%</span>
                       </>
-                    ) : "—"}
+                    ) : "-"}
                   </dd>
                 </div>
               </dl>
             }
           />
 
-          <CardRail cards={cards} />
-
           <AccountPanel portfolio={portfolio} positions={positions} snapshot={data} onTrade={focusTicket} onClosed={reload} />
+
+          <HomeBanner cards={cards} />
+
+          <CardRail cards={cards} />
         </div>
 
         {loading ? (
@@ -142,11 +139,11 @@ export default function HomePage() {
         )}
       </div>
 
-      <HowItWorks onTrade={focusTicket} />
+      <HowItWorks cards={cards} data={data} onTrade={focusTicket} />
 
       <footer className="statusbar">
         <span>
-          <i className={oracleOk ? "up" : "down"} /> Oracle {data?.oracle.state ?? "—"}
+          <i className={oracleOk ? "up" : "down"} /> Oracle {data?.oracle.state ?? "-"}
           <i className="up" /> Solana
           {IS_SAMPLE && <em>Preview · sample data</em>}
         </span>

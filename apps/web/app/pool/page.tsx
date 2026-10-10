@@ -15,17 +15,16 @@ import { gates } from "@kadex/types";
 import { useWallet } from "@/lib/wallet";
 import { useMarket } from "@/lib/useMarket";
 import {
-  fmtPct, fmtPrice, fmtUsd, loadBalances, quoteDeposit, quoteWithdraw,
+  borrowSpread, fmtPct, fmtPrice, fmtUsd, loadBalances, quoteDeposit, quoteWithdraw,
   IS_SAMPLE, type Balances, type DepositKind,
 } from "@/lib/market";
-import { CLUSTER } from "@/lib/cluster";
-import { sendPoolAction, type PoolAction } from "@/lib/poolTx";
+import { clusterName } from "@/lib/testCards";
+import { poolAction, type PoolAction } from "@/lib/actions";
 import { explainTxError, shortSignature } from "@/lib/tx";
 import { LpPosition } from "@/components/LpPosition";
 
 type TicketSide = "deposit" | "withdraw";
 interface Receipt {
-  side: TicketSide;
   ok: boolean;
   text: string;
 }
@@ -35,18 +34,19 @@ const toRaw = (text: string) => {
   return !Number.isFinite(n) || n <= 0 ? 0n : BigInt(Math.trunc(n * 1e6));
 };
 const clean = (text: string) => text.replace(/[^0-9.,]/g, "");
-const filled = (amount: bigint, balance: bigint | null) =>
-  !balance || balance <= 0n ? 0 : Math.min(100, Number((amount * 10_000n) / balance) / 100);
 const portion = (balance: bigint, percent: number) => (Number((balance * BigInt(percent)) / 100n) / 1e6).toString();
+
+const UsdcCoin = () => <span className="coin usdc" aria-hidden="true" />;
+const KadexCoin = () => <span className="coin" aria-hidden="true"><span className="star" /></span>;
 
 export default function PoolPage() {
   const { status, publicKey, connect, signTransaction } = useWallet();
   const { data, loading, error, reload } = useMarket();
+  const [side, setSide] = useState<TicketSide>("deposit");
   const [kind, setKind] = useState<DepositKind>("usdc");
-  const [payAmount, setPayAmount] = useState("");
-  const [burnAmount, setBurnAmount] = useState("");
+  const [amount, setAmount] = useState("");
   const [balances, setBalances] = useState<Balances | null>(null);
-  const [sending, setSending] = useState<TicketSide | null>(null);
+  const [sending, setSending] = useState(false);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
 
   const connected = status === "connected" && publicKey !== null;
@@ -55,377 +55,296 @@ export default function PoolPage() {
   }, [publicKey]);
   useEffect(reloadBalances, [reloadBalances]);
 
-  const pay = useMemo(() => toRaw(payAmount), [payAmount]);
-  const burn = useMemo(() => toRaw(burnAmount), [burnAmount]);
-  const dep = useMemo(() => (data ? quoteDeposit(data, kind, pay) : null), [data, kind, pay]);
-  const red = useMemo(() => (data ? quoteWithdraw(data, burn) : null), [data, burn]);
+  const depositing = side === "deposit";
+  const raw = useMemo(() => toRaw(amount), [amount]);
+  const dep = useMemo(() => (data && depositing ? quoteDeposit(data, kind, raw) : null), [data, depositing, kind, raw]);
+  const red = useMemo(() => (data && !depositing ? quoteWithdraw(data, raw) : null), [data, depositing, raw]);
 
   const g = data ? gates(data.pool.state) : null;
-  const paying = pay > 0n;
-  const burning = burn > 0n;
-  const payBalance = balances ? (kind === "usdc" ? balances.usdc : balances.fractions) : null;
-  const clpBalance = balances ? balances.clp : null;
-  const payOver = connected && payBalance !== null && pay > payBalance;
-  const burnOver = connected && clpBalance !== null && burn > clpBalance;
-  const closed = data ? `The pool is ${data.pool.state} and is not accepting this.` : null;
-  const submit = async (side: TicketSide, action: PoolAction) => {
+  const open = depositing ? g?.canDeposit : g?.canWithdraw;
+  const entered = raw > 0n;
+  const unit = !depositing ? "CLP" : kind === "usdc" ? "USDC" : "fractions";
+  const balance = !balances ? null : !depositing ? balances.clp : kind === "usdc" ? balances.usdc : balances.fractions;
+  const over = connected && balance !== null && raw > balance;
+  const problem = entered ? (depositing ? dep?.problem : red?.problem) ?? null : null;
+  const haircutPct = (data ? data.pool.params.depositHaircutBps / 100 : 3).toFixed(1);
+
+  const pick = (next: TicketSide) => {
+    setSide(next);
+    setAmount("");
+    setReceipt(null);
+  };
+
+  const submit = async () => {
     if (!publicKey) return;
-    if (!CLUSTER) {
-      setReceipt({ side, ok: false, text: "Preview only: no cluster is configured, so nothing was sent." });
-      return;
-    }
-    setSending(side);
+    const action: PoolAction = depositing
+      ? { kind: kind === "usdc" ? "depositUsdc" : "depositFractions", amount: raw }
+      : { kind: "withdraw", amount: raw };
+    setSending(true);
     setReceipt(null);
     try {
-      const signature = await sendPoolAction(CLUSTER, publicKey, signTransaction, action);
-      setReceipt({ side, ok: true, text: `Confirmed · ${shortSignature(signature)}` });
-      if (side === "deposit") setPayAmount("");
-      else setBurnAmount("");
+      const signature = await poolAction({ publicKey, sign: signTransaction }, action);
+      setReceipt({ ok: true, text: `Confirmed · ${shortSignature(signature)}` });
+      setAmount("");
       reload();
       reloadBalances();
     } catch (e) {
-      setReceipt({ side, ok: false, text: explainTxError(e) });
+      setReceipt({ ok: false, text: explainTxError(e) });
     } finally {
-      setSending(null);
+      setSending(false);
     }
   };
 
-  const rate = data ? `1 CLP = ${fmtPrice(data.poolStats.clpPrice)} USDC` : "";
+  const hint = over
+    ? "That is more than your balance."
+    : problem
+      ? problem
+      : g && !open
+        ? `The pool is ${data?.pool.state} and is not accepting this.`
+        : !depositing
+          ? "Returned as a proportional slice of both sleeves."
+          : kind === "fractions"
+            ? `A ${haircutPct}% haircut applies to fractions, and it pays the LPs already here.`
+            : "Minted at net asset value.";
 
+  const spread = data ? borrowSpread(data) : null;
   const held = data && balances && balances.clp > 0n ? quoteWithdraw(data, balances.clp).totalValue : 0n;
   const share = data && balances && data.pool.clpSupply > 0n ? (Number(balances.clp) / Number(data.pool.clpSupply)) * 100 : 0;
-  return (
-    <div className="page wide">
-      <header className="vmkt-head">
-        <h1>
-          Earn: <span>CLP pool</span>
-        </h1>
-        <p className="vmkt-total">
-          Pool value <b>{data ? `${fmtUsd(data.poolStats.nav)} $` : "—"}</b>
-        </p>
-      </header>
 
+  return (
+    <div className="page wide earn">
       {error && (
         <div className="empty" role="alert">
           <p>Could not read the pool. {error}</p>
         </div>
       )}
 
-      <div className="pstats">
-        <section className="panel pstat">
-          <p className="k">Pool value</p>
-          <p className="v">{data ? `$${fmtUsd(data.poolStats.nav)}` : "—"}</p>
-          <p className="d">USDC and card fractions together</p>
+      <div className="earn-grid">
+        <section className="panel earn-intro">
+          <div className="earn-copy">
+            <h1>CLP Pool</h1>
+            <p>
+              <b>The CLP pool</b> is the counterparty to every trade on the Kadex index. When traders
+              open leveraged positions, they borrow from the pool.
+            </p>
+            <p><b>The CLP token</b> is a share of the pool. Its value comes from:</p>
+            <ul>
+              <li>USDC and tokenized card fractions held by the pool</li>
+              <li>Traders&rsquo; profit and loss</li>
+              <li>Borrow and trading fees paid by open positions</li>
+            </ul>
+            <p>
+              <b>Withdrawals</b> return a proportional slice of both sleeves, USDC and fractions
+              together. Depositing fractions costs a {haircutPct}% haircut, paid to the LPs already here.
+            </p>
+            <a href="#earn-faq" className="link">Before you deposit ↓</a>
+          </div>
+          <div className="earn-key">
+            <span>CLP price</span>
+            <b>{data ? fmtPrice(data.poolStats.clpPrice) : "—"}</b>
+            <em>USDC per share, at net asset value</em>
+          </div>
         </section>
-        <section className="panel pstat">
-          <p className="k">CLP price</p>
-          <p className="v">{data ? fmtPrice(data.poolStats.clpPrice) : "—"}</p>
-          <p className="d">USDC per share, at net asset value</p>
-        </section>
-        <section className="panel pstat">
-          <p className="k">Your deposits</p>
-          <p className="v">{connected ? `$${fmtUsd(held, 2)}` : "—"}</p>
-          <p className="d">{connected && balances ? `${fmtUsd(balances.clp, 2)} CLP` : "Connect a wallet to see yours"}</p>
-        </section>
-        <section className="panel pstat">
-          <p className="k">Your share of the pool</p>
-          <p className="v">{connected ? `${share.toFixed(3)}%` : "—"}</p>
-          <p className="d">
-            Utilisation {data ? fmtPct(data.capacity.utilization, 1) : "—"}
-            <span className="meter"><i style={{ width: data ? fmtPct(data.capacity.utilization, 1) : "0%" }} /></span>
-          </p>
-        </section>
-      </div>
 
-      <LpPosition data={data} balances={balances} wallet={connected ? publicKey : null} />
-
-      <div className="earn2">
-        <section className="panel ticket">
-          <div className="panel-head">
-            <div>
-              <h2 className="title sm">Deposit</h2>
-              <p className="sub">USDC or card fractions in, CLP out.</p>
-            </div>
+        <aside className="earn-ticket">
+          <div className="earn-tabs" role="group" aria-label="Deposit or withdraw">
+            <button type="button" aria-pressed={depositing} onClick={() => pick("deposit")}>Deposit</button>
+            <button type="button" aria-pressed={!depositing} onClick={() => pick("withdraw")}>Withdraw</button>
           </div>
 
-          <div className="token-input">
-            <div className="ti-top">
-              <span>You pay</span>
-              <span>Balance {payBalance !== null ? fmtUsd(payBalance, 2) : "—"}</span>
-            </div>
-            <div className="ti-row">
-              <input
-                inputMode="decimal"
-                autoComplete="off"
-                placeholder="0.00"
-                aria-label={`Amount to deposit in ${kind === "usdc" ? "USDC" : "fractions"}`}
-                value={payAmount}
-                onChange={(e) => setPayAmount(clean(e.target.value))}
-              />
-              <span className="tk-switch sm" role="group" aria-label="What to deposit">
-                <button type="button" aria-pressed={kind === "usdc"} onClick={() => setKind("usdc")}>USDC</button>
-                <button type="button" aria-pressed={kind === "fractions"} onClick={() => setKind("fractions")}>Fractions</button>
+          <div className={`earn-box${over ? " over" : ""}`}>
+            <div className="earn-box-top">
+              <span>{depositing ? "You're depositing" : "You're burning"}</span>
+              <span className="earn-bal">
+                {balance !== null ? fmtUsd(balance, 2) : "0"} {unit}
+                {connected && balance !== null && balance > 0n && (
+                  <>
+                    <button type="button" onClick={() => setAmount(portion(balance, 50))}>Half</button>
+                    <button type="button" onClick={() => setAmount(portion(balance, 100))}>Max</button>
+                  </>
+                )}
               </span>
             </div>
-            <div className="pct" role="group" aria-label="Use part of the balance">
-              {[25, 50, 75, 100].map((percent) => (
-                <button key={percent} type="button" disabled={payBalance === null || payBalance <= 0n} onClick={() => payBalance !== null && setPayAmount(portion(payBalance, percent))}>
-                  {percent === 100 ? "Max" : `${percent}%`}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <span className="swap-arrow" aria-hidden="true">↓</span>
-
-          <div className="token-input out">
-            <div className="ti-top">
-              <span>You receive</span>
-              <span>{rate}</span>
-            </div>
-            <div className="ti-row">
-              <span className={`ti-out${paying && dep ? "" : " dim"}`}>{paying && dep ? fmtUsd(dep.shares, 2) : "0.00"}</span>
-              <span className="tk-asset"><span className="coin" aria-hidden="true"><span className="star" /></span>CLP</span>
-            </div>
-          </div>
-
-          <div className={`tk-meter${payOver ? " over" : ""}`}>
-            <div>
-              <span>Of your balance</span>
-              <b>
-                {fmtUsd(pay, 2)}
-                <em> / {payBalance !== null ? fmtUsd(payBalance, 2) : "—"}</em>
-              </b>
-            </div>
-            <i><i style={{ width: `${filled(pay, payBalance)}%` }} /></i>
-          </div>
-
-          <p className={`hint${dep?.problem && paying ? " bad" : ""}`} style={{ margin: 0 }}>
-            {dep?.problem && paying
-              ? dep.problem
-              : g && !g.canDeposit
-                ? closed
-                : kind === "fractions"
-                  ? `A ${(data ? data.pool.params.depositHaircutBps / 100 : 3).toFixed(1)}% haircut applies to fractions, and it pays the LPs already here.`
-                  : "Minted at net asset value."}
-          </p>
-
-          <div className="rows tk-sum">
-            <div className={paying && dep && dep.haircut > 0n ? "hi" : undefined}>
-              <span>Haircut</span>
-              <b>{paying && dep ? (dep.haircut > 0n ? `−${fmtUsd(dep.haircut, 2)}` : "none") : "—"}</b>
-            </div>
-            <div><span>Value added</span><b>{paying && dep ? `$${fmtUsd(dep.netValue, 2)}` : "—"}</b></div>
-            <div><span>Share of pool</span><b>{paying && dep ? fmtPct(dep.shareOfPool, 3) : "—"}</b></div>
-          </div>
-
-          {connected ? (
-            <button
-              className="btn block long"
-              disabled={!paying || !!dep?.problem || !g?.canDeposit || loading || sending !== null || payOver}
-              onClick={() => void submit("deposit", { kind: kind === "usdc" ? "depositUsdc" : "depositFractions", amount: pay })}
-            >
-              {sending === "deposit" ? "Confirm in your wallet…" : paying ? "Deposit" : "Enter an amount"}
-            </button>
-          ) : (
-            <button className="btn block" onClick={() => void connect()} disabled={status === "connecting"}>
-              {status === "connecting" ? "Connecting…" : "Connect wallet"}
-            </button>
-          )}
-          {receipt?.side === "deposit" && (
-            <p className={`hint ${receipt.ok ? "good" : "bad"}`} role="status" style={{ margin: 0 }}>{receipt.text}</p>
-          )}
-
-          <p className="sub" style={{ margin: 0 }}>
-            No fractions yet? <Link href="/vault" className="link">Vault a card →</Link>
-          </p>
-        </section>
-
-        <section className="panel ticket">
-          <div className="panel-head">
-            <div>
-              <h2 className="title sm">Withdraw</h2>
-              <p className="sub">CLP in, a slice of both sleeves out.</p>
-            </div>
-          </div>
-
-          <div className="token-input">
-            <div className="ti-top">
-              <span>You burn</span>
-              <span>Balance {clpBalance !== null ? fmtUsd(clpBalance, 2) : "—"}</span>
-            </div>
-            <div className="ti-row">
+            <div className="earn-box-row">
+              {depositing ? (
+                <label className="tk-asset pick">
+                  {kind === "usdc" ? <UsdcCoin /> : <KadexCoin />}
+                  <select
+                    aria-label="What to deposit"
+                    value={kind}
+                    onChange={(e) => {
+                      setKind(e.target.value as DepositKind);
+                      setAmount("");
+                      setReceipt(null);
+                    }}
+                  >
+                    <option value="usdc">USDC</option>
+                    <option value="fractions">Fractions</option>
+                  </select>
+                </label>
+              ) : (
+                <span className="tk-asset"><KadexCoin />CLP</span>
+              )}
               <input
                 inputMode="decimal"
                 autoComplete="off"
                 placeholder="0.00"
-                aria-label="Amount to withdraw in CLP"
-                value={burnAmount}
-                onChange={(e) => setBurnAmount(clean(e.target.value))}
+                aria-label={`Amount in ${unit}`}
+                value={amount}
+                onChange={(e) => setAmount(clean(e.target.value))}
               />
-              <span className="tk-asset"><span className="coin" aria-hidden="true"><span className="star" /></span>CLP</span>
-            </div>
-            <div className="pct" role="group" aria-label="Use part of the balance">
-              {[25, 50, 75, 100].map((percent) => (
-                <button key={percent} type="button" disabled={clpBalance === null || clpBalance <= 0n} onClick={() => clpBalance !== null && setBurnAmount(portion(clpBalance, percent))}>
-                  {percent === 100 ? "Max" : `${percent}%`}
-                </button>
-              ))}
             </div>
           </div>
 
-          <span className="swap-arrow" aria-hidden="true">↓</span>
-
-          <div className="token-input out">
-            <div className="ti-top">
-              <span>You receive</span>
-              <span>{rate}</span>
+          <div className="earn-box">
+            <div className="earn-box-top">
+              <span>{depositing ? "You're minting" : "You're receiving"}</span>
+              <span className="earn-bal">
+                {depositing ? `${balances ? fmtUsd(balances.clp, 2) : "0"} CLP` : data ? `1 CLP = ${fmtPrice(data.poolStats.clpPrice)} USDC` : ""}
+              </span>
             </div>
-            <div className="ti-row">
-              <span className={`ti-out${burning && red ? "" : " dim"}`}>{burning && red ? fmtUsd(red.usdc, 2) : "0.00"}</span>
-              <span className="tk-asset"><span className="coin usdc" aria-hidden="true">$</span>USDC</span>
-            </div>
-            <div className="ti-row">
-              <span className={`ti-out${burning && red ? "" : " dim"}`}>{burning && red ? fmtUsd(red.fractions, 2) : "0.00"}</span>
-              <span className="tk-asset"><span className="coin" aria-hidden="true"><span className="star" /></span>Fractions</span>
-            </div>
-          </div>
-
-          <div className={`tk-meter${burnOver ? " over" : ""}`}>
-            <div>
-              <span>Of your CLP</span>
-              <b>
-                {fmtUsd(burn, 2)}
-                <em> / {clpBalance !== null ? fmtUsd(clpBalance, 2) : "—"}</em>
-              </b>
-            </div>
-            <i><i style={{ width: `${filled(burn, clpBalance)}%` }} /></i>
-          </div>
-
-          <p className={`hint${red?.problem && burning ? " bad" : ""}`} style={{ margin: 0 }}>
-            {red?.problem && burning
-              ? red.problem
-              : g && !g.canWithdraw
-                ? closed
-                : "Returned as a proportional slice of both sleeves."}
-          </p>
-
-          <div className="rows tk-sum">
-            <div className={burning ? "hi" : undefined}><span>Total value</span><b>{burning && red ? `$${fmtUsd(red.totalValue, 2)}` : "—"}</b></div>
-            <div><span>CLP left</span><b>{burning && clpBalance !== null && clpBalance >= burn ? fmtUsd(clpBalance - burn, 2) : "—"}</b></div>
+            {depositing ? (
+              <div className="earn-box-row">
+                <span className="tk-asset"><KadexCoin />CLP</span>
+                <output className={entered && dep ? undefined : "dim"}>{entered && dep ? fmtUsd(dep.shares, 2) : "0.00"}</output>
+              </div>
+            ) : (
+              <>
+                <div className="earn-box-row">
+                  <span className="tk-asset"><UsdcCoin />USDC</span>
+                  <output className={entered && red ? undefined : "dim"}>{entered && red ? fmtUsd(red.usdc, 2) : "0.00"}</output>
+                </div>
+                <div className="earn-box-row">
+                  <span className="tk-asset"><KadexCoin />Fractions</span>
+                  <output className={entered && red ? undefined : "dim"}>{entered && red ? fmtUsd(red.fractions, 2) : "0.00"}</output>
+                </div>
+              </>
+            )}
           </div>
 
           {connected ? (
             <button
-              className="btn block neutral"
-              disabled={!burning || !!red?.problem || !g?.canWithdraw || loading || sending !== null || burnOver}
-              onClick={() => void submit("withdraw", { kind: "withdraw", amount: burn })}
+              className={`btn block ${depositing ? "long" : "neutral"}`}
+              disabled={!entered || !!problem || !open || loading || sending || over}
+              onClick={() => void submit()}
             >
-              {sending === "withdraw" ? "Confirm in your wallet…" : burning ? "Withdraw" : "Enter an amount"}
+              {sending ? "Confirm in your wallet…" : !entered ? "Enter an amount" : depositing ? "Deposit" : "Withdraw"}
             </button>
           ) : (
             <button className="btn block" onClick={() => void connect()} disabled={status === "connecting"}>
               {status === "connecting" ? "Connecting…" : "Connect wallet"}
             </button>
           )}
-          {receipt?.side === "withdraw" && (
-            <p className={`hint ${receipt.ok ? "good" : "bad"}`} role="status" style={{ margin: 0 }}>{receipt.text}</p>
+
+          <p className={`hint${over || problem ? " bad" : ""}`}>{hint}</p>
+          {receipt && <p className={`hint ${receipt.ok ? "good" : "bad"}`} role="status">{receipt.text}</p>}
+
+          {entered && depositing && dep && (
+            <div className="rows tk-sum">
+              <div className={dep.haircut > 0n ? "hi" : undefined}>
+                <span>Haircut</span>
+                <b>{dep.haircut > 0n ? `−${fmtUsd(dep.haircut, 2)}` : "none"}</b>
+              </div>
+              <div><span>Value added</span><b>${fmtUsd(dep.netValue, 2)}</b></div>
+              <div><span>Share of pool</span><b>{fmtPct(dep.shareOfPool, 3)}</b></div>
+            </div>
           )}
-        </section>
-      </div>
+          {entered && !depositing && red && (
+            <div className="rows tk-sum">
+              <div className="hi"><span>Total value</span><b>${fmtUsd(red.totalValue, 2)}</b></div>
+              <div><span>CLP left</span><b>{balance !== null && balance >= raw ? fmtUsd(balance - raw, 2) : "—"}</b></div>
+            </div>
+          )}
 
-      <p className="fine earn-fine">
-        {IS_SAMPLE
-          ? "Deposits require the programs to be deployed. Nothing is signed or settled here yet."
-          : `Reading and settling on ${CLUSTER?.rpcUrl}.`}
-      </p>
+          {connected && balances && (
+            <dl className="earn-facts earn-mine">
+              <div><dt>Your CLP</dt><dd>{fmtUsd(balances.clp, 2)}</dd></div>
+              <div><dt>Value</dt><dd>${fmtUsd(held, 2)}</dd></div>
+              <div><dt>Share of the pool</dt><dd>{share.toFixed(3)}%</dd></div>
+            </dl>
+          )}
 
-      <div className="earn2">
-        <div className="col">
-          <section className="panel">
-            <div className="panel-head">
+          <p className="sub">
+            No fractions yet? <Link href="/vault" className="link">Vault a card →</Link>
+          </p>
+          <p className="fine">
+            {IS_SAMPLE
+              ? "Simulated in this browser until the programs are deployed. Nothing is signed or settled on-chain."
+              : `Reading and settling on ${clusterName()}.`}
+          </p>
+        </aside>
+
+        <div className="earn-stack">
+          <section className="panel earn-pool">
+            <div className="earn-tvl">
+              <span>Total value locked</span>
+              <b>{data ? `$${fmtUsd(data.poolStats.nav, 2)}` : "—"}</b>
+            </div>
+
+            <h2>Liquidity allocation</h2>
+            <table className="earn-alloc">
+              <thead>
+                <tr>
+                  <th>Token</th>
+                  <th>Pool size</th>
+                  <th>Weight / cap</th>
+                  <th>Deposit haircut</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <span className="asset">
+                      <UsdcCoin />
+                      <span>
+                        <span className="nm">USDC</span>
+                        <span className="id">Pays winning trades</span>
+                      </span>
+                    </span>
+                  </td>
+                  <td>
+                    {data ? `$${fmtUsd(data.pool.usdcSleeve, 2)}` : "—"}
+                    <small>{data ? `${fmtUsd(data.pool.usdcSleeve, 2)} USDC` : ""}</small>
+                  </td>
+                  <td>{data ? fmtPct(data.poolStats.usdcSleeveShare, 2) : "—"} <small>/ no cap</small></td>
+                  <td>None</td>
+                </tr>
+                <tr>
+                  <td>
+                    <span className="asset">
+                      <KadexCoin />
+                      <span>
+                        <span className="nm">Card fractions</span>
+                        <span className="id">Tokenized graded cards</span>
+                      </span>
+                    </span>
+                  </td>
+                  <td>
+                    {data ? `$${fmtUsd(data.pool.cardSleeveValue, 2)}` : "—"}
+                    <small>{data ? `${fmtUsd(data.fractionBalance, 2)} fractions` : ""}</small>
+                  </td>
+                  <td>
+                    {data ? fmtPct(data.poolStats.cardSleeveShare, 2) : "—"}{" "}
+                    <small>/ {data ? fmtPct(data.pool.params.cardSleeveTarget, 2) : "—"}</small>
+                  </td>
+                  <td>{haircutPct}%</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <dl className="earn-facts">
+              <div><dt>Total supply</dt><dd>{data ? `${fmtUsd(data.pool.clpSupply, 2)} CLP` : "—"}</dd></div>
+              <div><dt>Utilisation</dt><dd>{data ? fmtPct(data.capacity.utilization, 2) : "—"}</dd></div>
               <div>
-                <h2 className="title sm">Liquidity allocation</h2>
-                <p className="sub">What a share of the pool is a claim on.</p>
+                <dt>Borrow / month</dt>
+                <dd>{spread ? `L ${spread.longMonthly.toFixed(2)}% · S ${spread.shortMonthly.toFixed(2)}%` : "—"}</dd>
               </div>
-            </div>
-            <div className="t-wrap">
-              <table className="t alloc">
-                <thead>
-                  <tr>
-                    <th>Sleeve</th>
-                    <th className="r">Value</th>
-                    <th className="r">Weight</th>
-                    <th className="r">Limit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>
-                      <span className="asset">
-                        <span className="coin usdc" aria-hidden="true">$</span>
-                        <span>
-                          <span className="nm">USDC</span>
-                          <span className="id">Pays winning trades</span>
-                        </span>
-                      </span>
-                    </td>
-                    <td className="r n">{data ? `$${fmtUsd(data.pool.usdcSleeve)}` : "—"}</td>
-                    <td className="r n">
-                      <span className="w">
-                        {data ? fmtPct(data.poolStats.usdcSleeveShare, 1) : "—"}
-                        <span className="bar"><i style={{ width: data ? fmtPct(data.poolStats.usdcSleeveShare, 2) : "0%", background: "var(--ink)" }} /></span>
-                      </span>
-                    </td>
-                    <td className="r">No limit</td>
-                  </tr>
-                  <tr>
-                    <td>
-                      <span className="asset">
-                        <span className="coin" aria-hidden="true"><span className="star" /></span>
-                        <span>
-                          <span className="nm">Card fractions</span>
-                          <span className="id">Tokenized graded cards</span>
-                        </span>
-                      </span>
-                    </td>
-                    <td className="r n">{data ? `$${fmtUsd(data.pool.cardSleeveValue)}` : "—"}</td>
-                    <td className="r n">
-                      <span className="w">
-                        {data ? fmtPct(data.poolStats.cardSleeveShare, 1) : "—"}
-                        <span className="bar"><i style={{ width: data ? fmtPct(data.poolStats.cardSleeveShare, 2) : "0%", background: "var(--ink-2)" }} /></span>
-                      </span>
-                    </td>
-                    <td className="r">{data ? `Max ${fmtPct(data.pool.params.cardSleeveTarget, 0)}` : "—"}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            </dl>
           </section>
-
-          <section className="panel">
-            <h2 className="title sm" style={{ marginBottom: 20 }}>How earning works</h2>
-            <div className="steps">
-              <div>
-                <span>1</span>
-                <h4>Deposit</h4>
-                <p>Put in USDC or card fractions. You get CLP, minted at the pool&rsquo;s net asset value.</p>
-              </div>
-              <div>
-                <span>2</span>
-                <h4>Earn</h4>
-                <p>The pool is the other side of every trade. Borrow and trading fees raise the CLP price.</p>
-              </div>
-              <div>
-                <span>3</span>
-                <h4>Withdraw</h4>
-                <p>Burn CLP for a proportional slice of both sleeves: USDC and fractions together.</p>
-              </div>
-            </div>
-          </section>
+          <LpPosition data={data} balances={balances} wallet={connected ? publicKey : null} />
         </div>
 
-        <section className="panel faq">
+        <section className="panel faq" id="earn-faq">
           <h2 className="title sm" style={{ marginBottom: 6 }}>Before you deposit</h2>
           <details className="acc" open>
             <summary>What am I buying?</summary>

@@ -1,13 +1,16 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
+import { BRAND } from "@/lib/brand";
 import { fmtPrice, HISTORY_STEP_SECS, IS_SAMPLE, type IndexPoint } from "@/lib/market";
+import { LiveChart } from "@/components/LiveChart";
 
 const WIDTH = 1200;
 const HEIGHT = 400;
 const PAD = 14;
 const Y_TICKS = 5;
 const X_TICKS = 8;
+const LIVE = 0;
 
 const TIMEFRAMES = [
   { label: "15m", secs: 900 },
@@ -41,23 +44,14 @@ const clock = (ts: number) => new Date(ts * 1000).toLocaleTimeString("en-GB", { 
 
 type Mode = "line" | "candles";
 
-export function IndexChart({ points, head, stats }: { points: IndexPoint[]; head?: ReactNode; stats?: ReactNode }) {
-  const [secs, setSecs] = useState<number>(900);
-  const [mode, setMode] = useState<Mode>("candles");
-  const candles = useMemo(() => toCandles(points, secs), [points, secs]);
+const Watermark = () => (
+  <span className="chart-mark" aria-hidden="true">
+    <span className="star" />
+    {BRAND}
+  </span>
+);
 
-  if (points.length < 2) {
-    return (
-      <section className="panel chart">
-        <div className="chart-bar">
-          {head}
-          {stats}
-        </div>
-        <p className="sub">No price history yet.</p>
-      </section>
-    );
-  }
-
+function History({ candles, mode }: { candles: Candle[]; mode: Mode }) {
   const min = Math.min(...candles.map((c) => c.low));
   const max = Math.max(...candles.map((c) => c.high));
   const span = max - min || 1;
@@ -75,29 +69,7 @@ export function IndexChart({ points, head, stats }: { points: IndexPoint[]; head
   const tone = mode === "line" ? "accent" : rising ? "up" : "down";
 
   return (
-    <section className="panel chart" aria-label="Index price">
-      <div className="chart-bar">
-        {head}
-        {stats}
-      </div>
-
-      <div className="chart-head chart-tools">
-        <div className="chart-tf" role="group" aria-label="Interval">
-          {TIMEFRAMES.map((t) => (
-            <button key={t.label} type="button" aria-pressed={secs === t.secs} onClick={() => setSecs(t.secs)}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <div className="chart-side">
-          <div className="chart-tf" role="group" aria-label="Chart type">
-            <button type="button" aria-pressed={mode === "candles"} onClick={() => setMode("candles")}>Candles</button>
-            <button type="button" aria-pressed={mode === "line"} onClick={() => setMode("line")}>Line</button>
-          </div>
-          <span className="chart-tag">Mark price{IS_SAMPLE && " · sample"}</span>
-        </div>
-      </div>
-
+    <>
       {mode === "candles" && (
         <p className="chart-ohlc">
           O<b className={rising ? "up" : "down"}>{price(current.open)}</b>
@@ -109,6 +81,7 @@ export function IndexChart({ points, head, stats }: { points: IndexPoint[]; head
       )}
 
       <div className="chart-plot">
+        <Watermark />
         <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} preserveAspectRatio="none" role="img" aria-label="Index price over the last 24 hours">
           <defs>
             <linearGradient id="chart-fade" x1="0" y1="0" x2="0" y2="1">
@@ -166,6 +139,68 @@ export function IndexChart({ points, head, stats }: { points: IndexPoint[]; head
       <div className="chart-x" aria-hidden="true">
         {candles.map((c, i) => (i % xStep === 0 ? <span key={c.ts} style={{ left: `${((i + 0.5) / candles.length) * 100}%` }}>{clock(c.ts)}</span> : null))}
       </div>
+    </>
+  );
+}
+
+export function IndexChart({
+  points,
+  head,
+  stats,
+  priceAt,
+}: {
+  points: IndexPoint[];
+  head?: ReactNode;
+  stats?: ReactNode;
+  priceAt?(ts: number): bigint | null;
+}) {
+  const [secs, setSecs] = useState<number>(priceAt ? LIVE : 900);
+  const [mode, setMode] = useState<Mode>("candles");
+  const live = secs === LIVE && priceAt !== undefined;
+  const candles = useMemo(() => (live ? [] : toCandles(points, secs)), [live, points, secs]);
+
+  return (
+    <section className="panel chart" aria-label="Index price">
+      <div className="chart-bar">
+        {head}
+        {stats}
+      </div>
+
+      <div className="chart-head chart-tools">
+        <div className="chart-tf" role="group" aria-label="Interval">
+          {priceAt && (
+            <button type="button" className="live" aria-pressed={live} onClick={() => setSecs(LIVE)}>
+              <i aria-hidden="true" />
+              Live
+            </button>
+          )}
+          {TIMEFRAMES.map((t) => (
+            <button key={t.label} type="button" aria-pressed={secs === t.secs} onClick={() => setSecs(t.secs)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="chart-side">
+          {!live && (
+            <div className="chart-tf" role="group" aria-label="Chart type">
+              <button type="button" aria-pressed={mode === "candles"} onClick={() => setMode("candles")}>Candles</button>
+              <button type="button" aria-pressed={mode === "line"} onClick={() => setMode("line")}>Line</button>
+            </div>
+          )}
+          <span className="chart-tag">Mark price{IS_SAMPLE && " · sample"}</span>
+        </div>
+      </div>
+
+      {live ? (
+        <div className="chart-plot live">
+          <Watermark />
+          <LiveChart priceAt={priceAt} />
+        </div>
+      ) : candles.length < 2 ? (
+        <p className="sub">No price history yet.</p>
+      ) : (
+        <History candles={candles} mode={mode} />
+      )}
     </section>
   );
 }

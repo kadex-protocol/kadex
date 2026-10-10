@@ -3,15 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { PositionView } from "@kadex/types";
-import { CONSTITUENTS, fmtPrice, fmtUsd, type MarketSnapshot, type Portfolio } from "@/lib/market";
+import { fmtUsd, type MarketSnapshot, type Portfolio } from "@/lib/market";
 import { useWallet } from "@/lib/wallet";
 import { PositionsTable } from "@/components/PositionsTable";
-import { Thumb } from "@/components/Slab";
 
 type Tab = "positions" | "cards" | "shares";
-
-const constituent = (id: string) => CONSTITUENTS.find((c) => c.id === id) ?? CONSTITUENTS[0]!;
-const signed = (x: bigint) => `${x >= 0n ? "+" : "−"}$${fmtUsd(x < 0n ? -x : x, 2)}`;
 
 interface Props {
   portfolio: Portfolio | null;
@@ -26,11 +22,11 @@ export function AccountPanel({ portfolio, positions, snapshot, onTrade, onClosed
   const [tab, setTab] = useState<Tab>("positions");
   const connected = status === "connected" && publicKey !== null;
 
-  const rows = portfolio?.rows ?? [];
   const cards = portfolio?.cards ?? [];
+  const fractions = portfolio?.fractions ?? 0n;
   const clp = portfolio?.clp ?? 0n;
   const tabs: [Tab, string, number][] = [
-    ["positions", "Positions", positions.length || rows.length],
+    ["positions", "Positions", positions.length],
     ["cards", "Vaulted cards", cards.length],
     ["shares", "Pool shares", clp > 0n ? 1 : 0],
   ];
@@ -62,47 +58,6 @@ export function AccountPanel({ portfolio, positions, snapshot, onTrade, onClosed
       ) : tab === "positions" ? (
         positions.length > 0 ? (
           <PositionsTable positions={positions} markPrice={snapshot?.oracle.price ?? null} onClosed={onClosed} />
-        ) : rows.length > 0 ? (
-          <div className="t-wrap pos-table">
-            <table className="t">
-              <thead>
-                <tr>
-                  <th>Market</th>
-                  <th>Side</th>
-                  <th className="r">Size</th>
-                  <th className="r">Entry</th>
-                  <th className="r">Mark</th>
-                  <th className="r">PnL</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => {
-                  const c = constituent(r.constituentId);
-                  return (
-                    <tr key={i}>
-                      <td>
-                        <span className="asset">
-                          <Thumb art={c.art} />
-                          <span>
-                            <span className="nm">{c.name}</span>
-                            <span className="id">{r.leverage}x · margin ${fmtUsd(r.margin, 2)}</span>
-                          </span>
-                        </span>
-                      </td>
-                      <td><span className={`pill ${r.side}`}>{r.side}</span></td>
-                      <td className="r n">${fmtUsd(r.notional, 2)}</td>
-                      <td className="r n">{fmtPrice(r.entryPrice)}</td>
-                      <td className="r n">{fmtPrice(r.markPrice)}</td>
-                      <td className={`r n ${r.pnl >= 0n ? "up" : "down"}`}>
-                        {signed(r.pnl)}
-                        <span className="id">{r.pnlPct >= 0 ? "+" : ""}{r.pnlPct.toFixed(2)}%</span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
         ) : (
           <div className="acct-empty">
             <b>No open positions</b>
@@ -113,32 +68,27 @@ export function AccountPanel({ portfolio, positions, snapshot, onTrade, onClosed
       ) : tab === "cards" ? (
         cards.length > 0 ? (
           <ul className="acct-cards">
-            {cards.map((h) => {
-              const c = constituent(h.constituentId);
-              const whole = h.held === h.minted;
-              const share = h.minted > 0n ? Number((h.held * 10_000n) / h.minted) / 100 : 0;
-              return (
-                <li key={h.constituentId}>
-                  <span className="asset">
-                    <Thumb art={c.art} />
-                    <span>
-                      <span className="nm">{c.name}</span>
-                      <span className="id">{c.year} · {c.grade}</span>
-                    </span>
+            {cards.map((h) => ({ h, held: h.held ?? fractions })).map(({ h, held }) => (
+              <li key={h.nftAddress}>
+                <Link href={`/vault/${h.nftAddress}`} className="asset">
+                  <span className="thumb">{h.image && <img src={h.image} alt="" loading="lazy" />}</span>
+                  <span>
+                    <span className="nm">{h.name}</span>
+                    <span className="id">{h.grade}</span>
                   </span>
-                  <div className="acct-frac">
-                    <div>
-                      <span>In your wallet</span>
-                      <b>{fmtUsd(h.held)} <em>of {fmtUsd(h.minted)}</em></b>
-                    </div>
-                    <i><i style={{ width: `${share}%` }} /></i>
+                </Link>
+                <div className="acct-frac">
+                  <div>
+                    <span>Fractions minted</span>
+                    <b>{fmtUsd(h.minted)} <em>· {fmtUsd(held)} in your wallet</em></b>
                   </div>
-                  <span className={`acct-chip${whole ? " ok" : ""}`}>
-                    {whole ? "Redeemable" : `${fmtUsd(h.inPool)} in the pool`}
-                  </span>
-                </li>
-              );
-            })}
+                  <i><i style={{ width: `${h.minted > 0n ? Math.min(100, Number((held * 100n) / h.minted)) : 0}%` }} /></i>
+                </div>
+                <span className={`acct-chip${h.redeemable ? " ok" : ""}`}>
+                  {h.redeemable ? "Redeemable" : `Needs ${fmtUsd(h.minted - held)} more`}
+                </span>
+              </li>
+            ))}
           </ul>
         ) : (
           <div className="acct-empty">

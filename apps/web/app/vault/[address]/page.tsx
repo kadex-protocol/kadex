@@ -3,12 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { fmtUsd } from "@/lib/market";
+import { fmtUsd, IS_SAMPLE, loadVaultedCards, type CardHolding } from "@/lib/market";
+import { redeemCard, vaultCard, vaultedBy } from "@/lib/actions";
+import { explainTxError, shortSignature } from "@/lib/tx";
 import { SOLANA_ADDRESS, loadVaultCard, loadVaultCards, type VaultCard } from "@/lib/collectorCrypt";
 import { askOverAppraisal, gradeLine, shortAddress, titleParts } from "@/lib/cardText";
+import { useWallet } from "@/lib/wallet";
 import { CardStage } from "@/components/CardStage";
 import { TiltSlab } from "@/components/TiltSlab";
 import { VaultActions } from "@/components/VaultActions";
+import { loadTestCards, twinOf } from "@/lib/testCards";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Could not reach Collector Crypt.");
 
@@ -45,11 +49,53 @@ function Strip({ title, cards }: { title: string; cards: VaultCard[] }) {
 
 export default function CardPage() {
   const { address } = useParams<{ address: string }>();
+  const { status, publicKey, connect, signTransaction } = useWallet();
   const [card, setCard] = useState<VaultCard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [back, setBack] = useState(false);
   const [similar, setSimilar] = useState<VaultCard[]>([]);
   const [sameOwner, setSameOwner] = useState<VaultCard[]>([]);
+  const [holder, setHolder] = useState<string | null>(null);
+  const [twin, setTwin] = useState<string | null | undefined>(undefined);
+  const [holding, setHolding] = useState<CardHolding | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [receipt, setReceipt] = useState<{ ok: boolean; text: string } | null>(null);
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    let live = true;
+    loadTestCards().then((list) => live && setTwin(twinOf(list, address)));
+    return () => {
+      live = false;
+    };
+  }, [address]);
+
+  useEffect(() => {
+    let live = true;
+    setHolder(vaultedBy(address));
+    loadVaultedCards(publicKey)
+      .then((cards) => live && setHolding(cards.find((c) => c.nftAddress === address) ?? null))
+      .catch(() => live && setHolding(null));
+    return () => {
+      live = false;
+    };
+  }, [address, publicKey, version]);
+
+  const run = async (kind: "vault" | "redeem") => {
+    if (!publicKey || !card) return;
+    setBusy(true);
+    setReceipt(null);
+    try {
+      const signer = { publicKey, sign: signTransaction };
+      const signature = kind === "vault" ? await vaultCard(signer, card) : await redeemCard(signer, card.nftAddress);
+      setReceipt({ ok: true, text: `${kind === "vault" ? "Vaulted" : "Redeemed"} · ${shortSignature(signature)}` });
+      setVersion((v) => v + 1);
+    } catch (e) {
+      setReceipt({ ok: false, text: explainTxError(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     let live = true;
@@ -96,6 +142,8 @@ export default function CardPage() {
     );
   }
 
+  const connected = status === "connected" && publicKey !== null;
+  const wallet = publicKey?.toBase58() ?? null;
   const t = card ? titleParts(card) : null;
   const value = card?.vaultable ? card.insuredValueUsdc : 0n;
   const faces = card ? [card.frontImage, card.backImage].filter((s): s is string => s !== null) : [];
@@ -157,7 +205,25 @@ export default function CardPage() {
           </div>
 
           <div className="cta">
-            <VaultActions address={address} vaultable={value > 0n} />
+            {!IS_SAMPLE ? (
+              twin === undefined ? (
+                <button className="btn block" disabled>Reading the vault…</button>
+              ) : (
+                <VaultActions address={twin ?? address} vaultable={value > 0n} />
+              )
+            ) : !connected ? (
+              <button className="btn block" onClick={() => void connect()} disabled={status === "connecting"}>
+                {status === "connecting" ? "Connecting…" : "Connect wallet"}
+              </button>
+            ) : holder === wallet ? (
+              <button className="btn block" type="button" disabled={busy || !holding?.redeemable} onClick={() => void run("redeem")}>
+                {busy ? "Redeeming…" : holding?.redeemable ? "Redeem this card" : "Redeem needs every fraction"}
+              </button>
+            ) : (
+              <button className="btn block" type="button" disabled={busy || value <= 0n || holder !== null} onClick={() => void run("vault")}>
+                {busy ? "Vaulting…" : holder !== null ? "Already vaulted" : value <= 0n ? "Not vaultable" : "Vault this card"}
+              </button>
+            )}
             <a
               className="btn"
               href={`https://collectorcrypt.com/assets/solana/${address}`}
@@ -167,6 +233,13 @@ export default function CardPage() {
               View on Collector Crypt ↗
             </a>
           </div>
+
+          {receipt && <p className={`hint${receipt.ok ? "" : " bad"}`} role="status">{receipt.text}</p>}
+          {holder === wallet && wallet !== null && (
+            <p className="hint">
+              In the vault. Its fractions are in your wallet: <Link href="/pool" className="link">deposit them to earn →</Link>
+            </p>
+          )}
 
           <div className="spec">
             <div><span>You receive</span><b>{value > 0n ? `${fmtUsd(value, 2)} fractions` : "—"}</b></div>
@@ -206,8 +279,11 @@ export default function CardPage() {
           )}
 
           <p className="fine">
-            Vaulting happens on the cluster the app points at: ownership and lock state are read from it, not from
-            Collector Crypt.
+            {IS_SAMPLE
+              ? "Simulated in this browser until the programs are deployed, so any vaultable card can be tried. Nothing is signed or settled on-chain."
+              : twin
+                ? "This cluster holds a test copy of this card. Vaulting and redeeming act on that copy, not on the original."
+                : "Vaulting happens on the cluster the app points at: ownership and lock state are read from it, not from Collector Crypt."}
           </p>
         </div>
       </div>

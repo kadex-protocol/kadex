@@ -28,10 +28,14 @@ import {
   navRedeem,
   oracleView,
   poolView,
+  readVaultInventory,
 } from "@kadex/sdk";
 import { readChain, readPositions, readTokenBalances } from "./chain";
-import { CLUSTER } from "./cluster";
+import { CLUSTER, type Cluster } from "./cluster";
+import { loadVaultCard } from "./collectorCrypt";
 import { HISTORY_POINTS, HISTORY_STEP_SECS, type IndexHistoryWire } from "./history";
+import { readLedger, simPrice, walletOf, type SimCard } from "./sim";
+import { loadTestCards, originalOf } from "./testCards";
 
 export { HISTORY_STEP_SECS };
 
@@ -158,9 +162,24 @@ export async function loadMarket(): Promise<MarketSnapshot> {
       navIssue(chain.pool, marks),
     );
   }
-  const pool = SAMPLE_POOL;
-  const flat = { low: SAMPLE_ORACLE.price, high: SAMPLE_ORACLE.price };
-  return snapshotOf(pool, SAMPLE_ORACLE, SAMPLE_MARKET, flat, pool.cardSleeveValue, navRedeem(pool));
+  const ledger = readLedger();
+  const price = simPrice(Date.now() / 1000);
+  const held = Object.values(ledger.wallets).flatMap((w) => w.positions);
+  const pool: PoolView = {
+    ...SAMPLE_POOL,
+    usdcSleeve: ledger.usdcSleeve,
+    cardSleeveValue: math.mulWadFloor(ledger.fractionBalance, price),
+    clpSupply: ledger.clpSupply,
+    marginHeld: held.reduce((a, p) => a + p.margin, 0n),
+  };
+  const oracle: OracleView = { ...SAMPLE_ORACLE, price, twap: price, spot: price };
+  const market: MarketView = {
+    ...SAMPLE_MARKET,
+    oiLong: ledger.oiLong,
+    oiShort: ledger.oiShort,
+    openPositions: SAMPLE_MARKET.openPositions + held.length,
+  };
+  return snapshotOf(pool, oracle, market, { low: price, high: price }, ledger.fractionBalance, navRedeem(pool));
 }
 
 function snapshotOf(
@@ -193,10 +212,16 @@ function snapshotOf(
  * answer until the programs are live.
  */
 export async function loadPositions(owner: PublicKey | null, snapshot: MarketSnapshot | null): Promise<PositionView[]> {
-  if (!owner || !CLUSTER || !snapshot) return [];
-  const positions = await readPositions(CLUSTER, owner);
+  if (!owner || !snapshot) return [];
+  const positions = CLUSTER
+    ? (await readPositions(CLUSTER, owner)).filter((p) => p.market.equals(snapshot.market.address))
+    : walletOf(readLedger(), owner.toBase58()).positions.map((p) => ({
+        ...p,
+        address: new PublicKey(p.address),
+        owner,
+        borrowIdxEntry: RAY,
+      }));
   return positions
-    .filter((p) => p.market.equals(snapshot.market.address))
     .map((p) => {
       const { liquidatable: _liquidatable, ...derived } = derivePosition(p, snapshot.market, snapshot.oracle.price, snapshot.pool.params);
       return {
@@ -216,18 +241,6 @@ export async function loadPositions(owner: PublicKey | null, snapshot: MarketSna
 export interface IndexPoint {
   ts: number;
   price: bigint;
-}
-
-const HISTORY_SEED = 20261007;
-
-function seeded(seed: number) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
 }
 
 /**
@@ -253,19 +266,17 @@ export async function loadIndexHistory(snapshot: MarketSnapshot): Promise<IndexP
     }
     return points;
   }
-  const random = seeded(HISTORY_SEED);
   const now = Math.floor(Date.now() / 1000 / HISTORY_STEP_SECS) * HISTORY_STEP_SECS;
-  const prices = [Number(snapshot.oracle.price)];
-  let trend = 0;
-  for (let i = 1; i < HISTORY_POINTS; i += 1) {
-    trend = trend * 0.82 + (random() - 0.5) * 0.0007;
-    const step = trend + (random() - 0.5) * 0.0042 + 0.00005;
-    prices.push(prices[i - 1]! / (1 + step));
-  }
-  return prices
-    .reverse()
-    .map((price, i) => ({ ts: now - (HISTORY_POINTS - 1 - i) * HISTORY_STEP_SECS, price: BigInt(Math.round(price)) }));
+  const points = Array.from({ length: HISTORY_POINTS }, (_, i) => {
+    const ts = now - (HISTORY_POINTS - 1 - i) * HISTORY_STEP_SECS;
+    return { ts, price: simPrice(ts) };
+  });
+  points[points.length - 1]!.price = snapshot.oracle.price;
+  return points;
 }
+
+export const priceAt = (snapshot: MarketSnapshot | null, ts: number): bigint | null =>
+  IS_SAMPLE ? simPrice(ts) : snapshot?.oracle.price ?? null;
 
 /** What a quote looks like before anything is signed. */
 export interface Quote {
@@ -323,7 +334,8 @@ export function quote(snapshot: MarketSnapshot, side: Side, notionalUsdc: bigint
   let problem: string | null = null;
   if (pool.state !== "active") {
     problem = "The market is not accepting new positions.";
-  } else if (!oracleTradeable(oracle.state)) {
+  } else if (!oracleTradeable(oracle.state) && oracle.state !== "stale") {
+    // A stale price does not block: the order's own transaction refreshes it first (refreshIfAging).
     problem = `The index price is ${oracle.state} and not currently tradeable.`;
   } else if (notionalUsdc > capacity.free) {
     problem = `Exceeds available capacity of ${(Number(capacity.free) / 1e6).toLocaleString("en-US", { maximumFractionDigits: 0 })} USDC.`;
@@ -364,8 +376,8 @@ export interface Balances {
 export async function loadBalances(owner: PublicKey | null): Promise<Balances> {
   if (!owner) return { usdc: 0n, fractions: 0n, clp: 0n };
   if (CLUSTER) return readTokenBalances(CLUSTER, owner);
-  // Sample only, behind the preview flag — the same wallet the portfolio shows.
-  return { usdc: 5_240n * USDC, fractions: SAMPLE_CARDS[0]!.held, clp: SAMPLE_CLP };
+  const { usdc, fractions, clp } = walletOf(readLedger(), owner.toBase58());
+  return { usdc, fractions, clp };
 }
 
 export type DepositKind = "usdc" | "fractions";
@@ -488,10 +500,10 @@ export function quoteWithdraw(snapshot: MarketSnapshot, shares: bigint): Withdra
  * The ticket used to show only the rate for the side you had selected, which
  * made the spread — the single number an arbitrageur trades on — invisible.
  * `psi` exists to widen this gap when the book is one-sided; hiding it meant
- * paying for a mechanism with no audience.
+ * paying for a mechanism with no audience. Rates are percent per month.
  */
 export function borrowSpread(s: MarketSnapshot) {
-  const perMonth = (hourly: bigint) => (Number(hourly) / 1e6) * 24 * 30;
+  const perMonth = (hourly: bigint) => (Number(hourly) / 1e6) * 24 * 30 * 100;
   const long = perMonth(s.borrow.long);
   const short = perMonth(s.borrow.short);
   const crowded = long >= short ? "long" : "short";
@@ -509,54 +521,43 @@ export function borrowSpread(s: MarketSnapshot) {
 // Portfolio
 // ───────────────────────────────────────────────────────────────────────────
 
-export interface PositionRow {
-  constituentId: string;
-  side: Side;
-  notional: bigint;
-  margin: bigint;
-  entryPrice: bigint;
-  markPrice: bigint;
-  pnl: bigint;
-  pnlPct: number;
-  leverage: number;
+export interface CardHolding extends SimCard {
+  redeemable: boolean;
+  asset?: string;
+  held?: bigint;
 }
 
-/**
- * Sample positions, shown ONLY while `IS_SAMPLE` is true and always behind the
- * "concept preview · sample data" flag in the chrome.
- *
- * There is no deployment, so a wallet genuinely has no positions. An empty
- * table is the honest state and the page renders it when this is off — but a
- * table that has never been seen with data in it is a table nobody has
- * checked, so these exist to exercise the real one.
- */
-const SAMPLE_POSITIONS: PositionRow[] = [
-  { constituentId: "001", side: "long", notional: 2_480n * 1_000_000n, margin: 496n * 1_000_000n, entryPrice: 1_010_320n, markPrice: 1_047_210n, pnl: 90_600_000n, pnlPct: 3.65, leverage: 5 },
-  { constituentId: "003", side: "short", notional: 1_920n * 1_000_000n, margin: 384n * 1_000_000n, entryPrice: 1_043_170n, markPrice: 1_019_080n, pnl: 44_300_000n, pnlPct: 2.31, leverage: 5 },
-  { constituentId: "004", side: "long", notional: 3_160n * 1_000_000n, margin: 632n * 1_000_000n, entryPrice: 1_045_500n, markPrice: 1_031_120n, pnl: -43_400_000n, pnlPct: -1.37, leverage: 5 },
-];
-
-/** A card the wallet has vaulted, and how many of its fractions it still holds. */
-export interface CardHolding {
-  constituentId: string;
-  /** Fractions minted when the card went in. Burning all of them returns it. */
-  minted: bigint;
-  /** Fractions still in this wallet. */
-  held: bigint;
-  /** Fractions this wallet has put into the CLP pool. */
-  inPool: bigint;
+async function clusterVaultedCards({ connection }: Cluster, owner: PublicKey): Promise<CardHolding[]> {
+  const [rows, twins] = await Promise.all([readVaultInventory(connection, owner), loadTestCards()]);
+  return Promise.all(
+    rows.map(async (row) => {
+      const asset = row.asset.toBase58();
+      const nftAddress = originalOf(twins, asset) ?? asset;
+      const card = await loadVaultCard(nftAddress).catch(() => null);
+      return {
+        nftAddress,
+        asset,
+        name: card?.name ?? `${asset.slice(0, 4)}…${asset.slice(-4)}`,
+        grade: card ? `${card.gradingCompany} ${card.grade}`.trim() : "",
+        image: card?.frontImage ?? null,
+        minted: row.supply,
+        held: row.held,
+        redeemable: row.missing === 0n,
+      };
+    }),
+  );
 }
 
-const SAMPLE_CARDS: CardHolding[] = [
-  { constituentId: "001", minted: 4_200n * USDC, held: 3_000n * USDC, inPool: 1_200n * USDC },
-  { constituentId: "002", minted: 1_850n * USDC, held: 1_850n * USDC, inPool: 0n },
-];
-
-const SAMPLE_CLP = 1_164n * USDC;
+export async function loadVaultedCards(owner: PublicKey | null): Promise<CardHolding[]> {
+  if (!owner) return [];
+  if (CLUSTER) return clusterVaultedCards(CLUSTER, owner);
+  const wallet = walletOf(readLedger(), owner.toBase58());
+  return wallet.cards.map((c) => ({ ...c, redeemable: wallet.fractions >= c.minted }));
+}
 
 export interface Portfolio {
-  rows: PositionRow[];
   cards: CardHolding[];
+  fractions: bigint;
   /** CLP shares held, and what they redeem for at current NAV. */
   clp: bigint;
   clpValue: bigint;
@@ -568,14 +569,18 @@ export interface Portfolio {
   positions: PositionView[];
 }
 
-async function livePortfolio(owner: PublicKey): Promise<Portfolio> {
+export async function loadPortfolio(owner: PublicKey | null): Promise<Portfolio> {
   const snapshot = await loadMarket();
-  const [positions, balances] = await Promise.all([loadPositions(owner, snapshot), loadBalances(owner)]);
+  const [positions, balances, cards] = await Promise.all([
+    loadPositions(owner, snapshot),
+    loadBalances(owner),
+    loadVaultedCards(owner),
+  ]);
   const sum = (f: (p: PositionView) => bigint) => positions.reduce((a, p) => a + f(p), 0n);
   const totalPnl = sum((p) => p.pnl - p.borrowOwed);
   return {
-    rows: [],
-    cards: [],
+    cards,
+    fractions: balances.fractions,
     clp: balances.clp,
     clpValue: quoteWithdraw(snapshot, balances.clp).totalValue,
     totalValue: balances.usdc + sum((p) => p.margin) + totalPnl,
@@ -584,28 +589,5 @@ async function livePortfolio(owner: PublicKey): Promise<Portfolio> {
     shortNotional: sum((p) => (p.side === "short" ? p.notional : 0n)),
     cash: balances.usdc,
     positions,
-  };
-}
-
-export async function loadPortfolio(owner: PublicKey | null): Promise<Portfolio> {
-  if (owner && CLUSTER) return livePortfolio(owner);
-  const sample = owner !== null && IS_SAMPLE;
-  const rows = sample ? SAMPLE_POSITIONS : [];
-  const clp = sample ? SAMPLE_CLP : 0n;
-  const { poolStats } = await loadMarket();
-  const sum = (f: (r: PositionRow) => bigint) => rows.reduce((a, r) => a + f(r), 0n);
-  const cash = rows.length ? 5_240n * 1_000_000n : 0n;
-  const margin = sum((r) => r.margin);
-  return {
-    rows,
-    cards: sample ? SAMPLE_CARDS : [],
-    clp,
-    clpValue: (clp * poolStats.clpPrice) / WAD,
-    totalValue: margin + cash + sum((r) => r.pnl),
-    totalPnl: sum((r) => r.pnl),
-    longNotional: sum((r) => (r.side === "long" ? r.notional : 0n)),
-    shortNotional: sum((r) => (r.side === "short" ? r.notional : 0n)),
-    cash,
-    positions: [],
   };
 }

@@ -2,9 +2,8 @@
 
 import { useState } from "react";
 import type { PositionView } from "@kadex/types";
-import { CLUSTER } from "@/lib/cluster";
 import { fmtPrice, fmtUsd } from "@/lib/market";
-import { sendClosePosition } from "@/lib/tradeTx";
+import { closePosition } from "@/lib/actions";
 import { explainTxError } from "@/lib/tx";
 import { useWallet } from "@/lib/wallet";
 
@@ -14,11 +13,11 @@ export function PositionsTable({ positions, markPrice, onClosed }: { positions: 
   const [error, setError] = useState<string | null>(null);
 
   const close = async (position: PositionView) => {
-    if (!CLUSTER || !publicKey) return;
+    if (!publicKey) return;
     setClosing(position.address.toBase58());
     setError(null);
     try {
-      await sendClosePosition(CLUSTER, publicKey, signTransaction, position.address);
+      await closePosition({ publicKey, sign: signTransaction }, position.address);
       onClosed();
     } catch (e) {
       setError(explainTxError(e));
@@ -52,7 +51,7 @@ export function PositionsTable({ positions, markPrice, onClosed }: { positions: 
                 <td className="r n">${fmtUsd(p.notional, 2)}</td>
                 <td className="r n">${fmtUsd(p.margin, 2)}</td>
                 <td className="r n">{fmtPrice(p.entryPrice)}</td>
-                <td className="r n">{markPrice !== null ? fmtPrice(markPrice) : "—"}</td>
+                <td className="r n">{markPrice !== null ? fmtPrice(markPrice) : "-"}</td>
                 <td className="r n">{fmtPrice(p.liquidationPrice)}</td>
                 <td className={`r n ${net >= 0n ? "up" : "down"}`}>{net >= 0n ? "+" : "−"}${fmtUsd(net >= 0n ? net : -net, 2)}</td>
                 <td className="r">

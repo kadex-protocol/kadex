@@ -17,6 +17,7 @@ import { SOLANA_ADDRESS, loadVaultCard, loadVaultCards, type VaultCard } from "@
 import { askOverAppraisal, titleParts } from "@/lib/cardText";
 import { useWallet } from "@/lib/wallet";
 import { VaultInventory } from "@/components/VaultInventory";
+import { TestCards } from "@/components/TestCards";
 import { TiltSlab } from "@/components/TiltSlab";
 import { VaultBanner } from "@/components/HomeBanner";
 
@@ -60,6 +61,17 @@ const FORMAT_KEY = "kadex.vault.format.v2";
 const isFormat = (v: string | null): v is Format => FORMATS.some(([id]) => id === v);
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Could not reach Collector Crypt.");
+
+function pagerItems(current: number, known: number): (number | null)[] {
+  const shown = new Set([0, known - 1, current - 1, current, current + 1]);
+  const items: (number | null)[] = [];
+  for (let i = 0; i < known; i += 1) {
+    if (!shown.has(i)) continue;
+    if (items.length > 0 && items[items.length - 1] !== i - 1) items.push(null);
+    items.push(i);
+  }
+  return items;
+}
 
 function CardItem({ card: c, format, mine }: { card: VaultCard; format: Format; mine: boolean }) {
   const [back, setBack] = useState(false);
@@ -121,7 +133,9 @@ export default function VaultPage() {
   const { status, publicKey } = useWallet();
   const [cards, setCards] = useState<VaultCard[]>([]);
   const [banner, setBanner] = useState<VaultCard[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
+  const [cursors, setCursors] = useState<(string | null)[]>([null]);
+  const [page, setPage] = useState(0);
+  const top = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -166,23 +180,27 @@ export default function VaultPage() {
   }, [query, askMin, askMax]);
 
   const loadPage = useCallback(
-    async (from: string | null) => {
+    async (index: number, from: string | null) => {
       const id = ++request.current;
       setLoading(true);
       setError(null);
-      if (from === null) setCards([]);
+      setCards([]);
+      setPage(index);
       try {
-        const page = SOLANA_ADDRESS.test(search)
+        const result = SOLANA_ADDRESS.test(search)
           ? { cards: [await loadVaultCard(search)], nextCursor: null, total: 0, groups: null }
           : await loadVaultCards(from, { search, owner, group, sort, source, askMin: range.min, askMax: range.max });
         if (id !== request.current) return;
-        setCards((prev) => {
-          const seen = new Set(prev.map((c) => c.nftAddress));
-          return [...prev, ...page.cards.filter((c) => !seen.has(c.nftAddress))];
+        setCards(result.cards.filter((c, i, all) => all.findIndex((o) => o.nftAddress === c.nftAddress) === i));
+        setCursors((prev) => {
+          const known = index === 0 ? [] : prev.slice();
+          known[index] = from;
+          if (result.nextCursor) known[index + 1] = result.nextCursor;
+          else known.length = index + 1;
+          return known;
         });
-        setCursor(page.nextCursor);
-        setBanner((shown) => (shown.length > 0 ? shown : page.cards));
-        if (page.groups) setCounts({ total: page.total, groups: page.groups });
+        setBanner((shown) => (shown.length > 0 ? shown : result.cards));
+        if (result.groups) setCounts({ total: result.total, groups: result.groups });
       } catch (e) {
         if (id === request.current) setError(message(e));
       } finally {
@@ -193,8 +211,14 @@ export default function VaultPage() {
   );
 
   useEffect(() => {
-    void loadPage(null);
+    void loadPage(0, null);
   }, [loadPage]);
+
+  const goTo = (index: number) => {
+    if (index < 0 || index >= cursors.length || index === page || loading) return;
+    void loadPage(index, cursors[index] ?? null);
+    top.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const named = search !== "" && !SOLANA_ADDRESS.test(search);
   const groupLabel = GROUPS.find(([id]) => id === group)?.[1] ?? "Cards";
@@ -205,6 +229,8 @@ export default function VaultPage() {
       <VaultBanner cards={banner} />
 
       <VaultInventory />
+
+      <TestCards />
 
       <header className="vmkt-head">
         <h1>
@@ -288,7 +314,7 @@ export default function VaultPage() {
         </div>
       )}
 
-      <div className="vmkt-cats" role="group" aria-label="Card category">
+      <div className="vmkt-cats" role="group" aria-label="Card category" ref={top}>
         {GROUPS.map(([id, label, icon]) => {
           const n = counts ? (id === null ? counts.total : counts.groups[id]) : null;
           return (
@@ -303,6 +329,7 @@ export default function VaultPage() {
 
       <p className="vmkt-note">
         {loading && cards.length === 0 ? "Loading" : `${cards.length} shown`}
+        {cursors.length > 1 && ` · page ${page + 1}`}
         {mineOnly && " · your wallet"}
         {named && <> · <q>{search}</q></>}
         {" · value is the appraisal, in USDC"}
@@ -324,7 +351,7 @@ export default function VaultPage() {
           <div className="empty" role="alert">
             <h3>Could not load cards</h3>
             <p>{error}</p>
-            <button className="btn" type="button" onClick={() => void loadPage(null)}>Try again</button>
+            <button className="btn" type="button" onClick={() => void loadPage(page, cursors[page] ?? null)}>Try again</button>
           </div>
         ) : (
           <>
@@ -342,15 +369,32 @@ export default function VaultPage() {
               {cards.map((c) => (
                 <CardItem key={c.nftAddress} card={c} format={format} mine={c.ownerWallet === wallet} />
               ))}
-              {loading && Array.from({ length: cards.length === 0 ? 8 : 4 }, (_, i) => <GhostItem key={i} />)}
+              {loading && Array.from({ length: 8 }, (_, i) => <GhostItem key={i} />)}
             </div>
-            {error && <p className="hint bad" role="alert">{error}</p>}
-            {!loading && cursor && (
-              <button className="btn vmore" type="button" onClick={() => void loadPage(cursor)}>
-                Load more
-              </button>
-            )}
           </>
+        )}
+        {cursors.length > 1 && (
+          <nav className="vpager" aria-label="Pages">
+            <button type="button" className="step" disabled={page === 0 || loading} onClick={() => goTo(page - 1)}>
+              <span aria-hidden="true">‹</span> Previous
+            </button>
+            <ol>
+              {pagerItems(page, cursors.length).map((item, i) =>
+                item === null ? (
+                  <li key={`gap-${i}`} aria-hidden="true">…</li>
+                ) : (
+                  <li key={item}>
+                    <button type="button" aria-current={item === page ? "page" : undefined} disabled={loading && item !== page} onClick={() => goTo(item)}>
+                      {item + 1}
+                    </button>
+                  </li>
+                ),
+              )}
+            </ol>
+            <button type="button" className="step" disabled={page >= cursors.length - 1 || loading} onClick={() => goTo(page + 1)}>
+              Next <span aria-hidden="true">›</span>
+            </button>
+          </nav>
         )}
       </div>
 

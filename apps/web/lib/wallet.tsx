@@ -1,10 +1,14 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { PublicKey, Transaction } from "@solana/web3.js";
+import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import { CLUSTER, TEST_FUNDS } from "./cluster";
+import { requestTestFunds } from "./faucet";
 
 const REMEMBER_KEY = "kadex.wallet";
+const DEMO_KEY = "kadex.demo.v1";
 const INSTALL_URL = "https://phantom.app/download";
+const PHANTOM_ICON = "/wallets/phantom.svg";
 
 interface StandardAccount {
   address: string;
@@ -29,6 +33,7 @@ interface SignTransactionFeature {
 }
 
 interface InjectedProvider {
+  isPhantom?: boolean;
   publicKey?: { toBytes(): Uint8Array } | null;
   connect(opts?: { onlyIfTrusted?: boolean }): Promise<{ publicKey: { toBytes(): Uint8Array } }>;
   disconnect(): Promise<void>;
@@ -38,6 +43,7 @@ interface InjectedProvider {
 interface Adapter {
   name: string;
   icon: string | null;
+  note?: string;
   connect(silent: boolean): Promise<PublicKey | null>;
   disconnect(): Promise<void>;
   signTransaction(tx: Transaction): Promise<Transaction>;
@@ -73,8 +79,8 @@ function standardAdapter(wallet: StandardWallet): Adapter {
 
 function injectedAdapter(provider: InjectedProvider): Adapter {
   return {
-    name: "Browser wallet",
-    icon: null,
+    name: provider.isPhantom ? "Phantom" : "Browser wallet",
+    icon: provider.isPhantom ? PHANTOM_ICON : null,
     async connect(silent) {
       const result = await provider.connect(silent ? { onlyIfTrusted: true } : undefined);
       return new PublicKey(result.publicKey.toBytes());
@@ -83,6 +89,41 @@ function injectedAdapter(provider: InjectedProvider): Adapter {
     signTransaction: (tx) => provider.signTransaction(tx),
   };
 }
+
+function demoKeypair(): Keypair {
+  try {
+    const stored = window.localStorage.getItem(DEMO_KEY);
+    if (stored) return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(stored) as number[]));
+  } catch {}
+  const fresh = Keypair.generate();
+  try {
+    window.localStorage.setItem(DEMO_KEY, JSON.stringify([...fresh.secretKey]));
+  } catch {}
+  return fresh;
+}
+
+function demoAdapter(): Adapter {
+  let keypair: Keypair | null = null;
+  return {
+    name: "Demo wallet",
+    icon: null,
+    note: CLUSTER ? `No extension needed · test funds on ${CLUSTER.network}` : "No extension needed · simulated funds",
+    async connect() {
+      keypair = demoKeypair();
+      return keypair.publicKey;
+    },
+    async disconnect() {
+      keypair = null;
+    },
+    async signTransaction(tx) {
+      if (!keypair) throw new Error("No wallet connected.");
+      tx.partialSign(keypair);
+      return tx;
+    },
+  };
+}
+
+const DEMO = demoAdapter();
 
 const usable = (wallet: StandardWallet) =>
   "standard:connect" in wallet.features && "solana:signTransaction" in wallet.features;
@@ -114,7 +155,8 @@ function useAdapters(): Adapter[] {
 
   return useMemo(() => {
     const standard = wallets.map(standardAdapter);
-    return standard.length > 0 || !legacy ? standard : [injectedAdapter(legacy)];
+    const real = standard.length > 0 || !legacy ? standard : [injectedAdapter(legacy)];
+    return TEST_FUNDS ? [...real, DEMO] : real;
   }, [wallets, legacy]);
 }
 
@@ -177,6 +219,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       setPublicKey(key);
       remember(adapter.name);
       setPicking(false);
+      void requestTestFunds(key);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Connection was rejected.";
       if (!silent && !benign(message)) setError(message);
@@ -196,7 +239,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   const connect = useCallback(async () => {
     setError(null);
-    const only = adapters.length === 1 ? adapters[0] : undefined;
+    const only = adapters.length === 1 && adapters[0] !== DEMO ? adapters[0] : undefined;
     if (only) await use(only, false);
     else setPicking(true);
   }, [adapters, use]);
@@ -239,26 +282,23 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             <h2 id="wconnect-h">Connect a wallet</h2>
             <p className="wconnect-sub">Your wallet holds your margin, your pool shares and your cards. Nothing moves without your signature.</p>
 
-            {adapters.length > 0 ? (
-              <ul className="wconnect-list">
-                {adapters.map((adapter) => (
-                  <li key={adapter.name}>
-                    <button type="button" disabled={pending !== null} onClick={() => void use(adapter, false)}>
-                      {adapter.icon ? <img src={adapter.icon} alt="" /> : <span className="wconnect-ico" aria-hidden="true" />}
-                      <span>
-                        <b>{adapter.name}</b>
-                        <em>{pending === adapter.name ? "Approve in your wallet…" : "Detected"}</em>
-                      </span>
-                      <i aria-hidden="true">›</i>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <ul className="wconnect-list">
+            <ul className="wconnect-list">
+              {adapters.map((adapter) => (
+                <li key={adapter.name}>
+                  <button type="button" disabled={pending !== null} onClick={() => void use(adapter, false)}>
+                    {adapter.icon ? <img src={adapter.icon} alt="" /> : <span className="wconnect-ico" aria-hidden="true" />}
+                    <span>
+                      <b>{adapter.name}</b>
+                      <em>{pending === adapter.name ? "Approve in your wallet…" : adapter.note ?? "Detected"}</em>
+                    </span>
+                    <i aria-hidden="true">›</i>
+                  </button>
+                </li>
+              ))}
+              {adapters.every((adapter) => adapter === DEMO) && (
                 <li>
                   <a href={INSTALL_URL} target="_blank" rel="noreferrer">
-                    <span className="wconnect-ico" aria-hidden="true" />
+                    <img src={PHANTOM_ICON} alt="" />
                     <span>
                       <b>Install Phantom</b>
                       <em>No Solana wallet detected in this browser</em>
@@ -266,8 +306,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                     <i aria-hidden="true">↗</i>
                   </a>
                 </li>
-              </ul>
-            )}
+              )}
+            </ul>
 
             {error && <p className="hint bad" role="alert">{error}</p>}
             <p className="wconnect-foot">Self-custody · Solana</p>

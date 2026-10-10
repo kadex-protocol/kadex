@@ -5,7 +5,7 @@ import { WalletProvider } from "@/lib/wallet";
 import { Frame } from "@/components/Frame";
 
 export const metadata: Metadata = {
-  title: `${BRAND} — The collector's market`,
+  title: `${BRAND} - The collector's market`,
   description: "Perpetual exposure to a curated index of tokenized collectibles.",
 };
 

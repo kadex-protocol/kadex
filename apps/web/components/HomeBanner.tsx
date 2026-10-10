@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties, PointerEvent } from "react";
+import { useEffect, useRef, type CSSProperties, type PointerEvent } from "react";
 import Link from "next/link";
 import { IS_SAMPLE } from "@/lib/market";
 import type { VaultCard } from "@/lib/collectorCrypt";
@@ -36,11 +36,19 @@ const trackPointer = (e: PointerEvent<HTMLElement>) => {
 };
 
 function BannerArt({ cards }: { cards: VaultCard[] }) {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const watch = new IntersectionObserver(([entry]) => el.toggleAttribute("data-idle", !entry?.isIntersecting));
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
+
   const art = cards.filter((c) => c.frontImage);
-  if (art.length === 0) return <div className="hbanner-art" aria-hidden="true" />;
   return (
-    <div className="hbanner-art" aria-hidden="true">
-      {SLOTS.map((slot, i) => (
+    <div className="hbanner-art" aria-hidden="true" ref={box}>
+      {art.length > 0 && SLOTS.map((slot, i) => (
         <span
           key={i}
           className={`hslab-slot d${slot.depth}`}

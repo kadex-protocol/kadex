@@ -1,14 +1,23 @@
 "use client";
 
-import { useRef } from "react";
+import { useCallback, useRef, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { fmtUsd } from "@/lib/market";
 import type { VaultCard } from "@/lib/collectorCrypt";
 import { askOverAppraisal, titleParts } from "@/lib/cardText";
 import { TiltSlab } from "@/components/TiltSlab";
+import { CardPreview } from "@/components/CardPreview";
 
-export function CardRail({ cards }: { cards: VaultCard[] }) {
+export function CardRail({ cards, title = "Vaultable cards", note }: { cards: VaultCard[]; title?: string; note?: string }) {
   const track = useRef<HTMLDivElement>(null);
+  const [preview, setPreview] = useState<VaultCard | null>(null);
+  const closePreview = useCallback(() => setPreview(null), []);
+
+  const open = (e: MouseEvent, card: VaultCard) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    setPreview(card);
+  };
 
   const scroll = (direction: 1 | -1) => {
     const el = track.current;
@@ -19,9 +28,9 @@ export function CardRail({ cards }: { cards: VaultCard[] }) {
     <section className="panel hrail" aria-labelledby="rail-h">
       <div className="rail-head">
         <div className="t">
-          <h2 className="title sm" id="rail-h">Vaultable cards</h2>
+          <h2 className="title sm" id="rail-h">{title}</h2>
           <span className="sub">
-            {cards.length > 0 ? `${cards.length} live from Collector Crypt · appraised value, ask vs appraisal` : "Loading from Collector Crypt…"}
+            {note ?? (cards.length > 0 ? `${cards.length} live from Collector Crypt · appraised value, ask vs appraisal` : "Loading from Collector Crypt…")}
           </span>
         </div>
         <div className="rail-nav">
@@ -34,7 +43,7 @@ export function CardRail({ cards }: { cards: VaultCard[] }) {
         {cards.map((c) => {
           const premium = askOverAppraisal(c);
           return (
-            <Link key={c.nftAddress} href={`/vault/${c.nftAddress}`} className="rcard">
+            <Link key={c.nftAddress} href={`/vault/${c.nftAddress}`} className="rcard" onClick={(e) => open(e, c)}>
               <TiltSlab src={c.frontImage} />
               <span className="cap">
                 <span className="n">{titleParts(c).title}</span>
@@ -47,6 +56,7 @@ export function CardRail({ cards }: { cards: VaultCard[] }) {
           );
         })}
       </div>
+      {preview && <CardPreview card={preview} onClose={closePreview} />}
     </section>
   );
 }
