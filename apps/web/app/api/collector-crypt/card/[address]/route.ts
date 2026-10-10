@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchCard } from "@kadex/collector-crypt";
+import { collectorCryptLimits, fetchCard } from "@kadex/collector-crypt";
 import { SOLANA_ADDRESS, toWire } from "@/lib/collectorCrypt";
 
 const cached: typeof fetch = (input, init) => fetch(input, { ...init, next: { revalidate: 60 } });
@@ -10,7 +10,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ address
     return NextResponse.json({ error: "That is not a Solana address." }, { status: 400 });
   }
   try {
-    return NextResponse.json({ card: toWire(await fetchCard(address, { fetch: cached })) });
+    return NextResponse.json({ card: toWire(await fetchCard(address, { fetch: cached, limits: collectorCryptLimits() })) });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Collector Crypt is unreachable.";
     const missing = /answered 404/.test(message);

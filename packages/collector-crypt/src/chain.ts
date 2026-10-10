@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 import { Connection, PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { PROGRAM_IDS, WAD } from "@kadex/types";
 import {
-  fetchCard,
+  fetchListing,
   impliedFractionPrice,
+  mapLimited,
   medianWad,
+  weightedMedianWad,
   type ClientOptions,
   type CollectorCard,
 } from "./index.js";
@@ -14,13 +16,16 @@ const discriminator = (preimage: string): Buffer =>
 
 const CARD_SIZE = 8 + 32 + 32 + 8 + 2 + 1 + 1 + 1;
 const CARD_FRACTIONS_OFFSET = 8 + 32 + 32;
-const CARD_ENABLED_OFFSET = CARD_FRACTIONS_OFFSET + 8 + 2;
+const CARD_WEIGHT_OFFSET = CARD_FRACTIONS_OFFSET + 8;
+const CARD_ENABLED_OFFSET = CARD_WEIGHT_OFFSET + 2;
 const CARD_CORE_OFFSET = CARD_ENABLED_OFFSET + 1;
 const ORACLE_PRICE_OFFSET = 8 + 32 + 32 + 1 + 32;
 
 export interface WhitelistedCoreCard {
   asset: PublicKey;
   fractionsPerCard: bigint;
+  /** The card's share of the index, in basis points. */
+  weightBps: number;
   enabled: boolean;
 }
 
@@ -37,6 +42,7 @@ export async function whitelistedCoreCards(conn: Connection): Promise<Whiteliste
     return {
       asset: new PublicKey(data.subarray(8, 40)),
       fractionsPerCard: data.readBigUInt64LE(CARD_FRACTIONS_OFFSET),
+      weightBps: data.readUInt16LE(CARD_WEIGHT_OFFSET),
       enabled: data.readUInt8(CARD_ENABLED_OFFSET) === 1,
     };
   });
@@ -66,38 +72,61 @@ export const divergenceWad = (price: bigint, median: bigint): bigint =>
   ((price >= median ? price - median : median - price) * WAD) / median;
 
 export interface ExternalMedianReading {
+  /** Median implied fraction price over priced cards, every card counted once. */
   median: bigint | null;
-  samples: { asset: string; price: bigint }[];
+  /** The same, each card counted by its index weight: what the feed publishes. */
+  index: bigint | null;
+  samples: { asset: string; price: bigint; weightBps: number }[];
   unpriced: { asset: string; reason: string }[];
 }
 
-export function externalMedianFrom(cards: CollectorCard[], minSamples: number): ExternalMedianReading {
+/** `weights` maps an asset to its weight in bps; a card missing from it counts 1. */
+export function externalMedianFrom(
+  cards: CollectorCard[],
+  minSamples: number,
+  weights: ReadonlyMap<string, number> = new Map(),
+): ExternalMedianReading {
   const samples: ExternalMedianReading["samples"] = [];
   const unpriced: ExternalMedianReading["unpriced"] = [];
   for (const card of cards) {
     const price = impliedFractionPrice(card);
     if (price === null || price <= 0n) unpriced.push({ asset: card.nftAddress, reason: "no active USDC listing" });
-    else samples.push({ asset: card.nftAddress, price });
+    else samples.push({ asset: card.nftAddress, price, weightBps: weights.get(card.nftAddress) ?? 1 });
   }
-  const median = samples.length >= minSamples ? medianWad(samples.map((s) => s.price)) : null;
-  return { median, samples, unpriced };
+  const enough = samples.length >= minSamples;
+  return {
+    median: enough ? medianWad(samples.map((s) => s.price)) : null,
+    index: enough ? weightedMedianWad(samples.map((s) => ({ price: s.price, weight: BigInt(s.weightBps) }))) : null,
+    samples,
+    unpriced,
+  };
 }
 
+/**
+ * Every enabled whitelisted card, priced from its listing: one request per
+ * card, `concurrency` at a time. Pass `limits` in `opts` to stay inside the
+ * provider's rate limit and reuse responses for 30 s.
+ */
 export async function readExternalMedian(
   conn: Connection,
   minSamples: number,
   opts: ClientOptions = {},
+  concurrency = 8,
 ): Promise<ExternalMedianReading> {
   const whitelisted = (await whitelistedCoreCards(conn)).filter((c) => c.enabled);
-  const cards: CollectorCard[] = [];
   const failed: ExternalMedianReading["unpriced"] = [];
-  for (const { asset } of whitelisted) {
+  const found = await mapLimited(whitelisted, concurrency, async ({ asset }) => {
+    const address = asset.toBase58();
     try {
-      cards.push(await fetchCard(asset.toBase58(), opts));
+      const card = await fetchListing(address, opts);
+      if (!card) failed.push({ asset: address, reason: "not listed on the marketplace" });
+      return card;
     } catch (e) {
-      failed.push({ asset: asset.toBase58(), reason: e instanceof Error ? e.message : String(e) });
+      failed.push({ asset: address, reason: e instanceof Error ? e.message : String(e) });
+      return null;
     }
-  }
-  const reading = externalMedianFrom(cards, minSamples);
+  });
+  const weights = new Map(whitelisted.map((c) => [c.asset.toBase58(), c.weightBps]));
+  const reading = externalMedianFrom(found.filter((c): c is CollectorCard => c !== null), minSamples, weights);
   return { ...reading, unpriced: [...reading.unpriced, ...failed] };
 }

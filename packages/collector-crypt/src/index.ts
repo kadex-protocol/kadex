@@ -1,4 +1,5 @@
 import { WAD } from "@kadex/types";
+import { type CollectorLimits } from "./limits.js";
 
 export const COLLECTOR_CRYPT_API = "https://api.collectorcrypt.com";
 export const COLLECTOR_CRYPT_COLLECTION = "CCryptUfeFSZ3Fgc9FLeKrhLVAP67FSqi1GuVoj9CRac";
@@ -44,6 +45,8 @@ export interface ClientOptions {
   baseUrl?: string;
   fetch?: typeof globalThis.fetch;
   apiKey?: string;
+  /** Cache, request budget and retries; see `collectorCryptLimits()`. */
+  limits?: CollectorLimits;
 }
 
 export const apiKeyFromEnv = (): string | undefined =>
@@ -119,6 +122,23 @@ export function impliedFractionPrice(card: CollectorCard): bigint | null {
   return (card.listing.priceUsdc * WAD) / card.insuredValueUsdc;
 }
 
+/**
+ * The weighted median: the price at which half the weight sits below. Equal
+ * weights give `medianWad`; at an exact half it is the midpoint, as there.
+ */
+export function weightedMedianWad(samples: readonly { price: bigint; weight: bigint }[]): bigint | null {
+  const xs = samples.filter((s) => s.weight > 0n).sort((a, b) => (a.price < b.price ? -1 : a.price > b.price ? 1 : 0));
+  const total = xs.reduce((t, s) => t + s.weight, 0n);
+  if (total === 0n) return null;
+  let below = 0n;
+  for (let i = 0; i < xs.length; i += 1) {
+    below += xs[i]!.weight;
+    if (below * 2n > total) return xs[i]!.price;
+    if (below * 2n === total) return (xs[i]!.price + xs[i + 1]!.price) / 2n;
+  }
+  return xs[xs.length - 1]!.price;
+}
+
 export function medianWad(values: bigint[]): bigint | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
@@ -126,17 +146,31 @@ export function medianWad(values: bigint[]): bigint | null {
   return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2n;
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 async function getJson(path: string, opts: ClientOptions): Promise<unknown> {
   const doFetch = opts.fetch ?? globalThis.fetch;
   const apiKey = opts.apiKey ?? apiKeyFromEnv();
-  const res = await doFetch(`${opts.baseUrl ?? COLLECTOR_CRYPT_API}${path}`, {
-    headers: {
-      accept: "application/json",
-      ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
-    },
-  });
-  if (!res.ok) throw new Error(`Collector Crypt ${path} answered ${res.status}`);
-  return res.json();
+  const { cache, budget, retries = 0 } = opts.limits ?? {};
+  const load = async (): Promise<unknown> => {
+    for (let attempt = 0; ; attempt += 1) {
+      await budget?.take();
+      const res = await doFetch(`${opts.baseUrl ?? COLLECTOR_CRYPT_API}${path}`, {
+        headers: {
+          accept: "application/json",
+          ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+        },
+      });
+      if ((res.status === 429 || res.status === 503) && attempt < retries) {
+        const after = Number(res.headers?.get?.("retry-after"));
+        await sleep(Number.isFinite(after) && after > 0 ? after * 1_000 : 1_000 * 2 ** attempt);
+        continue;
+      }
+      if (!res.ok) throw new Error(`Collector Crypt ${path} answered ${res.status}`);
+      return res.json();
+    }
+  };
+  return cache ? cache.get(`${apiKey ? "key" : "anon"} ${path}`, load) : load();
 }
 
 export interface MarketplaceFilter {
@@ -245,4 +279,15 @@ export async function fetchCard(nftAddress: string, opts: ClientOptions = {}): P
   return parseCard({ ...card, owner: m.owner, listing: m.listing });
 }
 
+/**
+ * One card with its appraisal and its active listing, in one request: a
+ * marketplace search by mint is an exact match and carries both. `null` when
+ * the card is not listed, which is also when it has no price for the median.
+ */
+export async function fetchListing(nftAddress: string, opts: ClientOptions = {}): Promise<CollectorCard | null> {
+  const page = await fetchMarketplacePage(null, opts, { search: nftAddress });
+  return page.cards.find((c) => c.nftAddress === nftAddress) ?? null;
+}
+
 export * from "./gacha.js";
+export * from "./limits.js";

@@ -8,8 +8,13 @@ import {
   isMarketplaceSource,
   isOrderBy,
   fetchCard,
+  fetchListing,
   fetchMarketplacePage,
   impliedFractionPrice,
+  JsonCache,
+  mapLimited,
+  requestBudget,
+  weightedMedianWad,
   isVaultable,
   medianWad,
   parseCard,
@@ -222,4 +227,81 @@ test("the median ignores an absurd ask", async () => {
 test("the median of an even sample is the midpoint, and of nothing is nothing", () => {
   assert.equal(medianWad([1_000_000n, 2_000_000n]), 1_500_000n);
   assert.equal(medianWad([]), null);
+});
+
+test("the weighted median counts each card by its weight", () => {
+  const xs = (pairs) => pairs.map(([price, weight]) => ({ price, weight }));
+  // Equal weights agree with the plain median, odd and even.
+  assert.equal(weightedMedianWad(xs([[3n, 1n], [1n, 1n], [2n, 1n]])), medianWad([3n, 1n, 2n]));
+  assert.equal(weightedMedianWad(xs([[1_000_000n, 5n], [2_000_000n, 5n]])), 1_500_000n);
+  // A card holding most of the index sets its price; an outlier with little weight does not.
+  assert.equal(weightedMedianWad(xs([[1_100_000n, 6_000n], [900_000n, 2_000n], [307_000_000n, 2_000n]])), 1_100_000n);
+  assert.equal(weightedMedianWad(xs([[5n, 0n]])), null);
+  assert.equal(weightedMedianWad([]), null);
+});
+
+test("one card's listing is one request, matched on the exact mint", async () => {
+  const market = fixture("cc_card_market.json");
+  const card = { ...fixture("cc_card.json"), listing: { ...market.listing, price: 77 } };
+  const other = { ...card, nftAddress: "6cWYD5eW8Brs7QqErvkwdWYtYpWAQFDdxz6nHTBPpgHA" };
+  const { fetch, calls } = fakeFetch({ [`/marketplace?search=${WARTORTLE}`]: { filterNFtCard: [other, card], total: 2 } });
+  const found = await fetchListing(WARTORTLE, { fetch });
+  assert.equal(calls.length, 1);
+  assert.equal(found.nftAddress, WARTORTLE);
+  assert.equal(impliedFractionPrice(found), 1_100_000n);
+
+  const none = fakeFetch({ [`/marketplace?search=${WARTORTLE}`]: { filterNFtCard: [other] } });
+  assert.equal(await fetchListing(WARTORTLE, { fetch: none.fetch }), null, "a search hit on another card is not this card");
+});
+
+test("the cache serves repeats and concurrent callers from one request, and forgets failures", async () => {
+  const { fetch, calls } = fakeFetch({ "/marketplace": fixture("cc_marketplace.json") });
+  const limits = { cache: new JsonCache(60_000) };
+  await Promise.all([1, 2, 3].map(() => fetchMarketplacePage(null, { fetch, limits })));
+  await fetchMarketplacePage(null, { fetch, limits });
+  assert.equal(calls.length, 1);
+  await fetchMarketplacePage(null, { fetch, limits, apiKey: "ccsk_test" });
+  assert.equal(calls.length, 2, "keyed and anonymous responses are kept apart");
+
+  let fail = true;
+  const flaky = async () => (fail ? { ok: false, status: 500, json: async () => ({}) } : { ok: true, status: 200, json: async () => fixture("cc_marketplace.json") });
+  const cache = new JsonCache(60_000);
+  await assert.rejects(fetchMarketplacePage(null, { fetch: flaky, limits: { cache } }), /answered 500/);
+  fail = false;
+  assert.ok((await fetchMarketplacePage(null, { fetch: flaky, limits: { cache } })).cards.length > 0);
+});
+
+test("a 429 is retried after Retry-After, and given up on after the retries", async () => {
+  let n = 0;
+  const limited = (until) => async () => {
+    n += 1;
+    return n <= until
+      ? { ok: false, status: 429, headers: { get: (h) => (h === "retry-after" ? "0.01" : null) }, json: async () => ({}) }
+      : { ok: true, status: 200, json: async () => fixture("cc_marketplace.json") };
+  };
+  assert.ok((await fetchMarketplacePage(null, { fetch: limited(2), limits: { retries: 3 } })).cards.length > 0);
+  assert.equal(n, 3);
+  n = 0;
+  await assert.rejects(fetchMarketplacePage(null, { fetch: limited(9), limits: { retries: 1 } }), /answered 429/);
+  assert.equal(n, 2);
+});
+
+test("the budget spaces requests past the burst", async () => {
+  const budget = requestBudget(600, 1); // 10 a second, no burst beyond one
+  const start = Date.now();
+  await Promise.all([1, 2, 3].map(() => budget.take()));
+  assert.ok(Date.now() - start >= 180, `three takes at 10/s took ${Date.now() - start} ms`);
+});
+
+test("mapLimited keeps order and never runs more than n at once", async () => {
+  let running = 0;
+  let peak = 0;
+  const out = await mapLimited([5, 1, 4, 2, 3], 2, async (x) => {
+    peak = Math.max(peak, ++running);
+    await new Promise((r) => setTimeout(r, x));
+    running -= 1;
+    return x * 10;
+  });
+  assert.deepEqual(out, [50, 10, 40, 20, 30]);
+  assert.equal(peak, 2);
 });

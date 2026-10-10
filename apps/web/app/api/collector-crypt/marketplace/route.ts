@@ -8,6 +8,7 @@ import {
   isOrderBy,
   isVaultable,
   type CollectorCard,
+  collectorCryptLimits,
 } from "@kadex/collector-crypt";
 import { SOLANA_ADDRESS, toWire, type MarketplaceWire } from "@/lib/collectorCrypt";
 
@@ -46,7 +47,7 @@ export async function GET(req: NextRequest) {
     for (let fetched = 0; fetched < (group ? GROUP_MAX_PAGES : 1); fetched += 1) {
       const page = await fetchMarketplacePage(
         cursor,
-        { fetch: cached },
+        { fetch: cached, limits: collectorCryptLimits() },
         { ...listing, search, ownerAddress: owner, step: group ? GROUP_STEP : undefined },
       );
       cards.push(...page.cards.filter((c) => isVaultable(c) && (!group || categoryGroup(c.category) === group)));

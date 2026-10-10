@@ -13,6 +13,18 @@ Optional. Without one the limit is 300 requests a minute per IP; with one,
 3,000. Requested by email to support@collectorcrypt.com, sent as
 `Authorization: Bearer ccsk_…` — the API does not read `x-api-key`.
 
+Staying inside it (`packages/collector-crypt/src/limits.ts`, opt-in through
+`limits`, shared per process by `collectorCryptLimits()`):
+
+- **Cache, 30 s.** Responses say `cache-control: max-age=30`, so that is the
+  provider's own terms. Concurrent callers for the same path share one
+  request; failures are not cached.
+- **Budget.** A token bucket at 80% of the limit: 240 a minute, 2,400 keyed.
+- **Retry.** A 429 or 503 waits `Retry-After` (or 1 s, 2 s, 4 s), three times.
+- **One request per card.** `/marketplace?search=<mint>` is an exact match
+  carrying appraisal and listing together, where `fetchCard` needs two. The
+  feed uses it, eight cards at a time; an unlisted card is unpriced either way.
+
 Set `COLLECTOR_CRYPT_API_KEY` and the client, the whitelist script, the feed
 and the web route handlers all send it. The gacha API has its own key; see
 below. It is read on the server only and never
@@ -170,8 +182,10 @@ their API; a card's share of the index is our decision and nobody else's.
 
 A fraction is $1 of `insuredValue`, so `listing.price / insuredValue` is the
 price per fraction a listing implies — the same unit as `oracle.price`. The
-feed publishes the **median** of that ratio over whitelisted Core cards with an
-active USDC listing, and nothing at all below `MIN_SAMPLES` (default 3).
+feed publishes the **weighted median** (`index`) of that ratio over
+whitelisted Core cards with an active USDC listing, each card counted by its
+on-chain `weight_bps`, and nothing at all below `MIN_SAMPLES` (default 3). The
+plain median is logged beside it; with equal weights the two agree.
 
 It is a median because asks are not fills. On 7 Oct 2026 one page of 100
 listings ran from 0.89x to 307x the appraisal, with a median of 1.26x.

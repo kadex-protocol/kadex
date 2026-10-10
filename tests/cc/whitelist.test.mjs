@@ -23,6 +23,11 @@ function collectorCrypt(askUsd) {
   const routes = {
     [`/cards/publicNft/${WARTORTLE}`]: fixture("cc_card.json"),
     [`/cards/publicNft/${WARTORTLE}/market`]: { ...market, listing: { ...market.listing, price: askUsd } },
+    // What the feed reads: one marketplace search by mint, appraisal and listing together.
+    [`/marketplace?search=${WARTORTLE}`]: {
+      filterNFtCard: [{ ...fixture("cc_card.json"), listing: { ...market.listing, price: Number(askUsd) } }],
+      total: 1,
+    },
   };
   return async (url) => {
     const path = url.replace("https://api.collectorcrypt.com", "");
@@ -73,13 +78,16 @@ describe("collector crypt, end to end", () => {
     assert.equal(cards.length, 1);
     assert.equal(cards[0].asset.toBase58(), WARTORTLE);
     assert.equal(cards[0].fractionsPerCard, 70_000_000n);
+    assert.equal(cards[0].weightBps, 2_500);
     assert.equal(cards[0].enabled, true);
   });
 
   test("too few priced cards publish nothing", async () => {
     const reading = await readExternalMedian(ctx.conn, 3, { fetch: collectorCrypt("77") });
     assert.equal(reading.median, null);
+    assert.equal(reading.index, null);
     assert.equal(reading.samples.length, 1);
+    assert.equal(reading.samples[0].weightBps, 2_500, "each sample carries its on-chain weight");
   });
 
   test("the hand-decoded oracle price matches the account", async () => {
@@ -88,8 +96,9 @@ describe("collector crypt, end to end", () => {
   });
 
   test("a median near the AMM price is published and leaves the oracle tradeable", async () => {
-    const { median } = await readExternalMedian(ctx.conn, 1, { fetch: collectorCrypt("77") });
+    const { median, index } = await readExternalMedian(ctx.conn, 1, { fetch: collectorCrypt("77") });
     assert.equal(median, 1_100_000n);
+    assert.equal(index, median, "one card: weighted and plain agree");
 
     const ix = setExternalMedianIx(ctx.payer.publicKey, oracleEnv.oracle, median);
     await ctx.provider.sendAndConfirm(new Transaction().add(ix));

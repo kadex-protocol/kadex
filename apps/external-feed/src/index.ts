@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import { WAD } from "@kadex/types";
+import { collectorCryptLimits } from "@kadex/collector-crypt";
 import {
   divergenceWad,
   readExternalMedian,
@@ -36,25 +37,25 @@ function loadConfig(): Config {
 const fmt = (wad: bigint) => (Number(wad) / Number(WAD)).toFixed(4);
 
 async function tick(conn: Connection, cfg: Config, signer: Keypair): Promise<void> {
-  const reading = await readExternalMedian(conn, cfg.minSamples);
+  const reading = await readExternalMedian(conn, cfg.minSamples, { limits: collectorCryptLimits() });
   for (const u of reading.unpriced) console.log(`[feed] skipped  ${u.asset}  ${u.reason}`);
 
-  if (reading.median === null) {
+  if (reading.index === null || reading.median === null) {
     console.log(`[feed] ${reading.samples.length} priced cards, need ${cfg.minSamples}: nothing to publish`);
     return;
   }
 
   const price = await readOraclePrice(conn, cfg.oracle);
   console.log(
-    `[feed] median ${fmt(reading.median)} over ${reading.samples.length} cards  ` +
-      `oracle ${fmt(price)}  divergence ${fmt(divergenceWad(price, reading.median))}`,
+    `[feed] index ${fmt(reading.index)} (weighted median; plain ${fmt(reading.median)}) over ${reading.samples.length} cards  ` +
+      `oracle ${fmt(price)}  divergence ${fmt(divergenceWad(price, reading.index))}`,
   );
 
   if (!cfg.publish) {
     console.log("[feed] dry run: set PUBLISH=1 to send it");
     return;
   }
-  const tx = new Transaction().add(setExternalMedianIx(signer.publicKey, cfg.oracle, reading.median));
+  const tx = new Transaction().add(setExternalMedianIx(signer.publicKey, cfg.oracle, reading.index));
   const sig = await sendAndConfirmTransaction(conn, tx, [signer], { commitment: "confirmed" });
   console.log(`[feed] published  sig=${sig}`);
 }
