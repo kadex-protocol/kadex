@@ -30,7 +30,7 @@ test("a valid keypair loads, quietly when only its owner can read it", () => {
   assert.deepEqual(warnings, []);
 });
 
-test("a keypair readable by others loads with a warning", () => {
+test("a keypair readable by others loads with a warning", { skip: process.platform === "win32" }, () => {
   const warnings = [];
   loadKeypair(file("open.json", secretText, 0o644), "TEST_KEYPAIR", (w) => warnings.push(w));
   assert.match(warnings[0], /readable by other users; chmod 600/);

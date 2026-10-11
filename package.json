@@ -17,7 +17,7 @@
     "test:rust": "cargo test --workspace",
     "test:programs": "anchor test",
     "typecheck": "tsc -b packages/types packages/oracle packages/sdk packages/collector-crypt",
-    "test:cc": "tsc -b packages/types packages/collector-crypt && node --test tests/collector-crypt.test.mjs tests/collector-crypt-gacha.test.mjs tests/basket.test.mjs",
+    "test:cc": "tsc -b packages/types packages/collector-crypt packages/sdk && node --test tests/collector-crypt.test.mjs tests/collector-crypt-gacha.test.mjs tests/basket.test.mjs",
     "test:cc:live": "tsc -b packages/types packages/collector-crypt && node --env-file-if-exists=apps/web/.env.local --test tests/cc/gacha.live.mjs",
     "test:cc:chain": "tsc -b packages/types packages/collector-crypt && node scripts/with-validator.mjs node --test tests/cc/*.test.mjs",
     "test:integration": "tsc -b packages/types packages/sdk && node scripts/with-validator.mjs node --test --test-force-exit tests/integration/*.test.mjs",
