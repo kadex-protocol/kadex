@@ -37,7 +37,7 @@ import {
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import {
-  createAccount, createAssociatedTokenAccountIdempotent, createMint, getAccount, getMint, mintTo,
+  createAccount, createAssociatedTokenAccountIdempotent, createMint, getAccount, mintTo,
 } from "@solana/spl-token";
 import { DEFAULT_POOL_PARAMS, IDLS, findMarket, findOracle, findPool } from "../tests/integration/_harness.mjs";
 import {
@@ -134,20 +134,22 @@ async function programData(id) {
 async function check() {
   const sol = (await conn.getBalance(payer.publicKey)) / LAMPORTS_PER_SOL;
   console.log(`deployer ${payer.publicKey.toBase58()}  balance ${sol} SOL on ${redactUrl(RPC)}`);
-  // 0.15 Raydium pool fee + mint, metadata, vault and account rent + fees.
-  let need = 0.5;
+  // 0.15 Raydium pool fee + mint, metadata, vault and account rent + fees, plus the faucet grant.
+  let need = 0.5 + FAUCET.sol;
   // `solana program deploy` writes into a buffer first, which needs the same
   // rent again until the deploy closes it: the largest one is the peak.
   let buffer = 0;
   for (const [name, id] of PROGRAMS) {
     const deployed = await exists(new PublicKey(id));
+    if (deployed) {
+      console.log(`  ${name.padEnd(9)} ${id}  deployed`);
+      continue;
+    }
     const size = readFileSync(join(ROOT, `target/deploy/${name}.so`)).length;
     const rent = (await conn.getMinimumBalanceForRentExemption(size + 45)) / LAMPORTS_PER_SOL;
-    if (!deployed) {
-      need += rent;
-      buffer = Math.max(buffer, rent);
-    }
-    console.log(`  ${name.padEnd(9)} ${id}  ${deployed ? "deployed" : `not deployed — ~${rent.toFixed(2)} SOL`}`);
+    need += rent;
+    buffer = Math.max(buffer, rent);
+    console.log(`  ${name.padEnd(9)} ${id}  not deployed — ~${rent.toFixed(2)} SOL`);
   }
   console.log(`  raydium   ${(await exists(RAYDIUM_CPMM.devnet)) ? "present" : "MISSING"}  metadata ${(await exists(TOKEN_METADATA)) ? "present" : "MISSING"}`);
   need += buffer;
@@ -224,22 +226,31 @@ async function mints() {
   record.mints ??= {};
   for (const [key, meta] of Object.entries(MINTS)) {
     const known = pk(record.mints[key]?.address);
+    let mint;
     if (known && (await exists(known))) {
+      mint = known;
       console.log(`  ${key}: already ${known.toBase58()}`);
-      continue;
-    }
-    // 6 decimals like USDC and FRACTION_DECIMALS; mint authority the deployer
-    // (devnet only, to seed the pool); no freeze authority.
-    const mint = await createMint(conn, payer, payer.publicKey, null, 6);
-    const { metadata, ix } = metadataIx(mint, meta);
-    record.mints[key] = { address: mint.toBase58(), decimals: 6, mintAuthority: payer.publicKey.toBase58(), freezeAuthority: null, metadata: null, ...meta };
-    if (await exists(TOKEN_METADATA)) {
-      note(`metadata_${key}`, await send(ix));
-      record.mints[key].metadata = metadata.toBase58();
     } else {
-      console.log(`  ${key}: Token Metadata is not on this cluster (local run) — no metadata`);
+      // 6 decimals like USDC and FRACTION_DECIMALS; mint authority the deployer
+      // (devnet only, to seed the pool); no freeze authority.
+      mint = await createMint(conn, payer, payer.publicKey, null, 6);
+      record.mints[key] = { address: mint.toBase58(), decimals: 6, mintAuthority: payer.publicKey.toBase58(), freezeAuthority: null, metadata: null, ...meta };
+      save();
+      console.log(`  ${key}: ${mint.toBase58()}`);
     }
-    console.log(`  ${key}: ${mint.toBase58()}`);
+    if (!record.mints[key].metadata) {
+      const { metadata, ix } = metadataIx(mint, meta);
+      if (await exists(metadata)) {
+        record.mints[key].metadata = metadata.toBase58();
+        save();
+      } else if (await exists(TOKEN_METADATA)) {
+        note(`metadata_${key}`, await send(ix));
+        record.mints[key].metadata = metadata.toBase58();
+        save();
+      } else {
+        console.log(`  ${key}: Token Metadata is not on this cluster (local run) — no metadata`);
+      }
+    }
   }
   save();
 }
@@ -301,6 +312,8 @@ async function protocol() {
   const market = findMarket(clp);
   if (!(await exists(market))) {
     note("initialize_market", await p.perp.methods.initializeMarket().accounts({ admin: payer.publicKey, pool: clp, oracle, market }).rpc());
+  }
+  if (!decodeClpPool((await conn.getAccountInfo(clp)).data).perpMarket.equals(market)) {
     note("set_perp_market", await p.clpPool.methods.setPerpMarket(market).accounts({ admin: payer.publicKey, pool: clp }).rpc());
   }
   const decoded = decodeClpPool((await conn.getAccountInfo(clp)).data);
@@ -350,13 +363,6 @@ async function env() {
   let faucet = saved ? Keypair.fromSecretKey(Uint8Array.from(JSON.parse(saved))) : Keypair.generate();
   if (faucet.publicKey.equals(payer.publicKey)) faucet = Keypair.generate();
 
-  if ((await conn.getBalance(faucet.publicKey)) < (FAUCET.sol * LAMPORTS_PER_SOL) / 2) {
-    note("fund_faucet_sol", await send(SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: faucet.publicKey, lamports: FAUCET.sol * LAMPORTS_PER_SOL })));
-  }
-  const account = await createAssociatedTokenAccountIdempotent(conn, payer, usd, faucet.publicKey);
-  const have = (await getAccount(conn, account)).amount;
-  if (have < FAUCET.usd / 2n) note("fund_faucet_usd", await mintTo(conn, payer, usd, account, payer, FAUCET.usd - have));
-
   // Rewrite only the lines this script owns: anything else in the file is the user's.
   const ours = {
     NEXT_PUBLIC_KADEX_RPC_URL: process.env.KADEX_BROWSER_RPC ?? RPC,
@@ -369,6 +375,13 @@ async function env() {
   record.faucet = { address: faucet.publicKey.toBase58() };
   save();
   console.log(`  faucet ${faucet.publicKey.toBase58()}  wrote ${ENV_FILE}`);
+
+  if ((await conn.getBalance(faucet.publicKey)) < (FAUCET.sol * LAMPORTS_PER_SOL) / 2) {
+    note("fund_faucet_sol", await send(SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: faucet.publicKey, lamports: FAUCET.sol * LAMPORTS_PER_SOL })));
+  }
+  const account = await createAssociatedTokenAccountIdempotent(conn, payer, usd, faucet.publicKey);
+  const have = (await getAccount(conn, account)).amount;
+  if (have < FAUCET.usd / 2n) note("fund_faucet_usd", await mintTo(conn, payer, usd, account, payer, FAUCET.usd - have));
 }
 
 async function cards() {
