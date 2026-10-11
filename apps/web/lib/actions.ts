@@ -1,10 +1,11 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { derivePosition } from "@kadex/sdk";
+import { RAY } from "@kadex/types";
 import { CLUSTER } from "./cluster";
 import type { VaultCard } from "./collectorCrypt";
 import { loadMarket, quote, quoteDeposit, quoteWithdraw } from "./market";
 import { sendPoolAction, type PoolAction } from "./poolTx";
-import { isVaulted, readLedger, updateLedger } from "./sim";
+import { isVaulted, LEDGER_EVENT, readLedger, updateLedger } from "./sim";
 import { sendClosePosition, sendOpenPosition, type OpenOrder } from "./tradeTx";
 import type { Sign } from "./tx";
 import { sendVaultAction } from "./vaultTx";
@@ -16,17 +17,21 @@ export interface Signer {
   sign: Sign;
 }
 
-const RAY = 1_000_000_000_000n;
 const SETTLE_MS = 700;
 
 const receipt = () => Keypair.generate().publicKey.toBase58();
 const settle = () => new Promise((done) => setTimeout(done, SETTLE_MS));
+const confirmed = async (transaction: Promise<string>) => {
+  const signature = await transaction;
+  window.dispatchEvent(new Event(LEDGER_EVENT));
+  return signature;
+};
 const refuse = (reason: string): never => {
   throw new Error(reason);
 };
 
 export async function openPosition({ publicKey, sign }: Signer, order: OpenOrder): Promise<string> {
-  if (CLUSTER) return sendOpenPosition(CLUSTER, publicKey, sign, order);
+  if (CLUSTER) return confirmed(sendOpenPosition(CLUSTER, publicKey, sign, order));
   await settle();
   const snapshot = await loadMarket();
   const q = quote(snapshot, order.side, order.notional);
@@ -50,7 +55,7 @@ export async function openPosition({ publicKey, sign }: Signer, order: OpenOrder
 }
 
 export async function closePosition({ publicKey, sign }: Signer, position: PublicKey): Promise<string> {
-  if (CLUSTER) return sendClosePosition(CLUSTER, publicKey, sign, position);
+  if (CLUSTER) return confirmed(sendClosePosition(CLUSTER, publicKey, sign, position));
   await settle();
   const snapshot = await loadMarket();
   const address = position.toBase58();
@@ -69,7 +74,7 @@ export async function closePosition({ publicKey, sign }: Signer, position: Publi
 }
 
 export async function poolAction({ publicKey, sign }: Signer, action: PoolAction): Promise<string> {
-  if (CLUSTER) return sendPoolAction(CLUSTER, publicKey, sign, action);
+  if (CLUSTER) return confirmed(sendPoolAction(CLUSTER, publicKey, sign, action));
   await settle();
   const snapshot = await loadMarket();
   updateLedger(publicKey.toBase58(), (ledger, wallet) => {
@@ -103,7 +108,7 @@ export async function poolAction({ publicKey, sign }: Signer, action: PoolAction
 }
 
 export async function vaultCard({ publicKey, sign }: Signer, card: VaultCard): Promise<string> {
-  if (CLUSTER) return sendVaultAction(CLUSTER, publicKey, sign, new PublicKey(card.nftAddress), "vault");
+  if (CLUSTER) return confirmed(sendVaultAction(CLUSTER, publicKey, sign, new PublicKey(card.nftAddress), "vault"));
   await settle();
   if (!card.vaultable || card.insuredValueUsdc <= 0n) refuse("This card has no appraisal to mint fractions against.");
   updateLedger(publicKey.toBase58(), (ledger, wallet) => {
@@ -121,7 +126,7 @@ export async function vaultCard({ publicKey, sign }: Signer, card: VaultCard): P
 }
 
 export async function redeemCard({ publicKey, sign }: Signer, nftAddress: string): Promise<string> {
-  if (CLUSTER) return sendVaultAction(CLUSTER, publicKey, sign, new PublicKey(nftAddress), "redeem");
+  if (CLUSTER) return confirmed(sendVaultAction(CLUSTER, publicKey, sign, new PublicKey(nftAddress), "redeem"));
   await settle();
   updateLedger(publicKey.toBase58(), (_, wallet) => {
     const held = wallet.cards.find((c) => c.nftAddress === nftAddress) ?? refuse("This wallet did not vault that card.");

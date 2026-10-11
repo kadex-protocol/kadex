@@ -57,6 +57,7 @@ export async function GET() {
     };
     return NextResponse.json(body);
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "The RPC is unreachable." }, { status: 502 });
+    console.error("Index history request failed:", e);
+    return NextResponse.json({ error: "Could not load index history." }, { status: 502 });
   }
 }

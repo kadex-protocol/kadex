@@ -8,12 +8,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  if (!CLUSTER || CLUSTER.network === "mainnet") return NextResponse.json({ cards: [] });
+  if (!CLUSTER || CLUSTER.network === "mainnet") return NextResponse.json({ cards: [], recorded: false });
   const path = process.env.KADEX_DEPLOYMENT ?? join(process.cwd(), "..", "..", "deployments", `${CLUSTER.network}.json`);
   try {
     const record = JSON.parse(await readFile(path, "utf8")) as { cards?: TestCard[] };
-    return NextResponse.json({ cards: (record.cards ?? []).map(({ mainnet, asset, name }) => ({ mainnet, asset, name })) });
+    return NextResponse.json({ cards: (record.cards ?? []).map(({ mainnet, asset, name }) => ({ mainnet, asset, name })), recorded: true });
   } catch {
-    return NextResponse.json({ cards: [] });
+    return NextResponse.json({ cards: [], recorded: false });
   }
 }

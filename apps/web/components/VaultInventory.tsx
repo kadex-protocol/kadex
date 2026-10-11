@@ -7,6 +7,7 @@ import { CLUSTER } from "@/lib/cluster";
 import { loadVaultCard } from "@/lib/collectorCrypt";
 import { titleParts, shortAddress } from "@/lib/cardText";
 import { fmtUsd } from "@/lib/market";
+import { loadTestCards, originalOf } from "@/lib/testCards";
 import { useWallet } from "@/lib/wallet";
 
 /**
@@ -18,37 +19,45 @@ export function VaultInventory() {
   const { status, publicKey } = useWallet();
   const [rows, setRows] = useState<InventoryRow[] | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
+  const [originals, setOriginals] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     let live = true;
     setRows(null);
+    setNames({});
+    setOriginals({});
     setError(null);
     if (!CLUSTER || status !== "connected" || !publicKey) return;
-    readVaultInventory(CLUSTER.connection, publicKey)
-      .then((r) => {
+    Promise.all([readVaultInventory(CLUSTER.connection, publicKey), loadTestCards()])
+      .then(([r, twins]) => {
         if (!live) return;
         setRows(r);
-        // Names come from Collector Crypt when it knows the asset; the address otherwise.
+        const found: Record<string, string> = {};
         for (const row of r) {
           const key = row.asset.toBase58();
-          loadVaultCard(key)
+          const original = originalOf(twins, key);
+          if (!original) continue;
+          found[key] = original;
+          loadVaultCard(original)
             .then((c) => live && setNames((n) => ({ ...n, [key]: titleParts(c).title })))
             .catch(() => {});
         }
+        setOriginals(found);
       })
       .catch((e) => live && setError(e instanceof Error ? e.message : "Could not read the vault."));
     return () => {
       live = false;
     };
-  }, [status, publicKey]);
+  }, [status, publicKey, version]);
 
   if (!CLUSTER || status !== "connected" || !publicKey) return null;
 
   return (
     <section className="panel" aria-labelledby="inv-h">
       <h2 className="title sm" id="inv-h">Your vaulted cards</h2>
-      {error && <p className="hint bad" role="alert">{error}</p>}
+      {error && <p className="hint bad" role="alert">{error} <button className="btn" type="button" onClick={() => setVersion((v) => v + 1)}>Try again</button></p>}
       {!error && rows === null && <p className="sub">Reading the vault…</p>}
       {rows?.length === 0 && <p className="sub">Nothing locked, and no fractions of a locked card in this wallet.</p>}
       {rows && rows.length > 0 && (
@@ -70,7 +79,7 @@ export function VaultInventory() {
                 return (
                   <tr key={key}>
                     <td>
-                      <Link href={`/vault/${key}`}>{names[key] ?? shortAddress(key)}</Link>
+                      {originals[key] ? <Link href={`/vault/${originals[key]}`}>{names[key] ?? shortAddress(key)}</Link> : <span>{shortAddress(key)}</span>}
                       {r.deposited && <span className="pill" style={{ marginLeft: 8 }}>You vaulted it</span>}
                     </td>
                     <td className="r n">{fmtUsd(r.held, 2)}</td>
@@ -78,8 +87,10 @@ export function VaultInventory() {
                     <td className="r n">{r.missing === 0n ? "—" : fmtUsd(r.missing, 2)}</td>
                     <td className="r n">{r.missing === 0n ? "—" : `$${fmtUsd(r.missingAtAppraisal, 2)}`}</td>
                     <td className="r">
-                      {r.missing === 0n ? (
-                        <Link className="btn" href={`/vault/${key}`}>Redeem</Link>
+                      {r.missing === 0n && originals[key] ? (
+                        <Link className="btn" href={`/vault/${originals[key]}`}>Redeem</Link>
+                      ) : r.missing === 0n ? (
+                        <span className="sub">No card page recorded</span>
                       ) : (
                         <span className="sub">Buy the rest to redeem</span>
                       )}

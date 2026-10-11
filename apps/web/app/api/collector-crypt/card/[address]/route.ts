@@ -12,10 +12,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ address
   try {
     return NextResponse.json({ card: toWire(await fetchCard(address, { fetch: cached, limits: collectorCryptLimits() })) });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Collector Crypt is unreachable.";
-    const missing = /answered 404/.test(message);
+    console.error("Collector Crypt card request failed:", e);
+    const missing = e instanceof Error && /answered 404/.test(e.message);
     return NextResponse.json(
-      { error: missing ? "Collector Crypt has no card at that address." : message },
+      { error: missing ? "Collector Crypt has no card at that address." : "Collector Crypt is unreachable." },
       { status: missing ? 404 : 502 },
     );
   }

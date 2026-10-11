@@ -1,6 +1,7 @@
 "use client";
 
 import { CONSTITUENTS, fmtBps, fmtPct, fmtPrice, fmtUsd } from "@/lib/market";
+import { CLUSTER } from "@/lib/cluster";
 import { useMarket } from "@/lib/useMarket";
 import { Thumb } from "@/components/Slab";
 
@@ -25,7 +26,7 @@ export default function IndexPage() {
         </div>
         <div className="stat">
           <p className="k">Pool NAV</p>
-          <p className="v">{data ? fmtUsd(data.poolStats.nav) : "—"}</p>
+          <p className="v">{data ? `$${fmtUsd(data.poolStats.nav, 2)}` : "—"}</p>
         </div>
         <div className="stat">
           <p className="k">Card sleeve</p>
@@ -87,11 +88,11 @@ export default function IndexPage() {
           <div className="rows">
             <div>
               <span>Solvency ceiling</span>
-              <b>{data ? fmtUsd(data.capacity.capSolvency) : "—"}</b>
+              <b>{data ? `$${fmtUsd(data.capacity.capSolvency, 2)}` : "—"}</b>
             </div>
             <div>
               <span>Depth ceiling</span>
-              <b>{data ? fmtUsd(data.capacity.capDepth) : "—"}</b>
+              <b>{data ? `$${fmtUsd(data.capacity.capDepth, 2)}` : "—"}</b>
             </div>
             <div className="hi">
               <span>Binding</span>
@@ -99,7 +100,7 @@ export default function IndexPage() {
             </div>
             <div>
               <span>Open interest</span>
-              <b>{data ? fmtUsd(data.capacity.oiTotal) : "—"}</b>
+              <b>{data ? `$${fmtUsd(data.capacity.oiTotal, 2)}` : "—"}</b>
             </div>
             <div>
               <span>Utilisation</span>
@@ -108,8 +109,9 @@ export default function IndexPage() {
           </div>
           <hr className="sep" style={{ margin: "20px 0" }} />
           <p className="fine">
-            Depth binds far before solvency. Adding USDC to the pool barely moves market size;
-            adding liquidity to the pricing pool moves all of it.
+            {data
+              ? `${data.capacity.binding} binds now. The depth ceiling is $${fmtUsd(data.capacity.capDepth, 2)} and the solvency ceiling is $${fmtUsd(data.capacity.capSolvency, 2)}.`
+              : "Reading the capacity limits."}
           </p>
         </section>
       </div>
@@ -125,6 +127,9 @@ export default function IndexPage() {
               rather than a simplification — a basket whose membership can move is a basket an
               attacker can move into.
             </p>
+            {(CLUSTER?.network === "devnet" || CLUSTER?.network === "local") && (
+              <p>The index token on this test cluster is a demonstration token. It is not backed by or redeemable for cards.</p>
+            )}
           </div>
           <div>
             <h3>Pricing</h3>

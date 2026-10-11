@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import type { PositionView } from "@kadex/types";
 import { fmtUsd, type MarketSnapshot, type Portfolio } from "@/lib/market";
+import { USD_LABEL } from "@/lib/cluster";
 import { useWallet } from "@/lib/wallet";
 import { PositionsTable } from "@/components/PositionsTable";
 
@@ -27,7 +28,7 @@ export function AccountPanel({ portfolio, positions, snapshot, onTrade, onClosed
   const clp = portfolio?.clp ?? 0n;
   const tabs: [Tab, string, number][] = [
     ["positions", "Positions", positions.length],
-    ["cards", "Vaulted cards", cards.length],
+    ["cards", "Vaulted cards", cards.filter((card) => card.deposited).length],
     ["shares", "Pool shares", clp > 0n ? 1 : 0],
   ];
   const poolShare = snapshot && snapshot.pool.clpSupply > 0n ? (Number(clp) / Number(snapshot.pool.clpSupply)) * 100 : 0;
@@ -113,13 +114,13 @@ export function AccountPanel({ portfolio, positions, snapshot, onTrade, onClosed
           </div>
           <div className="acct-actions">
             <Link href="/pool" className="btn">Deposit more</Link>
-            <Link href="/pool" className="btn">Withdraw</Link>
+            <Link href="/pool?tab=withdraw" className="btn">Withdraw</Link>
           </div>
         </div>
       ) : (
         <div className="acct-empty">
           <b>No pool shares</b>
-          <p>Deposit USDC or card fractions into the pool to earn the fees traders pay.</p>
+          <p>Deposit {USD_LABEL} or card fractions into the pool to earn the fees traders pay.</p>
           <Link href="/pool" className="btn">Go to Earn</Link>
         </div>
       )}

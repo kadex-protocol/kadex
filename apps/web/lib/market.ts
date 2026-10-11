@@ -1,24 +1,10 @@
-/**
- * The frontend's data boundary.
- *
- * Everything the UI renders comes through here. Today it is served from
- * `SAMPLE`, which is plainly labelled sample content in the interface. When
- * the programs are deployed, only the functions in this file change — no
- * component reaches past it.
- *
- * The shapes are the real ones from `@kadex/types`, and the derived numbers go
- * through the real `@kadex/sdk` maths, so what the screen shows is computed the
- * same way the program computes it. That is the point of routing sample data
- * through the production path rather than hardcoding pretty numbers.
- */
 
 import basket from "../../../deployments/basket.json";
 import { titleParts } from "./cardText";
 import type { VaultCard } from "./collectorCrypt";
 import type { MarketView, OracleView, PoolView, PositionView, Side } from "@kadex/types";
-import { gates, oracleTradeable } from "@kadex/types";
+import { gates, oracleTradeable, RAY, TOKEN_DECIMALS, WAD } from "@kadex/types";
 import { PublicKey } from "@solana/web3.js";
-import { WAD } from "@kadex/types";
 import {
   deriveBorrowRates,
   deriveCapacity,
@@ -34,7 +20,7 @@ import {
   readVaultInventory,
 } from "@kadex/sdk";
 import { readChain, readPositions, readTokenBalances } from "./chain";
-import { CLUSTER, type Cluster } from "./cluster";
+import { CLUSTER, USD_LABEL, type Cluster } from "./cluster";
 import { loadVaultCard } from "./collectorCrypt";
 import { HISTORY_POINTS, HISTORY_STEP_SECS, type IndexHistoryWire } from "./history";
 import { readLedger, simPrice, walletOf, type SimCard } from "./sim";
@@ -44,7 +30,6 @@ export { HISTORY_STEP_SECS };
 
 export const IS_SAMPLE = CLUSTER === null;
 
-const USDC = 1_000_000n;
 const ZERO = new PublicKey("11111111111111111111111111111111");
 
 export interface Constituent {
@@ -93,9 +78,9 @@ export const CONSTITUENTS: Constituent[] = basket.cards.map((c, i) => {
 
 const SAMPLE_POOL: PoolView = {
   address: ZERO,
-  usdcSleeve: 140_000n * USDC,
-  cardSleeveValue: 60_000n * USDC,
-  clpSupply: 200_000n * USDC,
+  usdcSleeve: 140_000n * WAD,
+  cardSleeveValue: 60_000n * WAD,
+  clpSupply: 200_000n * WAD,
   traderPnl: 0n,
   badDebt: 0n,
   marginHeld: 0n,
@@ -128,7 +113,7 @@ const SAMPLE_ORACLE: OracleView = {
   price: WAD,
   twap: WAD,
   spot: WAD,
-  depthUsdc: 60_000n * USDC,
+  depthUsdc: 60_000n * WAD,
   lastUpdateTs: 0n,
   externalMedian: 0n,
   state: "ok",
@@ -136,10 +121,10 @@ const SAMPLE_ORACLE: OracleView = {
 
 const SAMPLE_MARKET: MarketView = {
   address: ZERO,
-  oiLong: 4_200n * USDC,
-  oiShort: 1_800n * USDC,
-  borrowIdxLong: 1_000_000_000_000n,
-  borrowIdxShort: 1_000_000_000_000n,
+  oiLong: 4_200n * WAD,
+  oiShort: 1_800n * WAD,
+  borrowIdxLong: RAY,
+  borrowIdxShort: RAY,
   lastAccrualTs: 0n,
   openPositions: 2,
 };
@@ -148,6 +133,7 @@ export interface MarketSnapshot {
   pool: PoolView;
   oracle: OracleView;
   market: MarketView;
+  marketInitialized: boolean;
   /** NAV, CLP price, sleeve split — from the SDK, not from constants. */
   poolStats: ReturnType<typeof derivePool>;
   /** Both ceilings and which one binds. */
@@ -158,14 +144,7 @@ export interface MarketSnapshot {
   navIssue: bigint;
 }
 
-const RAY = 1_000_000_000_000n;
 
-/**
- * One read of everything the market screen needs.
- *
- * Replace the three `SAMPLE_*` constants with account fetches and the rest of
- * the application does not change.
- */
 export async function loadMarket(): Promise<MarketSnapshot> {
   if (CLUSTER) {
     const chain = await readChain(CLUSTER);
@@ -174,14 +153,20 @@ export async function loadMarket(): Promise<MarketSnapshot> {
     const market: MarketView = chain.market
       ? marketView(chain.pool.perpMarket, chain.market)
       : { address: chain.pool.perpMarket, oiLong: 0n, oiShort: 0n, borrowIdxLong: RAY, borrowIdxShort: RAY, lastAccrualTs: 0n, openPositions: 0 };
-    return snapshotOf(
-      poolView(chain.poolAddress, chain.pool, marks),
-      oracleView(chain.pool.oracle, chain.oracle, chain.now),
-      market,
-      marks,
-      chain.pool.fractionBalance,
-      navIssue(chain.pool, marks),
-    );
+    if (chain.oracle.lastUpdateTs > 0n) {
+      recordIndexPoints([{ ts: Number(chain.oracle.lastUpdateTs), price: chain.oracle.price }]);
+    }
+    return {
+      ...snapshotOf(
+        poolView(chain.poolAddress, chain.pool, marks),
+        oracleView(chain.pool.oracle, chain.oracle, chain.now),
+        market,
+        marks,
+        chain.pool.fractionBalance,
+        navIssue(chain.pool, marks),
+      ),
+      marketInitialized: chain.market !== null,
+    };
   }
   const ledger = readLedger();
   const price = simPrice(Date.now() / 1000);
@@ -216,6 +201,7 @@ function snapshotOf(
     pool,
     oracle,
     market,
+    marketInitialized: true,
     poolStats: derivePool(pool),
     capacity,
     borrow: deriveBorrowRates(pool, market, capacity.cap),
@@ -264,6 +250,17 @@ export interface IndexPoint {
   price: bigint;
 }
 
+let indexObservations: IndexPoint[] = [];
+
+function recordIndexPoints(points: IndexPoint[]) {
+  const combined = new Map(indexObservations.map((point) => [point.ts, point]));
+  for (const point of points) combined.set(point.ts, point);
+  const cutoff = Date.now() / 1000 - HISTORY_POINTS * HISTORY_STEP_SECS;
+  indexObservations = [...combined.values()].filter((point) => point.ts >= cutoff).sort((a, b) => a.ts - b.ts);
+}
+
+export const liveIndexHistory = () => indexObservations;
+
 /**
  * The mark price over the last 24 hours, one point per five minutes.
  *
@@ -275,7 +272,7 @@ export interface IndexPoint {
 export async function loadIndexHistory(snapshot: MarketSnapshot): Promise<IndexPoint[]> {
   if (!IS_SAMPLE) {
     const res = await fetch("/api/index-history");
-    if (!res.ok) return [];
+    if (!res.ok) throw new Error("Could not read the index history.");
     const body = (await res.json()) as IndexHistoryWire;
     const points = body.points.map((p) => ({ ts: p.ts, price: BigInt(p.price) }));
     const latest = snapshot.oracle.lastUpdateTs;
@@ -285,6 +282,7 @@ export async function loadIndexHistory(snapshot: MarketSnapshot): Promise<IndexP
       if (last && last.ts === ts) last.price = snapshot.oracle.price;
       else if (!last || last.ts < ts) points.push({ ts, price: snapshot.oracle.price });
     }
+    recordIndexPoints(points);
     return points;
   }
   const now = Math.floor(Date.now() / 1000 / HISTORY_STEP_SECS) * HISTORY_STEP_SECS;
@@ -297,7 +295,7 @@ export async function loadIndexHistory(snapshot: MarketSnapshot): Promise<IndexP
 }
 
 export const priceAt = (snapshot: MarketSnapshot | null, ts: number): bigint | null =>
-  IS_SAMPLE ? simPrice(ts) : snapshot?.oracle.price ?? null;
+  IS_SAMPLE ? simPrice(ts) : snapshot && ts >= Date.now() / 1000 - 1 ? snapshot.oracle.price : null;
 
 /** What a quote looks like before anything is signed. */
 export interface Quote {
@@ -353,13 +351,20 @@ export function quote(snapshot: MarketSnapshot, side: Side, notionalUsdc: bigint
   );
 
   let problem: string | null = null;
-  if (pool.state !== "active") {
+  if (!snapshot.marketInitialized) {
+    problem = "The perp market is not initialized on this cluster.";
+  } else if (pool.state !== "active") {
     problem = "The market is not accepting new positions.";
   } else if (!oracleTradeable(oracle.state) && oracle.state !== "stale") {
     // A stale price does not block: the order's own transaction refreshes it first (refreshIfAging).
     problem = `The index price is ${oracle.state} and not currently tradeable.`;
   } else if (notionalUsdc > capacity.free) {
-    problem = `Exceeds available capacity of ${(Number(capacity.free) / 1e6).toLocaleString("en-US", { maximumFractionDigits: 0 })} USDC.`;
+    problem = `Exceeds available capacity of ${(Number(capacity.free) / 10 ** TOKEN_DECIMALS).toLocaleString("en-US", { maximumFractionDigits: 0 })} ${USD_LABEL}.`;
+  } else if (
+    capacity.cap > 0n &&
+    ((snapshot.market.oiLong + snapshot.market.oiShort + notionalUsdc) * WAD) / capacity.cap >= pool.params.reduceOnlyUtilization
+  ) {
+    problem = "This size would push the market into reduce-only. Try a smaller order.";
   }
 
   return {
@@ -374,11 +379,11 @@ export function quote(snapshot: MarketSnapshot, side: Side, notionalUsdc: bigint
 }
 
 export const fmtUsd = (x: bigint, digits = 0) =>
-  (Number(x) / 1e6).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  (Number(x) / 10 ** TOKEN_DECIMALS).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
-export const fmtPrice = (x: bigint) => (Number(x) / 1e6).toFixed(4);
+export const fmtPrice = (x: bigint) => (Number(x) / Number(WAD)).toFixed(4);
 
-export const fmtPct = (wad: bigint, digits = 2) => `${((Number(wad) / 1e6) * 100).toFixed(digits)}%`;
+export const fmtPct = (wad: bigint, digits = 2) => `${((Number(wad) / Number(WAD)) * 100).toFixed(digits)}%`;
 
 export const fmtBps = (bps: number) => `${(bps / 100).toFixed(2)}%`;
 
@@ -544,6 +549,7 @@ export function borrowSpread(s: MarketSnapshot) {
 
 export interface CardHolding extends SimCard {
   redeemable: boolean;
+  deposited?: boolean;
   asset?: string;
   held?: bigint;
 }
@@ -564,6 +570,7 @@ async function clusterVaultedCards({ connection }: Cluster, owner: PublicKey): P
         minted: row.supply,
         held: row.held,
         redeemable: row.missing === 0n,
+        deposited: row.deposited,
       };
     }),
   );
@@ -573,7 +580,7 @@ export async function loadVaultedCards(owner: PublicKey | null): Promise<CardHol
   if (!owner) return [];
   if (CLUSTER) return clusterVaultedCards(CLUSTER, owner);
   const wallet = walletOf(readLedger(), owner.toBase58());
-  return wallet.cards.map((c) => ({ ...c, redeemable: wallet.fractions >= c.minted }));
+  return wallet.cards.map((c) => ({ ...c, redeemable: wallet.fractions >= c.minted, deposited: true }));
 }
 
 export interface Portfolio {
@@ -590,8 +597,8 @@ export interface Portfolio {
   positions: PositionView[];
 }
 
-export async function loadPortfolio(owner: PublicKey | null): Promise<Portfolio> {
-  const snapshot = await loadMarket();
+export async function loadPortfolio(owner: PublicKey | null, loaded?: MarketSnapshot): Promise<Portfolio> {
+  const snapshot = loaded ?? await loadMarket();
   const [positions, balances, cards] = await Promise.all([
     loadPositions(owner, snapshot),
     loadBalances(owner),

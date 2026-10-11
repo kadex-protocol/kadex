@@ -60,12 +60,14 @@ export async function GET(req: NextRequest) {
       cards: cards.map(toWire),
       nextCursor: cursor,
       total,
+      returnedCount: cards.length,
       groups: groupCounts(counts),
     };
     return NextResponse.json(body);
   } catch (e) {
+    console.error("Collector Crypt marketplace request failed:", e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Collector Crypt is unreachable." },
+      { error: "Collector Crypt is unreachable." },
       { status: 502 },
     );
   }

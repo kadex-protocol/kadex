@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, type CSSProperties, type PointerEvent } from "react";
 import Link from "next/link";
-import { IS_SAMPLE } from "@/lib/market";
+import { CONSTITUENTS, IS_SAMPLE } from "@/lib/market";
+import { USD_LABEL } from "@/lib/cluster";
 import type { VaultCard } from "@/lib/collectorCrypt";
 
 interface Slot {
@@ -75,27 +76,30 @@ function BannerArt({ cards }: { cards: VaultCard[] }) {
 
 export const focusTicket = () => {
   const input = document.querySelector<HTMLInputElement>(".ticket input");
-  input?.scrollIntoView({ block: "center", behavior: "smooth" });
+  const target = input ?? document.querySelector(".ticket") ?? document.querySelector(".chart");
+  target?.scrollIntoView({ block: "center", behavior: "smooth" });
   input?.focus({ preventScroll: true });
 };
 
-export function HomeBanner({ cards }: { cards: VaultCard[] }) {
+export function HomeBanner({ cards, marketAvailable }: { cards: VaultCard[]; marketAvailable: boolean }) {
   return (
     <section className="panel hbanner" aria-labelledby="hbanner-h" onPointerMove={trackPointer}>
       <BannerArt cards={cards} />
 
       <div className="hbanner-in">
         <p className="tags">
-          <span>On-chain index</span>
+          <span>{IS_SAMPLE ? "Sample index" : "On-chain index"}</span>
           {IS_SAMPLE && <span className="hi">Preview</span>}
         </p>
         <h1 id="hbanner-h">Trading cards. Traded.</h1>
         <p>
-          Go long or short on one index of five graded cards. No card required: margin in USDC,
-          5x, on Solana.
+          Go long or short on one index of {CONSTITUENTS.length} graded cards. No card required:
+          margin in {USD_LABEL} on Solana.
         </p>
         <div className="actions">
-          <button type="button" className="btn accent" onClick={focusTicket}>Start trading</button>
+          <button type="button" className="btn accent" onClick={focusTicket} disabled={!marketAvailable} title={!marketAvailable ? "Market unavailable" : undefined}>
+            {marketAvailable ? "Start trading" : "Market unavailable"}
+          </button>
           <Link href="/index-methodology" className="btn">See how it works</Link>
         </div>
       </div>

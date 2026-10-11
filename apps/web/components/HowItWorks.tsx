@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { fmtPct, fmtPrice, fmtUsd, quote, type MarketSnapshot } from "@/lib/market";
+import { USD_LABEL } from "@/lib/cluster";
 import type { VaultCard } from "@/lib/collectorCrypt";
 import { titleParts } from "@/lib/cardText";
 import { useWallet, shortKey } from "@/lib/wallet";
@@ -29,7 +30,8 @@ function Step({ n, title, body, action, children }: { n: number; title: string; 
 }
 
 export function HowItWorks({ cards, data, onTrade }: { cards: VaultCard[]; data: MarketSnapshot | null; onTrade(): void }) {
-  const { status, publicKey, connect } = useWallet();
+  const { status, publicKey, walletName, detected, connect } = useWallet();
+  const found = (name: string) => detected.some((wallet) => wallet.toLowerCase().startsWith(name.toLowerCase()));
   const connected = status === "connected" && publicKey !== null;
   const example = data ? quote(data, "long", EXAMPLE_NOTIONAL) : null;
   const slab = cards.find((c) => c.frontImage && c.vaultable) ?? cards.find((c) => c.frontImage) ?? null;
@@ -46,7 +48,7 @@ export function HowItWorks({ cards, data, onTrade }: { cards: VaultCard[]; data:
         <Step
           n={1}
           title="Connect a wallet"
-          body="Any Solana wallet works. You only need USDC for margin and a little SOL for fees."
+          body={`Connect a supported Solana wallet. You need ${USD_LABEL} for margin and a little SOL for fees.`}
           action={
             connected ? (
               <span className="hw-done">Connected · {shortKey(publicKey)}</span>
@@ -58,13 +60,19 @@ export function HowItWorks({ cards, data, onTrade }: { cards: VaultCard[]; data:
           }
         >
           <ul className="wconnect-list">
-            {WALLETS.map((w, i) => (
+            {WALLETS.map((w) => (
               <li key={w.name}>
                 <div className="hw-row">
                   {w.icon ? <img src={w.icon} alt="" /> : <span className="wconnect-ico">{w.name[0]}</span>}
                   <span>
                     <b>{w.name}</b>
-                    <em>{i === 0 ? (connected ? "Connected" : "Detected") : "Supported"}</em>
+                    <em>
+                      {connected && walletName?.toLowerCase().startsWith(w.name.toLowerCase())
+                        ? "Connected"
+                        : found(w.name)
+                          ? "Detected"
+                          : "Supported"}
+                    </em>
                   </span>
                   <i>›</i>
                 </div>
@@ -76,7 +84,7 @@ export function HowItWorks({ cards, data, onTrade }: { cards: VaultCard[]; data:
         <Step
           n={2}
           title="Pick a side on the index"
-          body="Long if you think graded cards go up, short if you think they fall. 5x, with USDC as margin."
+          body={`Long if you think graded cards go up, short if you think they fall. ${data ? `${Number(data.pool.params.baseLeverage) / 1e6}x, with` : "Use"} ${USD_LABEL} as margin.`}
           action={<button type="button" className="btn" onClick={onTrade}>Open the ticket</button>}
         >
           <div className="hw-ticket">
@@ -87,7 +95,7 @@ export function HowItWorks({ cards, data, onTrade }: { cards: VaultCard[]; data:
             <div className="hw-amount">
               <span>Order size</span>
               <b>1,000.00</b>
-              <span className="tk-asset"><span className="coin usdc" />USDC</span>
+              <span className="tk-asset"><span className="coin usdc" />{USD_LABEL}</span>
             </div>
             <dl className="hw-rows">
               <div><dt>Entry price</dt><dd>{example ? fmtPrice(example.entryPrice) : "-"}</dd></div>
@@ -109,7 +117,7 @@ export function HowItWorks({ cards, data, onTrade }: { cards: VaultCard[]; data:
               <div><span>CLP price</span><b>{data ? fmtPrice(data.poolStats.clpPrice) : "-"}</b></div>
             </div>
             {([
-              ["USDC", data?.poolStats.usdcSleeveShare],
+              [USD_LABEL, data?.poolStats.usdcSleeveShare],
               ["Card fractions", data?.poolStats.cardSleeveShare],
               ["In use by traders", data?.capacity.utilization],
             ] as const).map(([label, value]) => (

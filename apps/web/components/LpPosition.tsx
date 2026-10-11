@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { PublicKey } from "@solana/web3.js";
 import { lpReturn, readLpEvents, readUtilisation, type LpEvent, type UtilisationPoint } from "@kadex/sdk";
-import { CLUSTER } from "@/lib/cluster";
+import { CLUSTER, USD_LABEL } from "@/lib/cluster";
 import type { IndexHistoryWire } from "@/lib/history";
 import { fmtPct, fmtUsd, quoteWithdraw, type Balances, type MarketSnapshot } from "@/lib/market";
 
@@ -45,7 +45,10 @@ export function LpPosition({ data, balances, wallet }: { data: MarketSnapshot | 
     Promise.all([
       readLpEvents(CLUSTER.connection, data.pool.address, wallet),
       readUtilisation(CLUSTER.connection, data.market.address),
-      fetch("/api/index-history").then((r) => (r.ok ? (r.json() as Promise<IndexHistoryWire>) : { step: 0, points: [] })),
+      fetch("/api/index-history").then((r) => {
+        if (!r.ok) throw new Error("Could not read the index history.");
+        return r.json() as Promise<IndexHistoryWire>;
+      }),
     ])
       .then(([e, t, h]) => {
         if (!live) return;
@@ -82,7 +85,7 @@ export function LpPosition({ data, balances, wallet }: { data: MarketSnapshot | 
       <div className="spec">
         <div><span>Shares held</span><b>{fmtUsd(balances.clp, 2)} CLP</b></div>
         <div><span>Worth now, at the withdrawal price</span><b>${fmtUsd(quote.totalValue, 2)}</b></div>
-        <div><span>A full withdrawal returns</span><b>{fmtUsd(quote.usdc, 2)} USDC + {fmtUsd(quote.fractions, 2)} fractions</b></div>
+        <div><span>A full withdrawal returns</span><b>{fmtUsd(quote.usdc, 2)} {USD_LABEL} + {fmtUsd(quote.fractions, 2)} fractions</b></div>
       </div>
       {r && (
         <div className="spec">

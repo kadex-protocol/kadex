@@ -31,6 +31,9 @@ interface DisconnectFeature {
 interface SignTransactionFeature {
   signTransaction(input: { account: StandardAccount; transaction: Uint8Array }): Promise<{ signedTransaction: Uint8Array }[]>;
 }
+interface EventsFeature {
+  on(event: "change", listener: (event: { accounts?: readonly StandardAccount[] }) => void): () => void;
+}
 
 interface InjectedProvider {
   isPhantom?: boolean;
@@ -38,6 +41,8 @@ interface InjectedProvider {
   connect(opts?: { onlyIfTrusted?: boolean }): Promise<{ publicKey: { toBytes(): Uint8Array } }>;
   disconnect(): Promise<void>;
   signTransaction(tx: Transaction): Promise<Transaction>;
+  on?(event: "accountChanged", listener: (key: { toBytes(): Uint8Array } | null) => void): void;
+  off?(event: "accountChanged", listener: (key: { toBytes(): Uint8Array } | null) => void): void;
 }
 
 interface Adapter {
@@ -47,6 +52,7 @@ interface Adapter {
   connect(silent: boolean): Promise<PublicKey | null>;
   disconnect(): Promise<void>;
   signTransaction(tx: Transaction): Promise<Transaction>;
+  onAccountChange?(listener: (key: PublicKey | null) => void): () => void;
 }
 
 function standardAdapter(wallet: StandardWallet): Adapter {
@@ -74,6 +80,12 @@ function standardAdapter(wallet: StandardWallet): Adapter {
       if (!signed) throw new Error("The wallet returned no signature.");
       return Transaction.from(signed.signedTransaction);
     },
+    onAccountChange(listener) {
+      return feature<EventsFeature>("standard:events")?.on("change", (event) => {
+        account = event.accounts?.[0] ?? wallet.accounts[0] ?? null;
+        listener(account ? new PublicKey(account.publicKey) : null);
+      }) ?? (() => {});
+    },
   };
 }
 
@@ -87,6 +99,11 @@ function injectedAdapter(provider: InjectedProvider): Adapter {
     },
     disconnect: () => provider.disconnect(),
     signTransaction: (tx) => provider.signTransaction(tx),
+    onAccountChange(listener) {
+      const changed = (key: { toBytes(): Uint8Array } | null) => listener(key ? new PublicKey(key.toBytes()) : null);
+      provider.on?.("accountChanged", changed);
+      return () => provider.off?.("accountChanged", changed);
+    },
   };
 }
 
@@ -160,12 +177,13 @@ function useAdapters(): Adapter[] {
   }, [wallets, legacy]);
 }
 
-type Status = "unsupported" | "disconnected" | "connecting" | "connected";
+type Status = "disconnected" | "connecting" | "connected";
 
 interface WalletState {
   status: Status;
   publicKey: PublicKey | null;
   walletName: string | null;
+  detected: string[];
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   signTransaction(tx: Transaction): Promise<Transaction>;
@@ -176,6 +194,7 @@ const Ctx = createContext<WalletState>({
   status: "disconnected",
   publicKey: null,
   walletName: null,
+  detected: [],
   connect: async () => {},
   disconnect: async () => {},
   signTransaction: async () => {
@@ -208,23 +227,30 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const restored = useRef(false);
+  const connection = useRef(0);
+  const opener = useRef<HTMLElement | null>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
 
   const use = useCallback(async (adapter: Adapter, silent: boolean) => {
+    const attempt = ++connection.current;
     setError(null);
     setPending(adapter.name);
     try {
       const key = await adapter.connect(silent);
-      if (!key) return;
+      if (attempt !== connection.current || !key) return;
       setActive(adapter);
       setPublicKey(key);
       remember(adapter.name);
       setPicking(false);
-      void requestTestFunds(key);
+      void requestTestFunds(key).then((reply) => {
+        if (attempt === connection.current && reply.error) setError(reply.error);
+      });
     } catch (e) {
+      if (attempt !== connection.current) return;
       const message = e instanceof Error ? e.message : "Connection was rejected.";
       if (!silent && !benign(message)) setError(message);
     } finally {
-      setPending(null);
+      if (attempt === connection.current) setPending(null);
     }
   }, []);
 
@@ -241,14 +267,32 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     const only = adapters.length === 1 && adapters[0] !== DEMO ? adapters[0] : undefined;
     if (only) await use(only, false);
-    else setPicking(true);
+    else {
+      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setPicking(true);
+    }
   }, [adapters, use]);
 
   const disconnect = useCallback(async () => {
-    await active?.disconnect().catch(() => {});
+    connection.current += 1;
+    setPending(null);
     setActive(null);
     setPublicKey(null);
     remember(null);
+    await active?.disconnect().catch(() => {});
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
+    return active.onAccountChange?.((key) => {
+      connection.current += 1;
+      setPending(null);
+      setPublicKey(key);
+      if (!key) {
+        setActive(null);
+        remember(null);
+      }
+    });
   }, [active]);
 
   const signTransaction = useCallback(
@@ -261,15 +305,29 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!picking) return;
+    closeButton.current?.focus();
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPicking(false);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      opener.current?.focus();
+      opener.current = null;
+    };
   }, [picking]);
 
   const status: Status = publicKey ? "connected" : pending ? "connecting" : "disconnected";
   const value = useMemo(
-    () => ({ status, publicKey, walletName: active?.name ?? null, connect, disconnect, signTransaction, error }),
-    [status, publicKey, active, connect, disconnect, signTransaction, error],
+    () => ({
+      status,
+      publicKey,
+      walletName: active?.name ?? null,
+      detected: adapters.filter((adapter) => adapter !== DEMO).map((adapter) => adapter.name),
+      connect,
+      disconnect,
+      signTransaction,
+      error,
+    }),
+    [status, publicKey, active, adapters, connect, disconnect, signTransaction, error],
   );
 
   return (
@@ -278,7 +336,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       {picking && (
         <div className="welcome-overlay" onClick={() => setPicking(false)}>
           <div className="welcome wconnect" role="dialog" aria-modal="true" aria-labelledby="wconnect-h" onClick={(e) => e.stopPropagation()}>
-            <button type="button" className="wconnect-x" aria-label="Close" onClick={() => setPicking(false)}>×</button>
+            <button ref={closeButton} type="button" className="wconnect-x" aria-label="Close" onClick={() => setPicking(false)}>×</button>
             <h2 id="wconnect-h">Connect a wallet</h2>
             <p className="wconnect-sub">Your wallet holds your margin, your pool shares and your cards. Nothing moves without your signature.</p>
 

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useWallet, shortKey } from "@/lib/wallet";
 import { fmtUsd, IS_SAMPLE, loadBalances } from "@/lib/market";
+import { USD_LABEL } from "@/lib/cluster";
 import { LEDGER_EVENT } from "@/lib/sim";
 import { UiSwitch } from "@/components/UiSwitch";
 import { WelcomeDialog } from "@/components/WelcomeDialog";
@@ -58,7 +59,14 @@ export function Frame({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let live = true;
-    const read = () => void loadBalances(publicKey).then((b) => live && setUsdc(b.usdc));
+    setUsdc(null);
+    const read = () => void loadBalances(publicKey)
+      .then((b) => {
+        if (live) setUsdc(b.usdc);
+      })
+      .catch(() => {
+        if (live) setUsdc(null);
+      });
     read();
     window.addEventListener(LEDGER_EVENT, read);
     return () => {
@@ -102,8 +110,8 @@ export function Frame({ children }: { children: React.ReactNode }) {
 
         <div className="top-right">
           <Link href="/pool" className="chip opt">Deposit</Link>
-          <Link href="/pool" className="chip opt">Withdraw</Link>
-          {connected && <span className="chip num">{usdc !== null ? fmtUsd(usdc, 2) : "-"} $</span>}
+          <Link href="/pool?tab=withdraw" className="chip opt">Withdraw</Link>
+          {connected && <span className="chip num">{usdc !== null ? `$${fmtUsd(usdc, 2)}` : "-"} {USD_LABEL}</span>}
           <WalletButton className="btn accent" />
           <UiSwitch />
         </div>

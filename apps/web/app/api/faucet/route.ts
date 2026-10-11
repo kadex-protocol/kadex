@@ -16,7 +16,8 @@ const WINDOW_MS = 10 * 60_000;
 const GRANTS_PER_WINDOW = 40;
 
 const lastGrant = new Map<string, number>();
-let recent: number[] = [];
+const pending = new Set<string>();
+let recent: { at: number; wallet: string }[] = [];
 let genesis: string | null = null;
 
 function faucetKeypair(): Keypair | null {
@@ -59,14 +60,21 @@ export async function POST(req: Request) {
   const wallet = new PublicKey(body.wallet);
   const { connection, usdcMint } = CLUSTER;
 
+  const now = Date.now();
+  recent = recent.filter((slot) => now - slot.at < WINDOW_MS);
+  for (const [address, at] of lastGrant) {
+    if (now - at >= WALLET_COOLDOWN_MS) lastGrant.delete(address);
+  }
+  if (pending.has(body.wallet) || lastGrant.has(body.wallet)) return NextResponse.json({ funded: false });
+  if (recent.length >= GRANTS_PER_WINDOW) return refuse(429, "The faucet is busy. Try again in a few minutes.");
+  const slot = { at: now, wallet: body.wallet };
+  pending.add(body.wallet);
+  recent.push(slot);
+  let granted = false;
+
   try {
     genesis ??= await connection.getGenesisHash();
     if (genesis === MAINNET_GENESIS) return refuse(404, "There is no faucet on mainnet.");
-
-    const now = Date.now();
-    recent = recent.filter((at) => now - at < WINDOW_MS);
-    if (now - (lastGrant.get(body.wallet) ?? 0) < WALLET_COOLDOWN_MS) return NextResponse.json({ funded: false });
-    if (recent.length >= GRANTS_PER_WINDOW) return refuse(429, "The faucet is busy. Try again in a few minutes.");
 
     const account = findAta(wallet, usdcMint);
     const [lamports, held, mint] = await Promise.all([
@@ -89,12 +97,15 @@ export async function POST(req: Request) {
           : tokenIx(3, findAta(faucet.publicKey, usdcMint), account, faucet.publicKey, USDC_GRANT),
       );
     }
-    lastGrant.set(body.wallet, now);
-    recent.push(now);
     const signature = await sendAndConfirmTransaction(connection, tx, [faucet], { commitment: "confirmed" });
+    lastGrant.set(body.wallet, Date.now());
+    granted = true;
     return NextResponse.json({ funded: true, signature });
   } catch (e) {
-    lastGrant.delete(body.wallet);
-    return refuse(502, e instanceof Error ? e.message.split("\n")[0]! : "The faucet transaction failed.");
+    console.error("Faucet request failed:", e);
+    return refuse(502, "The faucet transaction failed.");
+  } finally {
+    pending.delete(body.wallet);
+    if (!granted) recent = recent.filter((entry) => entry !== slot);
   }
 }

@@ -8,7 +8,7 @@ import { askOverAppraisal, titleParts } from "@/lib/cardText";
 import { TiltSlab } from "@/components/TiltSlab";
 import { CardPreview } from "@/components/CardPreview";
 
-export function CardRail({ cards, title = "Vaultable cards", note }: { cards: VaultCard[]; title?: string; note?: string }) {
+export function CardRail({ cards, title = "Vaultable cards", note, failed = false, onRetry }: { cards: VaultCard[]; title?: string; note?: string; failed?: boolean; onRetry?: () => void }) {
   const track = useRef<HTMLDivElement>(null);
   const [preview, setPreview] = useState<VaultCard | null>(null);
   const closePreview = useCallback(() => setPreview(null), []);
@@ -29,13 +29,17 @@ export function CardRail({ cards, title = "Vaultable cards", note }: { cards: Va
       <div className="rail-head">
         <div className="t">
           <h2 className="title sm" id="rail-h">{title}</h2>
-          <span className="sub">
-            {note ?? (cards.length > 0 ? `${cards.length} live from Collector Crypt · appraised value, ask vs appraisal` : "Loading from Collector Crypt…")}
-          </span>
+          {failed ? (
+            <span className="sub" role="alert">Could not load cards. <button type="button" onClick={onRetry}>Try again</button></span>
+          ) : (
+            <span className="sub">
+              {note ?? (cards.length > 0 ? `${cards.length} live from Collector Crypt · appraised value, ask vs appraisal` : "Loading from Collector Crypt…")}
+            </span>
+          )}
         </div>
         <div className="rail-nav">
-          <button type="button" aria-label="Previous cards" onClick={() => scroll(-1)}>‹</button>
-          <button type="button" aria-label="Next cards" onClick={() => scroll(1)}>›</button>
+          <button type="button" aria-label="Previous cards" disabled={cards.length === 0} onClick={() => scroll(-1)}>‹</button>
+          <button type="button" aria-label="Next cards" disabled={cards.length === 0} onClick={() => scroll(1)}>›</button>
         </div>
       </div>
 

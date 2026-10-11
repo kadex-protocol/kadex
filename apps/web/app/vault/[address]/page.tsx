@@ -11,7 +11,7 @@ import { askOverAppraisal, gradeLine, shortAddress, titleParts } from "@/lib/car
 import { useWallet } from "@/lib/wallet";
 import { CardStage } from "@/components/CardStage";
 import { TiltSlab } from "@/components/TiltSlab";
-import { VaultActions } from "@/components/VaultActions";
+import { VaultActions, type VaultStatus } from "@/components/VaultActions";
 import { loadTestCards, twinOf } from "@/lib/testCards";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Could not reach Collector Crypt.");
@@ -57,6 +57,9 @@ export default function CardPage() {
   const [sameOwner, setSameOwner] = useState<VaultCard[]>([]);
   const [holder, setHolder] = useState<string | null>(null);
   const [twin, setTwin] = useState<string | null | undefined>(undefined);
+  const [twinError, setTwinError] = useState(false);
+  const [twinVersion, setTwinVersion] = useState(0);
+  const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null);
   const [holding, setHolding] = useState<CardHolding | null>(null);
   const [busy, setBusy] = useState(false);
   const [receipt, setReceipt] = useState<{ ok: boolean; text: string } | null>(null);
@@ -64,11 +67,16 @@ export default function CardPage() {
 
   useEffect(() => {
     let live = true;
-    loadTestCards().then((list) => live && setTwin(twinOf(list, address)));
+    setTwin(undefined);
+    setTwinError(false);
+    setVaultStatus(null);
+    loadTestCards()
+      .then((list) => live && setTwin(twinOf(list, address)))
+      .catch(() => live && setTwinError(true));
     return () => {
       live = false;
     };
-  }, [address]);
+  }, [address, twinVersion]);
 
   useEffect(() => {
     let live = true;
@@ -146,6 +154,8 @@ export default function CardPage() {
   const wallet = publicKey?.toBase58() ?? null;
   const t = card ? titleParts(card) : null;
   const value = card?.vaultable ? card.insuredValueUsdc : 0n;
+  const clusterKind = vaultStatus?.action.kind;
+  const clusterLabel = clusterKind === "vault" ? "Vaultable" : clusterKind === "redeem" ? "Redeemable" : clusterKind === "redeemShort" ? "Vaulted" : clusterKind === "notOwner" ? "Only owner can vault" : clusterKind ? "Not vaultable here" : "Checking cluster";
   const faces = card ? [card.frontImage, card.backImage].filter((s): s is string => s !== null) : [];
   const premium = card ? askOverAppraisal(card) : null;
 
@@ -174,9 +184,9 @@ export default function CardPage() {
                 <button className="btn" type="button" aria-label="Previous photo" onClick={() => setBack((b) => !b)}>←</button>
                 <span className="v-faces">
                   {faces.map((src, i) => (
-                    <span key={src} data-on={back === (i === 1)} onClick={() => setBack(i === 1)}>
+                    <button key={src} type="button" aria-label={i === 1 ? "Show back" : "Show front"} data-on={back === (i === 1)} onClick={() => setBack(i === 1)}>
                       <img src={src} alt="" loading="lazy" />
-                    </span>
+                    </button>
                   ))}
                 </span>
                 <button className="btn" type="button" aria-label="Next photo" onClick={() => setBack((b) => !b)}>→</button>
@@ -192,8 +202,8 @@ export default function CardPage() {
 
           <div className="ctags">
             {card && (
-              <span className={`pill ${card.vaultable ? "long" : "short"}`}>
-                {card.vaultable ? "Vaultable" : card.nftStandard === "core" ? "No appraisal" : `${card.nftStandard} · not vaultable`}
+              <span className={`pill ${IS_SAMPLE ? (card.vaultable ? "long" : "short") : clusterKind === "vault" ? "long" : "short"}`}>
+                {IS_SAMPLE ? (card.vaultable ? "Vaultable" : card.nftStandard === "core" ? "No appraisal" : `${card.nftStandard} · not vaultable`) : clusterLabel}
               </span>
             )}
             {card?.askUsdc != null && <span className="pill">Listed</span>}
@@ -206,10 +216,17 @@ export default function CardPage() {
 
           <div className="cta">
             {!IS_SAMPLE ? (
-              twin === undefined ? (
+              twinError ? (
+                <p className="hint bad" role="alert">
+                  Could not read test cards. <button className="btn" type="button" onClick={() => setTwinVersion((v) => v + 1)}>Try again</button>
+                </p>
+              ) : twin === undefined ? (
                 <button className="btn block" disabled>Reading the vault…</button>
               ) : (
-                <VaultActions address={twin ?? address} vaultable={value > 0n} />
+                <>
+                  <VaultActions address={twin ?? address} onState={setVaultStatus} />
+                  {twin && <p className="fine">Cluster asset: {shortAddress(twin)}</p>}
+                </>
               )
             ) : !connected ? (
               <button className="btn block" onClick={() => void connect()} disabled={status === "connecting"}>
@@ -242,13 +259,13 @@ export default function CardPage() {
           )}
 
           <div className="spec">
-            <div><span>You receive</span><b>{value > 0n ? `${fmtUsd(value, 2)} fractions` : "—"}</b></div>
+            <div><span>You receive</span><b>{IS_SAMPLE ? (value > 0n ? `${fmtUsd(value, 2)} fractions` : "—") : vaultStatus?.fractions != null ? `${fmtUsd(vaultStatus.fractions, 2)} fractions` : "—"}</b></div>
             <div><span>Asking price</span><b>{card?.askUsdc != null ? `$${fmtUsd(card.askUsdc, 2)}${premium ? ` · ${premium}` : ""}` : "Not listed"}</b></div>
           </div>
 
           <div className="cnote">
-            <b>{card?.vault ? `Held in ${card.vault}` : "Held in custody"}</b>
-            <span>Tokenized by Collector Crypt. The card stays locked until every fraction is burned.</span>
+            <b>{twin ? "Test copy on devnet" : card?.vault ? `Held in ${card.vault}` : "Held in custody"}</b>
+            <span>{twin ? "Vaulting acts on a test copy on devnet. The original card is not moved." : "Tokenized by Collector Crypt. The card stays locked until every fraction is burned."}</span>
           </div>
 
           <div className="spec">

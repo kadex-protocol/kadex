@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { fmtPrice } from "@/lib/market";
+import { fmtPrice, IS_SAMPLE, liveIndexHistory } from "@/lib/market";
 
 type PriceAt = (ts: number) => bigint | null;
 
@@ -64,6 +64,12 @@ export function LiveChart({ priceAt }: { priceAt: PriceAt }) {
     let h = el.clientHeight;
 
     const fill = (ms: number) => {
+      if (!IS_SAMPLE) {
+        pts.splice(0, pts.length, ...liveIndexHistory()
+          .filter((point) => point.ts * 1000 >= ms - WINDOW_MS && point.ts * 1000 <= ms)
+          .map((point): [number, number] => [point.ts * 1000, Number(point.price) / 1e6]));
+        return;
+      }
       const last = pts[pts.length - 1];
       if (last && ms - last[0] > WINDOW_MS) pts.length = 0;
       let t = pts.length ? pts[pts.length - 1]![0] + STEP_MS : ms - WINDOW_MS;
@@ -77,7 +83,7 @@ export function LiveChart({ priceAt }: { priceAt: PriceAt }) {
     const paint = () => {
       const ms = Date.now();
       fill(ms);
-      const head = read(ms) ?? pts[pts.length - 1]?.[1];
+      const head = IS_SAMPLE ? read(ms) ?? pts[pts.length - 1]?.[1] : pts[pts.length - 1]?.[1];
       const dpr = window.devicePixelRatio || 1;
       if (el.width !== Math.round(w * dpr) || el.height !== Math.round(h * dpr)) {
         el.width = Math.round(w * dpr);
@@ -92,6 +98,7 @@ export function LiveChart({ priceAt }: { priceAt: PriceAt }) {
       const headX = plotW * HEAD;
       const span = plotW < NARROW_PX ? NARROW_WINDOW_MS : WINDOW_MS;
       const x = (t: number) => headX - ((ms - t) / span) * headX;
+      const markerX = IS_SAMPLE ? headX : x(pts[pts.length - 1]![0]);
 
       let min = head;
       let max = head;
@@ -141,25 +148,27 @@ export function LiveChart({ priceAt }: { priceAt: PriceAt }) {
 
       const hy = y(head);
       ctx.beginPath();
-      pts.forEach(([t, p], i) => (i ? ctx.lineTo(x(t), y(p)) : ctx.moveTo(x(t), y(p))));
-      ctx.lineTo(headX, hy);
+      pts.forEach(([t, p], i) => (i && (IS_SAMPLE || t - pts[i - 1]![0] <= 15_000) ? ctx.lineTo(x(t), y(p)) : ctx.moveTo(x(t), y(p))));
+      if (IS_SAMPLE) ctx.lineTo(headX, hy);
       ctx.lineJoin = "round";
       ctx.lineWidth = 2;
       ctx.strokeStyle = ink;
       ctx.stroke();
-      ctx.lineTo(headX, plotH);
-      ctx.lineTo(x(pts[0]![0]), plotH);
-      ctx.closePath();
-      ctx.fillStyle = ink;
-      ctx.globalAlpha = 0.06;
-      ctx.fill();
-      ctx.globalAlpha = 1;
+      if (IS_SAMPLE) {
+        ctx.lineTo(headX, plotH);
+        ctx.lineTo(x(pts[0]![0]), plotH);
+        ctx.closePath();
+        ctx.fillStyle = ink;
+        ctx.globalAlpha = 0.06;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
 
       ctx.lineWidth = 1;
       ctx.strokeStyle = mute;
       ctx.setLineDash([2, 4]);
       ctx.beginPath();
-      ctx.moveTo(headX, hy);
+      ctx.moveTo(markerX, hy);
       ctx.lineTo(plotW, hy);
       ctx.stroke();
       ctx.setLineDash([]);
@@ -167,11 +176,11 @@ export function LiveChart({ priceAt }: { priceAt: PriceAt }) {
       const pulse = still ? 0.4 : (ms % 1600) / 1600;
       ctx.globalAlpha = 0.3 * (1 - pulse);
       ctx.beginPath();
-      ctx.arc(headX, hy, 5 + pulse * 11, 0, Math.PI * 2);
+      ctx.arc(markerX, hy, 5 + pulse * 11, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1;
       ctx.beginPath();
-      ctx.arc(headX, hy, 4.5, 0, Math.PI * 2);
+      ctx.arc(markerX, hy, 4.5, 0, Math.PI * 2);
       ctx.fill();
 
       const before = pts[Math.max(0, pts.length - 1 - 60_000 / STEP_MS)]![1];
@@ -222,7 +231,7 @@ export function LiveChart({ priceAt }: { priceAt: PriceAt }) {
 export function LivePrice({ priceAt }: { priceAt: PriceAt }) {
   const at = useRef(priceAt);
   at.current = priceAt;
-  const last = useRef<string | null>(null);
+  const last = useRef<bigint | null>(null);
   const [view, setView] = useState({ text: "-", tone: "" });
 
   useEffect(() => {
@@ -230,9 +239,12 @@ export function LivePrice({ priceAt }: { priceAt: PriceAt }) {
       const v = at.current(Date.now() / 1000);
       if (v === null) return;
       const text = fmtPrice(v);
-      if (text === last.current) return;
-      const tone = last.current === null ? "" : text > last.current ? "up" : "down";
-      last.current = text;
+      if (last.current !== null && text === fmtPrice(last.current)) {
+        last.current = v;
+        return;
+      }
+      const tone = last.current === null ? "" : v > last.current ? "up" : "down";
+      last.current = v;
       setView({ text, tone });
     };
     read();

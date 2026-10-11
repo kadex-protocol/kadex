@@ -11,11 +11,12 @@
 
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import Link from "next/link";
-import { fmtUsd } from "@/lib/market";
+import { fmtUsd, IS_SAMPLE } from "@/lib/market";
 import type { CategoryGroup, MarketplaceSource, OrderBy } from "@kadex/collector-crypt";
 import { SOLANA_ADDRESS, loadVaultCard, loadVaultCards, type VaultCard } from "@/lib/collectorCrypt";
 import { askOverAppraisal, titleParts } from "@/lib/cardText";
 import { useWallet } from "@/lib/wallet";
+import { loadTestCards } from "@/lib/testCards";
 import { VaultInventory } from "@/components/VaultInventory";
 import { TestCards } from "@/components/TestCards";
 import { TiltSlab } from "@/components/TiltSlab";
@@ -73,7 +74,7 @@ function pagerItems(current: number, known: number): (number | null)[] {
   return items;
 }
 
-function CardItem({ card: c, format, mine }: { card: VaultCard; format: Format; mine: boolean }) {
+function CardItem({ card: c, format, mine, availability }: { card: VaultCard; format: Format; mine: boolean; availability: string | null }) {
   const [back, setBack] = useState(false);
   const t = titleParts(c);
   const market = format === "market";
@@ -81,6 +82,7 @@ function CardItem({ card: c, format, mine }: { card: VaultCard; format: Format; 
   const faces = market && c.frontImage && c.backImage ? [c.frontImage, c.backImage] : [];
   const flip = (e: MouseEvent, toBack: boolean) => {
     e.preventDefault();
+    e.stopPropagation();
     setBack(toBack);
   };
   return (
@@ -96,14 +98,14 @@ function CardItem({ card: c, format, mine }: { card: VaultCard; format: Format; 
         {faces.length > 0 && (
           <span className="v-faces">
             {faces.map((src, i) => (
-              <span key={src} data-on={back === (i === 1)} onClick={(e) => flip(e, i === 1)}>
+              <button key={src} type="button" aria-label={i === 1 ? "Show back" : "Show front"} data-on={back === (i === 1)} onClick={(e) => flip(e, i === 1)}>
                 <img src={src} alt="" loading="lazy" />
-              </span>
+              </button>
             ))}
           </span>
         )}
       </div>
-      <span className="v-kick">{market ? c.category || t.kicker : t.kicker}</span>
+      <span className="v-kick">{market ? c.category || t.kicker : t.kicker}{availability && ` · ${availability}`}</span>
       <span className="v-name">{market ? c.name : t.title}</span>
       <span className="v-ask" data-listed={listed}>
         <span className="l">{market ? (listed ? "Listed" : "Not listed") : "Ask"}</span>
@@ -150,11 +152,34 @@ export default function VaultPage() {
   const [askMax, setAskMax] = useState("");
   const [range, setRange] = useState({ min: "", max: "" });
   const [counts, setCounts] = useState<{ total: number; groups: Record<CategoryGroup, number> } | null>(null);
+  const [returnedCount, setReturnedCount] = useState<number | null>(null);
+  const [twinAddresses, setTwinAddresses] = useState<Set<string> | null>(null);
+  const [testCardsError, setTestCardsError] = useState(false);
+  const [testCardsVersion, setTestCardsVersion] = useState(0);
   const request = useRef(0);
 
   const connected = status === "connected" && publicKey !== null;
   const wallet = publicKey?.toBase58() ?? null;
-  const owner = mineOnly ? wallet : null;
+  const owner = mineOnly && connected ? wallet : null;
+  const direct = SOLANA_ADDRESS.test(search);
+
+  useEffect(() => {
+    if (connected) return;
+    setMineOnly(false);
+  }, [connected]);
+
+  useEffect(() => {
+    if (IS_SAMPLE) return;
+    let live = true;
+    setTwinAddresses(null);
+    setTestCardsError(false);
+    loadTestCards()
+      .then((list) => live && setTwinAddresses(new Set(list.map((card) => card.mainnet))))
+      .catch(() => live && setTestCardsError(true));
+    return () => {
+      live = false;
+    };
+  }, [testCardsVersion]);
 
   useEffect(() => {
     try {
@@ -185,13 +210,15 @@ export default function VaultPage() {
       setLoading(true);
       setError(null);
       setCards([]);
+      setReturnedCount(null);
       setPage(index);
       try {
         const result = SOLANA_ADDRESS.test(search)
-          ? { cards: [await loadVaultCard(search)], nextCursor: null, total: 0, groups: null }
+          ? { cards: [await loadVaultCard(search)], nextCursor: null, total: 1, returnedCount: 1, groups: null }
           : await loadVaultCards(from, { search, owner, group, sort, source, askMin: range.min, askMax: range.max });
         if (id !== request.current) return;
         setCards(result.cards.filter((c, i, all) => all.findIndex((o) => o.nftAddress === c.nftAddress) === i));
+        setReturnedCount(result.returnedCount);
         setCursors((prev) => {
           const known = index === 0 ? [] : prev.slice();
           known[index] = from;
@@ -202,7 +229,10 @@ export default function VaultPage() {
         setBanner((shown) => (shown.length > 0 ? shown : result.cards));
         if (result.groups) setCounts({ total: result.total, groups: result.groups });
       } catch (e) {
-        if (id === request.current) setError(message(e));
+        if (id === request.current) {
+          setError(message(e));
+          if (SOLANA_ADDRESS.test(search)) setReturnedCount(0);
+        }
       } finally {
         if (id === request.current) setLoading(false);
       }
@@ -220,9 +250,8 @@ export default function VaultPage() {
     top.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const named = search !== "" && !SOLANA_ADDRESS.test(search);
-  const groupLabel = GROUPS.find(([id]) => id === group)?.[1] ?? "Cards";
-  const total = counts ? (group === null ? counts.total : counts.groups[group]) : null;
+  const named = search !== "" && !direct;
+  const groupLabel = direct ? "Address result" : GROUPS.find(([id]) => id === group)?.[1] ?? "Cards";
 
   return (
     <div className="page vmkt">
@@ -237,7 +266,7 @@ export default function VaultPage() {
           Vault: <span>{groupLabel}</span>
         </h1>
         <p className="vmkt-total">
-          Total cards <b>{total !== null ? total.toLocaleString("en-US") : "—"}</b>
+          {direct ? "Search results" : "Cards returned"} <b>{returnedCount !== null ? returnedCount.toLocaleString("en-US") : "—"}</b>
         </p>
       </header>
 
@@ -246,7 +275,8 @@ export default function VaultPage() {
           type="button"
           className="vmkt-ico"
           aria-label="Filters"
-          aria-pressed={filters}
+          aria-pressed={!direct && filters}
+          disabled={direct}
           onClick={() => setFilters((f) => !f)}
         >
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
@@ -268,20 +298,18 @@ export default function VaultPage() {
             <path d="m12 12 3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
         </label>
-        <select className="vmkt-select" aria-label="Sort by" value={sort} onChange={(e) => setSort(e.target.value as OrderBy)}>
+        <select className="vmkt-select" aria-label="Sort by" value={sort} disabled={direct} onChange={(e) => setSort(e.target.value as OrderBy)}>
           {SORTS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
         </select>
-        {connected && (
-          <button className="vmkt-select" type="button" aria-pressed={mineOnly} onClick={() => setMineOnly((m) => !m)}>
-            Only mine
-          </button>
-        )}
+        <button className="vmkt-select" type="button" aria-pressed={!direct && connected && mineOnly} disabled={direct || !connected} onClick={() => setMineOnly((m) => !m)}>
+          Only mine
+        </button>
         <select className="vmkt-select narrow" aria-label="Listing format" value={format} onChange={(e) => chooseFormat(e.target.value)}>
           {FORMATS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
         </select>
       </div>
 
-      {filters && (
+      {filters && !direct && (
         <div className="vfilters">
           <label className="field">
             <span>Ask from · USDC</span>
@@ -316,9 +344,9 @@ export default function VaultPage() {
 
       <div className="vmkt-cats" role="group" aria-label="Card category" ref={top}>
         {GROUPS.map(([id, label, icon]) => {
-          const n = counts ? (id === null ? counts.total : counts.groups[id]) : null;
+          const n = !direct && counts ? (id === null ? counts.total : counts.groups[id]) : null;
           return (
-            <button key={label} type="button" aria-pressed={group === id} onClick={() => setGroup(id)}>
+            <button key={label} type="button" aria-pressed={!direct && group === id} disabled={direct} onClick={() => setGroup(id)}>
               <img src={`/cats/${icon}.png`} alt="" width={34} height={34} />
               <b>{id === null ? "All" : label}</b>
               <span title="Listings on Collector Crypt">{n !== null ? n.toLocaleString("en-US") : "—"}</span>
@@ -330,10 +358,16 @@ export default function VaultPage() {
       <p className="vmkt-note">
         {loading && cards.length === 0 ? "Loading" : `${cards.length} shown`}
         {cursors.length > 1 && ` · page ${page + 1}`}
-        {mineOnly && " · your wallet"}
+        {mineOnly && connected && !direct && " · your wallet"}
         {named && <> · <q>{search}</q></>}
         {" · value is the appraisal, in USDC"}
       </p>
+
+      {testCardsError && (
+        <p className="hint bad" role="alert">
+          Could not read test cards. <button className="btn" type="button" onClick={() => setTestCardsVersion((v) => v + 1)}>Try again</button>
+        </p>
+      )}
 
       <div className="vsheet">
         {!loading && !error && cards.length === 0 ? (
@@ -367,7 +401,7 @@ export default function VaultPage() {
             )}
             <div className={`vgrid ${format}`} aria-busy={loading}>
               {cards.map((c) => (
-                <CardItem key={c.nftAddress} card={c} format={format} mine={c.ownerWallet === wallet} />
+                <CardItem key={c.nftAddress} card={c} format={format} mine={c.ownerWallet === wallet} availability={IS_SAMPLE ? null : testCardsError ? "Test cards unavailable" : twinAddresses === null ? "Checking cluster" : twinAddresses.has(c.nftAddress) ? "Test copy available" : "View only"} />
               ))}
               {loading && Array.from({ length: 8 }, (_, i) => <GhostItem key={i} />)}
             </div>

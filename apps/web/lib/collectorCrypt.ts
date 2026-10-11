@@ -32,6 +32,7 @@ export interface MarketplaceWire {
   cards: CardWire[];
   nextCursor: string | null;
   total: number;
+  returnedCount: number;
   groups: Record<CategoryGroup, number>;
 }
 
@@ -93,7 +94,7 @@ export async function loadVaultCards(cursor: string | null, filter: VaultCardFil
   if (filter.askMax) params.set("max", filter.askMax);
   if (cursor) params.set("cursor", cursor);
   const page = await getJson<MarketplaceWire>(`/api/collector-crypt/marketplace?${params}`);
-  return { cards: page.cards.map(fromWire), nextCursor: page.nextCursor, total: page.total, groups: page.groups };
+  return { cards: page.cards.map(fromWire), nextCursor: page.nextCursor, total: page.total, returnedCount: page.returnedCount, groups: page.groups };
 }
 
 export async function loadVaultCard(nftAddress: string): Promise<VaultCard> {

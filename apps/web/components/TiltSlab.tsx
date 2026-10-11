@@ -17,11 +17,9 @@ function useReducedMotion() {
 
 export function TiltSlab({
   src,
-  hero = false,
   still = false,
 }: {
   src: string | null;
-  hero?: boolean;
   still?: boolean;
 }) {
   const reduced = useReducedMotion();
@@ -36,10 +34,10 @@ export function TiltSlab({
     <Tilt
       className="vslab"
       tiltEnable={!reduced}
-      tiltMaxAngleX={hero ? 14 : 12}
-      tiltMaxAngleY={hero ? 14 : 12}
-      perspective={hero ? 900 : 700}
-      scale={hero ? 1.02 : 1.04}
+      tiltMaxAngleX={12}
+      tiltMaxAngleY={12}
+      perspective={700}
+      scale={1.04}
       transitionSpeed={900}
       glareEnable={!reduced}
       glareMaxOpacity={0.24}

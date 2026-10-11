@@ -21,3 +21,4 @@ export const CLUSTER =
 export type Cluster = NonNullable<typeof CLUSTER>;
 
 export const TEST_FUNDS = CLUSTER === null || CLUSTER.network !== "mainnet";
+export const USD_LABEL: string = CLUSTER?.network === "devnet" || CLUSTER?.network === "local" ? "kdUSD" : "USDC";

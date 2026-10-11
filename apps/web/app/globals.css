@@ -1163,7 +1163,7 @@ details.acc > .rows, details.acc > .hint { margin-top: 12px; }
 .chart-stats .util dd { display: flex; align-items: center; gap: 10px; }
 .chart-stats .meter { width: 72px; height: 5px; border-radius: 100px; background: var(--line-soft); overflow: hidden; }
 .chart-stats .meter i { display: block; height: 100%; border-radius: 100px; background: var(--accent, var(--ink)); }
-.home .chart-plot { height: clamp(380px, 54vh, 640px); }
+.home .chart-plot { height: clamp(340px, 42vh, 560px); }
 .chart-plot .trace .stroke { fill: none; stroke: var(--accent, var(--ink)); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .chart-plot .trace .fill { fill: color-mix(in srgb, var(--accent, var(--ink)) 16%, transparent); stroke: none; }
 .chart-plot .trace .hatch { stroke: none; opacity: .5; }
@@ -1187,10 +1187,10 @@ details.acc > .rows, details.acc > .hint { margin-top: 12px; }
   .home .dash { grid-template-columns: minmax(0, 1fr); }
   .home .dash > .col { display: contents; }
   .home .dash > .col > * { min-width: 0; }
-  .home .dash > .col > .chart { order: 1; }
-  .home .dash > .ticket { order: 2; }
-  .home .dash > .col > .acct { order: 3; }
-  .home .dash > .col > .hbanner { order: 4; }
+  .home .dash > .col > .hbanner { order: 1; }
+  .home .dash > .col > .chart { order: 2; }
+  .home .dash > .ticket { order: 3; }
+  .home .dash > .col > .acct { order: 4; }
   .home .dash > .col > .hrail { order: 5; }
   .home .tk-chip { display: inline-flex; }
 }
@@ -1565,23 +1565,19 @@ html:root:is([data-ui="cobalt"], [data-ui="ember"]) .wide.vmkt .market .v-ask[da
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 .hbanner { container-type: inline-size; }
 @container (max-width: 640px) { .hbanner-art { opacity: .32; } .hbanner p { max-width: 38ch; } }
-.earn-grid { display: grid; grid-template-columns: minmax(0, 1fr) clamp(340px, 34%, 440px); grid-template-areas: "intro ticket" "pool ticket" "faq ticket" ". ticket"; grid-template-rows: auto auto auto 1fr; gap: var(--gap, 8px); align-items: start; font-family: var(--sans); }
-.earn-intro { grid-area: intro; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px 48px; }
-.earn-stack { grid-area: pool; min-width: 0; display: flex; flex-direction: column; gap: var(--gap, 8px); }
-.earn .faq { grid-area: faq; scroll-margin-top: 84px; }
-.earn-copy { flex: 1 1 420px; max-width: 76ch; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
-.earn-copy h1 { margin: 0 0 4px; font-weight: 600; font-size: clamp(26px, 2.4vw, 34px); line-height: 1.1; letter-spacing: -.03em; color: var(--ink); }
-.earn-copy :is(p, ul) { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--ink-2); }
-.earn-copy ul { padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
-.earn-copy b { font-weight: 600; color: var(--ink); }
-.earn-key { flex: none; margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; text-align: right; }
-.earn-key span { font-weight: 500; font-size: 13.5px; color: var(--mute); }
-.earn-key b { font-weight: 600; font-size: clamp(30px, 2.8vw, 42px); line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; color: var(--ink); }
-.earn-key em { font-style: normal; font-size: 12.5px; color: var(--mute); }
-.earn-tvl { display: flex; flex-direction: column; gap: 12px; padding-bottom: 22px; border-bottom: 1px solid var(--hair, var(--line-soft)); }
-.earn-tvl span, .earn-pool h2 { margin: 0; font-weight: 500; font-size: 14px; color: var(--mute); }
-.earn-tvl b { font-weight: 600; font-size: clamp(28px, 2.6vw, 40px); line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; color: var(--ink); }
-.earn-pool h2 { margin: 20px 0 6px; }
+.page.earn { align-items: center; gap: 14px; font-family: var(--sans); }
+.page.earn > * { width: 100%; }
+.earn-hero { max-width: 880px; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 26px 16px 8px; text-align: center; }
+.earn-hero h1 { margin: 0; font-weight: 600; font-size: clamp(30px, 3vw, 42px); line-height: 1.05; letter-spacing: -.035em; color: var(--ink); }
+.earn-hero p { margin: 0; max-width: 52ch; font-size: 15px; line-height: 1.55; color: var(--ink-2); text-wrap: balance; }
+.earn-stats { margin: 10px 0 0; display: flex; flex-wrap: wrap; justify-content: center; gap: var(--gap, 8px); }
+.earn-stats div { min-width: 150px; display: flex; flex-direction: column; gap: 6px; padding: 12px 20px; border-radius: var(--r-row, 14px); background: var(--surface-1, transparent); border: 1px solid var(--hair, var(--line-soft)); }
+.earn-stats dt { font-size: 12.5px; color: var(--mute); }
+.earn-stats dd { margin: 0; font-weight: 600; font-size: 17px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--ink); }
+.earn-ticket { max-width: 480px; min-width: 0; display: flex; flex-direction: column; gap: var(--gap, 8px); }
+.earn-stack { max-width: 880px; min-width: 0; margin-top: 18px; display: flex; flex-direction: column; gap: var(--gap, 8px); }
+.earn .faq { scroll-margin-top: 84px; }
+.earn-pool h2 { margin: 0 0 6px; font-weight: 600; font-size: 17px; letter-spacing: -.02em; color: var(--ink); }
 .earn-alloc { width: 100%; border-collapse: collapse; }
 .earn-alloc :is(th, td) { padding: 14px 12px; text-align: center; font-variant-numeric: tabular-nums; }
 .earn-alloc :is(th, td):first-child { padding-left: 0; text-align: left; }
@@ -1597,7 +1593,6 @@ html:root:is([data-ui="cobalt"], [data-ui="ember"]) .wide.vmkt .market .v-ask[da
 .earn-facts dt { color: var(--mute); }
 .earn-facts dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink); }
 .earn-pool .earn-facts { padding-top: 10px; }
-.earn-ticket { grid-area: ticket; position: sticky; top: 76px; min-width: 0; display: flex; flex-direction: column; gap: var(--gap, 8px); }
 .earn-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
 .earn-tabs button { padding: 13px 12px; border: 0; border-radius: 100px; background: none; color: var(--mute); font-family: var(--sans); font-weight: 600; font-size: 15px; cursor: pointer; transition: background .12s, color .12s; }
 .earn-tabs button:hover { color: var(--ink); }
@@ -1622,19 +1617,15 @@ html:root:is([data-ui="cobalt"], [data-ui="ember"]) .wide.vmkt .market .v-ask[da
 .earn-ticket .rows.tk-sum { padding: 10px 16px; }
 .earn-ticket .rows.tk-sum div { padding: 6px 0; font-size: 13px; }
 .earn-mine { padding: 8px 18px; border-radius: var(--r-row, 14px); border: 1px solid var(--hair, var(--line-soft)); }
-@media (max-width: 900px) {
-  .earn-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "intro" "ticket" "pool" "faq"; grid-template-rows: auto; }
-  .earn-ticket { position: static; }
-  .earn-intro { flex-direction: column; align-items: stretch; }
-  .earn-copy { flex: none; }
-  .earn-key { margin-left: 0; align-items: flex-start; text-align: left; padding-top: 18px; border-top: 1px solid var(--hair, var(--line-soft)); }
-}
 @media (max-width: 640px) {
   .earn-alloc :is(th, td):last-child { display: none; }
   .earn-alloc :is(th, td):nth-child(3) { padding-right: 0; text-align: right; }
   .earn-alloc :is(th, td) { padding: 12px 6px; }
   .earn-alloc td small { display: block; margin-top: 3px; }
-  .earn-copy :is(p:nth-of-type(n+2), ul), .earn-alloc .asset .id { display: none; }
+  .earn-alloc .asset .id { display: none; }
+  .earn-hero { padding-top: 14px; }
+  .earn-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .earn-stats div { min-width: 0; padding: 12px 14px; }
 }
 .chart-plot.live { padding-right: 0; }
 .chart-plot canvas { position: relative; display: block; width: 100%; height: 100%; font-family: var(--sans); }

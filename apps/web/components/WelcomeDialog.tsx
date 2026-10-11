@@ -1,6 +1,9 @@
 "use client";
 
 import { BRAND } from "@/lib/brand";
+import { USD_LABEL } from "@/lib/cluster";
+import { CONSTITUENTS, fmtPrice } from "@/lib/market";
+import { useMarket } from "@/lib/useMarket";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 const SEEN_KEY = "kadex.welcome.v1";
@@ -9,6 +12,7 @@ const FORCE_PARAM = "onboarding";
 const INDEX_LINE = "M0 96 L40 88 L78 92 L116 70 L150 76 L190 52 L228 60 L268 38 L306 44 L346 22 L384 30 L420 12";
 
 export function TradeStage() {
+  const { data } = useMarket();
   return (
     <div className="wstage">
       <svg className="wchart" viewBox="0 0 420 120" preserveAspectRatio="none" aria-hidden="true">
@@ -17,7 +21,7 @@ export function TradeStage() {
       </svg>
       <div className="wtrade">
         <span className="wpill up">Long</span>
-        <span className="wprice">1.0432</span>
+        <span className="wprice">{data ? fmtPrice(data.oracle.price) : "—"}</span>
         <span className="wpill down">Short</span>
       </div>
     </div>
@@ -29,7 +33,7 @@ export function EarnStage() {
     <div className="wstage">
       <div className="wpool">
         <div className="wsleeve usdc">
-          <b>USDC</b>
+          <b>{USD_LABEL}</b>
           <span>pays winning trades</span>
         </div>
         <div className="wsleeve cards">
@@ -94,13 +98,13 @@ const STEPS: Step[] = [
     icon: IconTrade,
     stage: <TradeStage />,
     headline: "Trade the card market, not a card",
-    body: "One index tracks five graded cards. Go long or short with USDC margin at 5x. You never have to own, ship or store a slab.",
+    body: `One index tracks ${CONSTITUENTS.length} graded cards. Go long or short with ${USD_LABEL} margin. You never have to own, ship or store a slab.`,
   },
   {
     icon: IconEarn,
     stage: <EarnStage />,
     headline: "Be the other side and earn",
-    body: "Deposit USDC or card fractions into the pool and receive CLP. The pool takes the other side of every trade and collects the borrow and trading fees.",
+    body: `Deposit ${USD_LABEL} or card fractions into the pool and receive CLP. The pool takes the other side of every trade and collects the borrow and trading fees.`,
   },
   {
     icon: IconVault,

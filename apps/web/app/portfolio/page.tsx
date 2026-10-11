@@ -14,13 +14,15 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { fmtUsd, loadMarket, loadPortfolio, type Portfolio } from "@/lib/market";
+import { fmtUsd, loadMarket, loadPortfolio, type MarketSnapshot, type Portfolio } from "@/lib/market";
+import { USD_LABEL } from "@/lib/cluster";
+import { PnlNavPanel } from "@/components/PnlNavPanel";
 import { redeemCard } from "@/lib/actions";
 import { explainTxError } from "@/lib/tx";
 import { useWallet, shortKey } from "@/lib/wallet";
 import { PositionsTable } from "@/components/PositionsTable";
 
-const signed = (x: bigint) => (x >= 0n ? "+" : "−") + fmtUsd(x < 0n ? -x : x, 2);
+const signed = (x: bigint) => `${x >= 0n ? "+" : "−"}$${fmtUsd(x < 0n ? -x : x, 2)}`;
 
 type Tab = "positions" | "cards" | "liquidity";
 
@@ -30,6 +32,7 @@ export default function PortfolioPage() {
   const [tab, setTab] = useState<Tab>("positions");
 
   const [mark, setMark] = useState<bigint | null>(null);
+  const [market, setMarket] = useState<MarketSnapshot | null>(null);
   const [version, setVersion] = useState(0);
   const [failure, setFailure] = useState<string | null>(null);
   const [redeeming, setRedeeming] = useState<string | null>(null);
@@ -50,13 +53,17 @@ export default function PortfolioPage() {
 
   useEffect(() => {
     let live = true;
-    if (version === 0) setP(null);
+    setP(null);
+    setMark(null);
+    setMarket(null);
     setFailure(null);
-    Promise.all([loadPortfolio(publicKey), loadMarket()])
-      .then(([portfolio, market]) => {
+    loadMarket()
+      .then(async (market) => ({ market, portfolio: await loadPortfolio(publicKey, market) }))
+      .then(({ portfolio, market }) => {
         if (!live) return;
         setP(portfolio);
         setMark(market.oracle.price);
+        setMarket(market);
       })
       .catch((e) => live && setFailure(e instanceof Error ? e.message : "Could not read your holdings."));
     return () => {
@@ -80,9 +87,11 @@ export default function PortfolioPage() {
           Portfolio: <span>{connected ? shortKey(publicKey) : "your holdings"}</span>
         </h1>
         <p className="vmkt-total">
-          Trading account <b>{connected && p ? `${fmtUsd(p.totalValue, 2)} $` : "—"}</b>
+          Trading account <b>{connected && p ? `$${fmtUsd(p.totalValue, 2)}` : "—"}</b>
         </p>
       </header>
+
+      <PnlNavPanel portfolio={connected ? p : null} snapshot={market} />
 
       {!connected ? (
         <div className="empty">
@@ -114,7 +123,7 @@ export default function PortfolioPage() {
             </div>
             <div className="stat">
               <p className="k">Cards vaulted</p>
-              <p className="v">{p.cards.length}</p>
+              <p className="v">{p.cards.filter((card) => card.deposited).length}</p>
               <p className="d">{fmtUsd(p.fractions)} fractions held</p>
             </div>
             <div className="stat">
@@ -124,13 +133,13 @@ export default function PortfolioPage() {
             </div>
           </div>
 
-          <div className="tabs" role="tablist" aria-label="Portfolio sections">
+          <div className="tabs" role="group" aria-label="Portfolio sections">
             {([
               ["positions", "Positions", openCount],
-              ["cards", "My cards", p.cards.length],
-              ["liquidity", "Liquidity", p.clp > 0n ? 1 : 0],
+              ["cards", "Held cards", p.cards.length],
+              ["liquidity", "Pool shares", p.clp > 0n ? 1 : 0],
             ] as const).map(([id, label, n]) => (
-              <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>
+              <button key={id} type="button" aria-pressed={tab === id} onClick={() => setTab(id)}>
                 {label} <span className="count">{n}</span>
               </button>
             ))}
@@ -173,7 +182,7 @@ export default function PortfolioPage() {
               <div className="card-grid">
                 {p.cards.map((h) => (
                   <section className="panel holding" key={h.nftAddress}>
-                    <Link href={`/vault/${h.nftAddress}`} className="holding-shot">
+                    <Link href={`/vault/${h.nftAddress}`} className="holding-shot" aria-label={`View ${h.name}`}>
                       {h.image ? <img src={h.image} alt="" loading="lazy" /> : <span className="vblank" />}
                     </Link>
                     <div className="holding-body">
@@ -207,7 +216,7 @@ export default function PortfolioPage() {
             (p.clp === 0n ? (
               <div className="empty">
                 <h3>No pool shares</h3>
-                <p>Deposit USDC or card fractions into the pool to earn trading fees.</p>
+                <p>Deposit {USD_LABEL} or card fractions into the pool to earn trading fees.</p>
                 <Link href="/pool" className="btn accent">Go to Earn →</Link>
               </div>
             ) : (
@@ -216,10 +225,10 @@ export default function PortfolioPage() {
                   <div><span>CLP held</span><b>{fmtUsd(p.clp, 2)}</b></div>
                   <div className="hi"><span>Worth at current NAV</span><b>${fmtUsd(p.clpValue, 2)}</b></div>
                 </div>
-                <p className="hint">Withdrawing returns a proportional slice of USDC and card fractions.</p>
+                <p className="hint">Withdrawing returns a proportional slice of {USD_LABEL} and card fractions.</p>
                 <div className="actions" style={{ marginTop: 16 }}>
                   <Link href="/pool" className="btn">Deposit more</Link>
-                  <Link href="/pool" className="btn">Withdraw</Link>
+                  <Link href="/pool?tab=withdraw" className="btn">Withdraw</Link>
                 </div>
               </section>
             ))}

@@ -4,7 +4,7 @@ import { BRAND } from "@/lib/brand";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  borrowSpread, fmtPct, fmtUsd, IS_SAMPLE, loadIndexHistory, loadPortfolio, loadPositions, priceAt,
+  borrowSpread, fmtPct, fmtUsd, HISTORY_STEP_SECS, IS_SAMPLE, loadIndexHistory, loadPortfolio, loadPositions, priceAt,
   type IndexPoint, type Portfolio,
 } from "@/lib/market";
 import { useMarket } from "@/lib/useMarket";
@@ -28,20 +28,27 @@ export default function HomePage() {
   const [history, setHistory] = useState<IndexPoint[]>([]);
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [cards, setCards] = useState<VaultCard[]>([]);
+  const [cardsFailed, setCardsFailed] = useState(false);
+  const [cardsVersion, setCardsVersion] = useState(0);
 
   useEffect(() => {
     let live = true;
+    setCardsFailed(false);
     loadVaultCards(null, { search: "", owner: null, group: null })
-      .then((page) => live && setCards(page.cards.slice(0, CARDS_SHOWN)))
-      .catch(() => undefined);
+      .then((page) => {
+        if (live) setCards(page.cards.slice(0, CARDS_SHOWN));
+      })
+      .catch(() => {
+        if (live) setCardsFailed(true);
+      });
     return () => {
       live = false;
     };
-  }, []);
+  }, [cardsVersion]);
 
   useEffect(() => {
     let live = true;
-    loadPortfolio(publicKey).then((p) => live && setPortfolio(p));
+    loadPortfolio(publicKey).then((p) => live && setPortfolio(p)).catch(() => live && setPortfolio(null));
     return () => {
       live = false;
     };
@@ -50,7 +57,7 @@ export default function HomePage() {
   useEffect(() => {
     if (!data) return;
     let live = true;
-    loadIndexHistory(data).then((points) => live && setHistory(points));
+    loadIndexHistory(data).then((points) => live && setHistory(points)).catch(() => live && setHistory([]));
     return () => {
       live = false;
     };
@@ -70,32 +77,41 @@ export default function HomePage() {
     history.length > 1
       ? (Number(history[history.length - 1]!.price - history[0]!.price) / Number(history[0]!.price)) * 100
       : null;
+  const changeSpan = history.length > 1 ? history[history.length - 1]!.ts - history[0]!.ts : 0;
+  const changeLabel = changeSpan >= 86_400 - HISTORY_STEP_SECS
+    ? "24h change"
+    : `Change (${Math.floor(changeSpan / 3600) > 0 ? `${Math.floor(changeSpan / 3600)}h${Math.floor(changeSpan / 60) % 60 ? ` ${Math.floor(changeSpan / 60) % 60}m` : ""}` : `${Math.floor(changeSpan / 60)}m`})`;
   const oracleOk = data?.oracle.state === "ok";
+  const marketAvailable = !loading && !error && !!data && data.marketInitialized &&
+    data.pool.state === "active" && (data.oracle.state === "ok" || data.oracle.state === "stale") &&
+    data.capacity.free > 0n;
 
   return (
     <div className="page home">
       <div className="dash">
         <div className="col">
+          <HomeBanner cards={cards} marketAvailable={marketAvailable} />
+
           <IndexChart
             points={history}
             priceAt={markAt}
             head={
               <p className="chart-pair">
                 <span className="mark" aria-hidden="true"><span className="star" /></span>
-                {BRAND} Index <span className="lev">5x</span>
+                {BRAND} Index {data && <span className="lev">{Number(data.pool.params.baseLeverage) / 1e6}x</span>}
               </p>
             }
             stats={
               <dl className="chart-stats">
                 <div className="lead"><dt>Mark</dt><dd><LivePrice priceAt={markAt} /></dd></div>
                 <div className="chg">
-                  <dt>24h change</dt>
+                  <dt>{changeLabel}</dt>
                   <dd className={dayChange === null ? undefined : dayChange >= 0 ? "up" : "down"}>
                     {dayChange === null ? "-" : `${dayChange >= 0 ? "+" : "−"}${Math.abs(dayChange).toFixed(2)}%`}
                   </dd>
                 </div>
-                <div><dt>Open interest</dt><dd>{data ? `${fmtUsd(data.market.oiLong + data.market.oiShort)} $` : "-"}</dd></div>
-                <div><dt>Capacity left</dt><dd>{data ? `${fmtUsd(data.capacity.free)} $` : "-"}</dd></div>
+                <div><dt>Open interest</dt><dd>{data ? `$${fmtUsd(data.market.oiLong + data.market.oiShort, 2)}` : "-"}</dd></div>
+                <div><dt>Capacity left</dt><dd>{data ? `$${fmtUsd(data.capacity.free, 2)}` : "-"}</dd></div>
                 <div className="util">
                   <dt>Utilisation</dt>
                   <dd>
@@ -121,9 +137,7 @@ export default function HomePage() {
 
           <AccountPanel portfolio={portfolio} positions={positions} snapshot={data} onTrade={focusTicket} onClosed={reload} />
 
-          <HomeBanner cards={cards} />
-
-          <CardRail cards={cards} />
+          <CardRail cards={cards} failed={cardsFailed} onRetry={() => setCardsVersion((v) => v + 1)} />
         </div>
 
         {loading ? (
