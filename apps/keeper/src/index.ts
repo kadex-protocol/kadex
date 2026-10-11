@@ -37,7 +37,6 @@
  */
 
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
 import {
   Connection,
   Keypair,
@@ -48,6 +47,7 @@ import {
 } from "@solana/web3.js";
 import { PROGRAM_IDS } from "@kadex/types";
 import { decodeOracle, refreshAccountsFor } from "@kadex/sdk";
+import { intFromEnv, loadKeypair, redactUrl } from "@kadex/sdk/node";
 
 /**
  * Anchor's instruction discriminator: the first 8 bytes of
@@ -65,7 +65,6 @@ const REFRESH_PRICE = discriminator("refresh_price");
 
 interface Config {
   rpcUrl: string;
-  keypairPath: string;
   oracle: PublicKey;
   ammPool: PublicKey;
   /** Accounts the adapter reads after the pool (Raydium: the two vaults). */
@@ -81,7 +80,6 @@ function loadConfig(): Config {
   };
   return {
     rpcUrl: process.env.RPC_URL ?? "http://127.0.0.1:8899",
-    keypairPath: need("KEEPER_KEYPAIR").replace(/^~/, process.env.HOME ?? "~"),
     oracle: new PublicKey(need("ORACLE")),
     ammPool: new PublicKey(need("AMM_POOL")),
     extra: [],
@@ -94,13 +92,8 @@ function loadConfig(): Config {
     // that window is where bad debt comes from. At 5s it is 15 seconds.
     //
     // The 900s staleness bound is far looser than this, so it never binds.
-    intervalMs: Number(process.env.INTERVAL_MS ?? 5_000),
+    intervalMs: intFromEnv("INTERVAL_MS", 5_000, 500),
   };
-}
-
-function loadKeypair(path: string): Keypair {
-  const raw = JSON.parse(readFileSync(path, "utf8")) as number[];
-  return Keypair.fromSecretKey(Uint8Array.from(raw));
 }
 
 function refreshPriceIx(cfg: Config, caller: PublicKey): TransactionInstruction {
@@ -128,19 +121,19 @@ async function tick(conn: Connection, cfg: Config, signer: Keypair): Promise<voi
 async function main(): Promise<void> {
   const cfg = loadConfig();
   const conn = new Connection(cfg.rpcUrl, "confirmed");
-  const signer = loadKeypair(cfg.keypairPath);
+  const signer = loadKeypair(process.env.KEEPER_KEYPAIR, "KEEPER_KEYPAIR");
 
   // The oracle says which AMM it reads; a real pool also needs its vaults.
   // Fail at start, not on every tick, if AMM_POOL is not the oracle's pool.
   const oracleInfo = await conn.getAccountInfo(cfg.oracle, "confirmed");
-  if (!oracleInfo) throw new Error(`oracle ${cfg.oracle.toBase58()} does not exist on ${cfg.rpcUrl}`);
+  if (!oracleInfo) throw new Error(`oracle ${cfg.oracle.toBase58()} does not exist on ${redactUrl(cfg.rpcUrl)}`);
   const oracle = decodeOracle(oracleInfo.data);
   if (!oracle.ammPool.equals(cfg.ammPool)) {
     throw new Error(`AMM_POOL ${cfg.ammPool.toBase58()} is not the oracle's pool ${oracle.ammPool.toBase58()}`);
   }
   cfg.extra = await refreshAccountsFor(conn, oracle);
 
-  console.log(`[keeper] rpc      ${cfg.rpcUrl}`);
+  console.log(`[keeper] rpc      ${redactUrl(cfg.rpcUrl)}`);
   console.log(`[keeper] oracle   ${cfg.oracle.toBase58()}`);
   console.log(`[keeper] amm pool ${cfg.ammPool.toBase58()} (${oracle.adapter})`);
   for (const k of cfg.extra) console.log(`[keeper] + vault  ${k.toBase58()}`);
@@ -177,6 +170,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error("[keeper] fatal:", err);
+  console.error(`[keeper] fatal: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
 });

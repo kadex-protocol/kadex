@@ -305,3 +305,95 @@ test("mapLimited keeps order and never runs more than n at once", async () => {
   assert.deepEqual(out, [50, 10, 40, 20, 30]);
   assert.equal(peak, 2);
 });
+
+test("the appraisal index is current appraisal over whitelisted appraisal, weighted", async () => {
+  const { appraisalIndexFrom } = await import("../packages/collector-crypt/dist/chain.js");
+  const { PublicKey } = await import("@solana/web3.js");
+  const key = (n) => new PublicKey(Buffer.alloc(32, n));
+  const wl = [
+    { asset: key(1), fractionsPerCard: 5_000n * 1_000_000n, weightBps: 6_000, enabled: true }, // re-appraised +10%
+    { asset: key(2), fractionsPerCard: 2_000n * 1_000_000n, weightBps: 2_000, enabled: true }, // unchanged
+    { asset: key(3), fractionsPerCard: 2_000n * 1_000_000n, weightBps: 2_000, enabled: true }, // halved
+    { asset: key(4), fractionsPerCard: 1_000n * 1_000_000n, weightBps: 1, enabled: true }, // no answer
+  ];
+  const now = new Map([
+    [key(1).toBase58(), 5_500n * 1_000_000n],
+    [key(2).toBase58(), 2_000n * 1_000_000n],
+    [key(3).toBase58(), 1_000n * 1_000_000n],
+  ]);
+  const r = appraisalIndexFrom(wl, now, 3);
+  assert.deepEqual(r.samples.map((s) => s.price), [1_100_000n, 1_000_000n, 500_000n]);
+  assert.equal(r.index, 1_100_000n, "the card holding 60% of the weight sets it");
+  assert.equal(r.median, 1_000_000n);
+  assert.deepEqual(r.unpriced.map((u) => u.reason), ["no appraisal"]);
+  assert.equal(appraisalIndexFrom(wl, now, 4).index, null, "three answers, four required: nothing");
+});
+
+// ---- provider failures (backend hardening) ----
+
+const okBody = () => ({ ok: true, status: 200, json: async () => fixture("cc_marketplace.json") });
+const status = (code, headers = {}) => ({ ok: false, status: code, headers: { get: (h) => headers[h] ?? null }, json: async () => ({}) });
+const fast = { retries: 3, maxRetryAfterMs: 30_000 };
+
+test("a 5xx is retried like a 429, and given up on after the retries", async () => {
+  let n = 0;
+  const flaky = async () => (++n <= 2 ? status(n === 1 ? 500 : 502, { "retry-after": "0.01" }) : okBody());
+  assert.ok((await fetchMarketplacePage(null, { fetch: flaky, limits: fast })).cards.length > 0);
+  assert.equal(n, 3);
+  n = 0;
+  const down = async () => (n++, status(504, { "retry-after": "0.01" }));
+  await assert.rejects(fetchMarketplacePage(null, { fetch: down, limits: { ...fast, retries: 2 } }), /answered 504/);
+  assert.equal(n, 3);
+});
+
+test("a 4xx other than 429 is not retried", async () => {
+  let n = 0;
+  await assert.rejects(fetchMarketplacePage(null, { fetch: async () => (n++, status(400)), limits: fast }), /answered 400/);
+  assert.equal(n, 1);
+});
+
+test("a Retry-After past the cap gives up at once instead of stalling the feed", async () => {
+  const start = Date.now();
+  await assert.rejects(
+    fetchMarketplacePage(null, { fetch: async () => status(429, { "retry-after": "3600" }), limits: { retries: 3, maxRetryAfterMs: 1_000 } }),
+    /retry after 3600s/,
+  );
+  assert.ok(Date.now() - start < 500);
+});
+
+test("a hung connection times out, and a network error is retried", async () => {
+  const hang = (_url, init) => new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(init.signal.reason)));
+  await assert.rejects(fetchMarketplacePage(null, { fetch: hang, limits: { timeoutMs: 30 } }), /timed out after 30 ms/);
+
+  let n = 0;
+  const reset = async () => {
+    if (++n === 1) throw new TypeError("fetch failed");
+    return okBody();
+  };
+  assert.ok((await fetchMarketplacePage(null, { fetch: reset, limits: { retries: 1 } })).cards.length > 0);
+  await assert.rejects(fetchMarketplacePage(null, { fetch: async () => { throw new TypeError("fetch failed"); } }), /network error/);
+});
+
+test("a body that is not JSON is an error naming the endpoint", async () => {
+  const html = async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError("Unexpected token <"); } });
+  await assert.rejects(fetchMarketplacePage(null, { fetch: html }), /\/marketplace answered 200 with a body that is not JSON/);
+});
+
+test("a malformed appraisal makes the card unpriced, never a zero", async () => {
+  const { fetchAppraisal } = await import("../packages/collector-crypt/dist/index.js");
+  for (const insuredValue of [undefined, "", "abc", "-5", null]) {
+    const { fetch } = fakeFetch({ [`/cards/publicNft/${WARTORTLE}`]: { ...fixture("cc_card.json"), insuredValue } });
+    await assert.rejects(fetchAppraisal(WARTORTLE, { fetch }), /not a dollar amount/, `insuredValue ${JSON.stringify(insuredValue)}`);
+  }
+});
+
+test("the feed refuses to publish anything that would weaken the bound", async () => {
+  const { publishDecision, DEFAULT_PUBLISH_BOUNDS } = await import("../packages/collector-crypt/dist/chain.js");
+  const reading = (index, n = 6) => ({ index, median: index, samples: Array.from({ length: n }, () => ({})), unpriced: [] });
+  assert.deepEqual(publishDecision(reading(1_040_000n), 5), { publish: true, value: 1_040_000n });
+  assert.match(publishDecision(reading(null, 3), 5).reason, /3 priced cards, need 5/);
+  assert.match(publishDecision(reading(0n), 5).reason, /zero/);
+  assert.match(publishDecision(reading(DEFAULT_PUBLISH_BOUNDS.maxIndex + 1n), 5).reason, /data fault/);
+  assert.match(publishDecision(reading(DEFAULT_PUBLISH_BOUNDS.minIndex - 1n), 5).reason, /data fault/);
+  assert.equal(publishDecision(reading(DEFAULT_PUBLISH_BOUNDS.maxIndex), 5).publish, true, "the bounds are inclusive");
+});

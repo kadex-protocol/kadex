@@ -12,6 +12,9 @@
  * through the production path rather than hardcoding pretty numbers.
  */
 
+import basket from "../../../deployments/basket.json";
+import { titleParts } from "./cardText";
+import type { VaultCard } from "./collectorCrypt";
 import type { MarketView, OracleView, PoolView, PositionView, Side } from "@kadex/types";
 import { gates, oracleTradeable } from "@kadex/types";
 import { PublicKey } from "@solana/web3.js";
@@ -46,6 +49,9 @@ const ZERO = new PublicKey("11111111111111111111111111111111");
 
 export interface Constituent {
   id: string;
+  /** The Metaplex Core asset on Collector Crypt. */
+  asset: string;
+  /** Certification number. */
   ref: string;
   name: string;
   series: string;
@@ -54,21 +60,36 @@ export interface Constituent {
   /** Index weight in basis points. */
   weightBps: number;
   grade: string;
-  /** Which card face to show. */
-  art: "charizard" | "pikachu" | "jordan" | "lotus" | "luke";
+  appraisalUsd: string;
+  /** The card face, from Collector Crypt. */
+  image: string;
 }
 
+const GROUP_LABEL: Record<string, string> = { pokemon: "Pokémon", "one-piece": "One Piece", tcg: "Trading cards", sports: "Sports", other: "Other" };
+
 /**
- * The basket. Weights are the ones a `BasketCard` account carries on-chain;
- * names and grades are illustrative until the real mints are whitelisted.
+ * The launch basket (issue #10): `deployments/basket.json`, chosen by
+ * `scripts/select-basket.mjs` from live Collector Crypt listings. Weights are
+ * the ones `whitelist-core.mjs --basket` writes on-chain.
  */
-export const CONSTITUENTS: Constituent[] = [
-  { id: "001", ref: "41677010", name: "Charizard",  series: "Pokemon Game", year: "1999", category: "Trading cards", weightBps: 3200, grade: "GEM MT 10", art: "charizard" },
-  { id: "002", ref: "41687010", name: "Pikachu",    series: "Pokemon Game", year: "1999", category: "Trading cards", weightBps: 2400, grade: "GEM MT 10", art: "pikachu" },
-  { id: "003", ref: "63738203", name: "Black Lotus", series: "Magic",       year: "1993", category: "Trading cards", weightBps: 1900, grade: "GEM MT 10", art: "lotus" },
-  { id: "004", ref: "44578113", name: "M. Jordan",  series: "Topps",        year: "1986", category: "Sports",        weightBps: 1500, grade: "GEM MT 10", art: "jordan" },
-  { id: "005", ref: "63786110", name: "Skywalker",  series: "Star Wars",    year: "1977", category: "Sports",        weightBps: 1000, grade: "GEM MT 10", art: "luke" },
-];
+export const CONSTITUENTS: Constituent[] = basket.cards.map((c, i) => {
+  const [company = "", ...rest] = c.grade.split(" ");
+  const { title } = titleParts({ name: c.name, gradingCompany: company, grade: rest.join(" "), year: c.year, category: c.category } as VaultCard);
+  return {
+    id: String(i + 1).padStart(3, "0"),
+    asset: c.asset,
+    ref: c.certNumber ?? c.asset.slice(0, 8),
+    name: title.split(" · ")[0]!.replace(/^Full Art\//, "").replace(/\s+(PSA|BGS|CGC|SGC)\s+\d+(\.\d+)?\b.*$/, ""),
+    series: c.set ?? GROUP_LABEL[c.group] ?? c.category,
+    year: c.year ? String(c.year) : "",
+    category: GROUP_LABEL[c.group] ?? c.category,
+    weightBps: c.weightBps,
+    // Collector Crypt says "Beckett g10p"; the slab says BGS 10.
+    grade: company === "Beckett" ? `BGS ${rest.join(" ").match(/\d+(\.\d+)?/)?.[0] ?? ""}`.trim() : c.grade,
+    appraisalUsd: c.appraisalUsd,
+    image: c.image ?? "",
+  };
+});
 
 const SAMPLE_POOL: PoolView = {
   address: ZERO,

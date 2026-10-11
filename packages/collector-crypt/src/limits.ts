@@ -70,15 +70,35 @@ export class JsonCache {
 export interface CollectorLimits {
   cache?: JsonCache;
   budget?: RequestBudget;
-  /** Retries on 429 or 503, waiting `Retry-After` or 1 s, 2 s, 4 s. */
+  /**
+   * Retries on 429, any 5xx, a timeout or a network error, waiting
+   * `Retry-After` (capped at `maxRetryAfterMs`) or 1 s, 2 s, 4 s.
+   */
   retries?: number;
+  /** Per attempt. A hung connection otherwise stalls the caller forever. */
+  timeoutMs?: number;
+  /** Longest `Retry-After` honoured; a larger one gives up instead. */
+  maxRetryAfterMs?: number;
 }
+
+/** Applied whether or not `limits` is given. */
+export const DEFAULT_TIMEOUT_MS = 10_000;
+export const DEFAULT_MAX_RETRY_AFTER_MS = 30_000;
+
+/** Whether an HTTP status is worth asking again. */
+export const isRetryableStatus = (status: number) => status === 429 || (status >= 500 && status <= 599);
 
 let shared: CollectorLimits | null = null;
 
 /** One cache and budget per process, sized to 80% of the documented limit. */
 export function collectorCryptLimits(hasKey = Boolean(typeof process !== "undefined" && process.env.COLLECTOR_CRYPT_API_KEY)): CollectorLimits {
-  shared ??= { cache: new JsonCache(30_000), budget: requestBudget(hasKey ? 2_400 : 240), retries: 3 };
+  shared ??= {
+    cache: new JsonCache(30_000),
+    budget: requestBudget(hasKey ? 2_400 : 240),
+    retries: 3,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    maxRetryAfterMs: DEFAULT_MAX_RETRY_AFTER_MS,
+  };
   return shared;
 }
 

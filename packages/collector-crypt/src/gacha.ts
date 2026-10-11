@@ -13,6 +13,8 @@
  * once, here, and everything downstream stays BigInt.
  */
 
+import { DEFAULT_TIMEOUT_MS } from "./limits.js";
+
 export const GACHA_API = "https://gacha.collectorcrypt.com";
 export const GACHA_TIERS = ["common", "uncommon", "rare", "epic"] as const;
 export type GachaTier = (typeof GACHA_TIERS)[number];
@@ -173,9 +175,16 @@ async function getGacha(resource: "machines" | "stock", opts: GachaOptions): Pro
   const { apiKey, scope } = resolve(opts);
   const path = scope === "mine" ? `/api/v1/${resource}` : `/api/${resource}`;
   const doFetch = opts.fetch ?? globalThis.fetch;
-  const res = await doFetch(`${opts.baseUrl ?? GACHA_API}${path}`, {
-    headers: { accept: "application/json", ...(scope === "mine" && apiKey ? { "x-api-key": apiKey } : {}) },
-  });
+  let res: Awaited<ReturnType<typeof doFetch>>;
+  try {
+    res = await doFetch(`${opts.baseUrl ?? GACHA_API}${path}`, {
+      headers: { accept: "application/json", ...(scope === "mine" && apiKey ? { "x-api-key": apiKey } : {}) },
+      signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+    });
+  } catch (e) {
+    const timedOut = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
+    throw new Error(`Collector Crypt gacha ${path} ${timedOut ? `timed out after ${DEFAULT_TIMEOUT_MS} ms` : "network error"}`);
+  }
   if (res.status === 401 || res.status === 403) {
     throw new Error(`Collector Crypt gacha ${path} refused the API key (${res.status}). Check COLLECTOR_CRYPT_GACHA_API_KEY.`);
   }

@@ -18,19 +18,13 @@ A two-layer scrim in `.hero::after` sits between plate and content. Without
 it, display type lands on whatever the photograph is doing behind it, which
 breaks at some window widths and not others.
 
-## `cards/*.jpg` — the five faces
+## Card faces
 
-Charizard, Pikachu, Black Lotus, Jordan, Skywalker. Each is the card face
-only, 280x392 (5:7), ~15-20 KB.
-
-The acrylic case, certification label and barcode around them are drawn in
-CSS, so a crop only ever has to supply the face. That is what lets the same
-file work at 38px in a table and at 128px on the shelf.
+The basket's card faces are Collector Crypt's own photos of the real cards
+(`image` in `deployments/basket.json`). The acrylic case, certification label
+and barcode around them are drawn in CSS.
 
 ## Replacing them
 
-Keep the shapes. The plate wants to be dark and quiet on the left, lit and
-interesting on the right. The faces want to be 5:7 with no case edges.
-
-These are illustrative renders standing in for the real tokenized assets a
-live index would hold.
+Keep the shape. The plate wants to be dark and quiet on the left, lit and
+interesting on the right.
