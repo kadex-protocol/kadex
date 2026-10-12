@@ -7,6 +7,7 @@ import { USD_LABEL } from "@/lib/cluster";
 import { loadVaultCards, type VaultCard } from "@/lib/collectorCrypt";
 import { suggestHedge } from "@/lib/hedge";
 import { CONSTITUENTS, fmtPct, fmtPrice, fmtUsd, IS_SAMPLE, type MarketSnapshot } from "@/lib/market";
+import { readLedger, walletOf } from "@/lib/sim";
 
 const basketAssets = new Set(CONSTITUENTS.map((card) => card.asset));
 
@@ -21,7 +22,7 @@ export function HedgeSuggestion({
   onFill(notional: bigint): void;
 }) {
   const ownerAddress = owner?.toBase58() ?? null;
-  const [cards, setCards] = useState<VaultCard[] | null>(null);
+  const [cards, setCards] = useState<Pick<VaultCard, "nftAddress" | "insuredValueUsdc">[] | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [maxNotional, setMaxNotional] = useState("");
   const [maxMonthlyCost, setMaxMonthlyCost] = useState("");
@@ -49,7 +50,10 @@ export function HedgeSuggestion({
         if (cursor) seen.add(cursor);
       } while (cursor);
 
-      if (live) setCards(all);
+      const simulated = IS_SAMPLE
+        ? walletOf(readLedger(), ownerAddress).cards.map((card) => ({ nftAddress: card.nftAddress, insuredValueUsdc: card.minted }))
+        : [];
+      if (live) setCards([...all, ...simulated]);
     };
 
     void load().catch((error: unknown) => {
@@ -90,7 +94,7 @@ export function HedgeSuggestion({
   if (!ownerAddress) return <p className="hint">Connect a wallet to read your card inventory.</p>;
   if (failure) return <p className="hint bad" role="alert">{failure}</p>;
   if (cards === null) return <p className="hint">Reading your card inventory…</p>;
-  if (cards.length === 0) return <p className="hint">No Collector Crypt cards found for this wallet.</p>;
+  if (cards.length === 0) return <p className="hint">{IS_SAMPLE ? "No cards in this wallet yet. Vault one to size a hedge against it." : "No Collector Crypt cards found for this wallet."}</p>;
 
   return (
     <section className="panel" aria-label="Inventory hedge suggestion">

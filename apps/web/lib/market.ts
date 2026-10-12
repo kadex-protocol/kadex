@@ -177,6 +177,7 @@ export async function loadMarket(): Promise<MarketSnapshot> {
     cardSleeveValue: math.mulWadFloor(ledger.fractionBalance, price),
     clpSupply: ledger.clpSupply,
     marginHeld: held.reduce((a, p) => a + p.margin, 0n),
+    traderPnl: held.reduce((a, p) => a + ((p.side === "long" ? price - p.entryPrice : p.entryPrice - price) * p.notional) / p.entryPrice, 0n),
   };
   const oracle: OracleView = { ...SAMPLE_ORACLE, price, twap: price, spot: price };
   const market: MarketView = {
