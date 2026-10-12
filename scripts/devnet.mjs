@@ -136,9 +136,6 @@ async function check() {
   console.log(`deployer ${payer.publicKey.toBase58()}  balance ${sol} SOL on ${redactUrl(RPC)}`);
   // 0.15 Raydium pool fee + mint, metadata, vault and account rent + fees, plus the faucet grant.
   let need = 0.5 + FAUCET.sol;
-  // `solana program deploy` writes into a buffer first, which needs the same
-  // rent again until the deploy closes it: the largest one is the peak.
-  let buffer = 0;
   for (const [name, id] of PROGRAMS) {
     const deployed = await exists(new PublicKey(id));
     if (deployed) {
@@ -148,12 +145,10 @@ async function check() {
     const size = readFileSync(join(ROOT, `target/deploy/${name}.so`)).length;
     const rent = (await conn.getMinimumBalanceForRentExemption(size + 45)) / LAMPORTS_PER_SOL;
     need += rent;
-    buffer = Math.max(buffer, rent);
     console.log(`  ${name.padEnd(9)} ${id}  not deployed — ~${rent.toFixed(2)} SOL`);
   }
   console.log(`  raydium   ${(await exists(RAYDIUM_CPMM.devnet)) ? "present" : "MISSING"}  metadata ${(await exists(TOKEN_METADATA)) ? "present" : "MISSING"}`);
-  need += buffer;
-  console.log(`needs about ${need.toFixed(2)} SOL at the peak (${buffer.toFixed(2)} of it a deploy buffer, refunded)`);
+  console.log(`needs about ${need.toFixed(2)} SOL`);
   if (sol < need) {
     console.log(`\nNOT ENOUGH SOL. Fund ${payer.publicKey.toBase58()} with ~${Math.ceil(need - sol)} SOL:`);
     console.log("  https://faucet.solana.com  (sign in with GitHub for a larger allowance)");
@@ -173,10 +168,13 @@ async function programs() {
       continue;
     }
     console.log(`  ${name}: deploying…`);
+    // A named buffer lets a re-run resume an interrupted upload instead of paying rent for a second one.
+    const buffer = join(ROOT, `target/deploy/${name}-buffer.json`);
+    if (!existsSync(buffer)) writeFileSync(buffer, JSON.stringify([...Keypair.generate().secretKey]), { mode: 0o600 });
     execFileSync(
       "solana",
       ["program", "deploy", join(ROOT, `target/deploy/${name}.so`), "--program-id", join(ROOT, `keys/${name}-keypair.json`),
-        "--keypair", KEYPAIR, "--url", RPC, "--use-rpc"],
+        "--buffer", buffer, "--keypair", KEYPAIR, "--url", RPC],
       { stdio: "inherit" },
     );
   }
@@ -220,7 +218,7 @@ function metadataIx(mint, { name, symbol, uri }) {
 
 const MINTS = {
   index: { name: "Kadex Card Index (devnet test)", symbol: "tKDX", uri: "https://github.com/kadex-protocol/kadex/blob/main/docs/spec.md" },
-  usd: { name: "Kadex Devnet USD (test, not USDC)", symbol: "kdUSD", uri: "https://github.com/kadex-protocol/kadex/blob/main/docs/deploying.md" },
+  usd: { name: "Kadex Devnet USD (not USDC)", symbol: "kdUSD", uri: "https://github.com/kadex-protocol/kadex/blob/main/docs/deploying.md" },
 };
 
 async function mints() {
