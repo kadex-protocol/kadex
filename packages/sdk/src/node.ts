@@ -27,11 +27,12 @@ const expand = (path: string) => path.replace(/^~(?=$|\/)/, homedir());
  * fix. `warn` receives a notice when the file is readable by group or others.
  */
 export function loadKeypair(path: string | undefined, env: string, warn: (msg: string) => void = console.warn): Keypair {
-  if (!path) throw new KeypairError(`missing env ${env}: the path to a Solana keypair file`);
-  const file = expand(path);
+  if (!path) throw new KeypairError(`missing env ${env}: the path to a Solana keypair file, or the keypair JSON itself`);
+  const inline = path.trimStart().startsWith("[");
+  const file = inline ? "the inline value" : expand(path);
   let text: string;
   try {
-    text = readFileSync(file, "utf8");
+    text = inline ? path : readFileSync(file, "utf8");
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
     throw new KeypairError(`${env}: cannot read ${file}${code ? ` (${code})` : ""}`);
@@ -52,7 +53,7 @@ export function loadKeypair(path: string | undefined, env: string, warn: (msg: s
     throw new KeypairError(`${env}: ${file} holds 64 bytes that are not a valid ed25519 keypair`);
   }
   try {
-    if (process.platform !== "win32" && (statSync(file).mode & 0o077) !== 0) {
+    if (!inline && process.platform !== "win32" && (statSync(file).mode & 0o077) !== 0) {
       warn(`${env}: ${file} is readable by other users; chmod 600 it`);
     }
   } catch {

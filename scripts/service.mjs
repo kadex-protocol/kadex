@@ -18,13 +18,15 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const RECORD = process.env.KADEX_DEPLOYMENT ?? join(ROOT, "deployments/devnet.json");
+const BUILT_IDLS = join(ROOT, "target/idl");
+const IDL_DIR = existsSync(BUILT_IDLS) ? BUILT_IDLS : join(ROOT, "deployments/idl");
 const KEYPAIR = process.env.KADEX_SERVICE_KEYPAIR ?? process.env.KADEX_DEPLOYER ?? join(homedir(), ".config/solana/id.json");
 
 export function serviceEnv(name, record, base = {}) {
   const protocol = record.protocol ?? {};
   const settings = {
     keeper: { KEEPER_KEYPAIR: KEYPAIR, ORACLE: protocol.oracle, AMM_POOL: record.raydium?.pool },
-    liquidator: { LIQUIDATOR_KEYPAIR: KEYPAIR, MARKET: protocol.market, IDL_DIR: join(ROOT, "target/idl") },
+    liquidator: { LIQUIDATOR_KEYPAIR: KEYPAIR, MARKET: protocol.market, IDL_DIR },
   }[name];
   if (!settings) throw new Error(`unknown service ${name}; one of keeper, liquidator`);
   const missing = Object.entries(settings).filter(([key, value]) => !value && !base[key]).map(([key]) => key);

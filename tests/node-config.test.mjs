@@ -30,6 +30,11 @@ test("a valid keypair loads, quietly when only its owner can read it", () => {
   assert.deepEqual(warnings, []);
 });
 
+test("a keypair given as the JSON itself loads without touching the disk", () => {
+  assert.ok(loadKeypair(secretText, "TEST_KEYPAIR").publicKey.equals(real.publicKey));
+  assert.throws(() => loadKeypair("[1,2,x]", "TEST_KEYPAIR"), (e) => e instanceof KeypairError && !leaks(e.message));
+});
+
 test("a keypair readable by others loads with a warning", { skip: process.platform === "win32" }, () => {
   const warnings = [];
   loadKeypair(file("open.json", secretText, 0o644), "TEST_KEYPAIR", (w) => warnings.push(w));

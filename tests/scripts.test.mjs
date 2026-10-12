@@ -28,7 +28,7 @@ test("the liquidator reads its market from the deployment record", () => {
   const env = serviceEnv("liquidator", record);
   assert.equal(env.MARKET, "MarketAddress");
   assert.ok(env.LIQUIDATOR_KEYPAIR);
-  assert.match(env.IDL_DIR, /target/);
+  assert.match(env.IDL_DIR, /idl$/);
 });
 
 test("a value already in the environment wins over the record", () => {

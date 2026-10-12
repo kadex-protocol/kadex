@@ -26,7 +26,7 @@
  * the Circle devnet faucet; it is not USDC.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -180,6 +180,7 @@ async function programs() {
       { stdio: "inherit" },
     );
   }
+  if (existsSync(join(ROOT, "target/idl"))) cpSync(join(ROOT, "target/idl"), join(ROOT, "deployments/idl"), { recursive: true });
   save();
 }
 

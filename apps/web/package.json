@@ -6,7 +6,7 @@
     "dev": "next dev --turbopack -p 3000",
     "prebuild": "tsc -b ../../packages/types ../../packages/oracle ../../packages/sdk ../../packages/collector-crypt",
     "build": "next build",
-    "start": "next start -p 3000",
+    "start": "next start",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
