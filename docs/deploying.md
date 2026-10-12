@@ -173,27 +173,35 @@ What this does not give you:
 
 ## Hosting on Railway
 
-One Railway project, three services from this repository, each with the root
-directory left at the repository root and its config file set in the service
-settings:
+One Railway project, `kadex`, with three services. Each is deployed by
+uploading this checkout, from the repository root:
 
-| Service | Config file | Variables |
-|---|---|---|
-| web | `deploy/railway/web.json` | `NEXT_PUBLIC_KADEX_RPC_URL`, `NEXT_PUBLIC_KADEX_USDC_MINT`, `NEXT_PUBLIC_KADEX_NETWORK=devnet`, `KADEX_FAUCET_KEYPAIR` |
-| keeper | `deploy/railway/keeper.json` | `KADEX_SERVICE_KEYPAIR`, `DEVNET_RPC` (optional) |
-| liquidator | `deploy/railway/liquidator.json` | `KADEX_SERVICE_KEYPAIR`, `DEVNET_RPC` (optional) |
+```sh
+railway up --service web        # or keeper, liquidator
+```
+
+`.railwayignore` keeps the Rust workspace out of the upload, so the builder
+treats it as a Node project. The build and start commands are set on each
+service:
+
+| Service | Build | Start | Variables |
+|---|---|---|---|
+| web | `npm run build -w @kadex/web` | `npm run start -w @kadex/web` | `NEXT_PUBLIC_KADEX_RPC_URL`, `NEXT_PUBLIC_KADEX_USDC_MINT`, `NEXT_PUBLIC_KADEX_NETWORK=devnet`, `KADEX_FAUCET_KEYPAIR` |
+| keeper | `npm run typecheck` | `node scripts/service.mjs keeper` | `KADEX_SERVICE_KEYPAIR`, `DEVNET_RPC` (optional) |
+| liquidator | `npm run typecheck` | `node scripts/service.mjs liquidator` | `KADEX_SERVICE_KEYPAIR`, `DEVNET_RPC` (optional) |
 
 The web service runs without any variable: it then serves the sample market.
-The `NEXT_PUBLIC_*` values are read at build time, so redeploy after setting
-them. Copy them, and `KADEX_FAUCET_KEYPAIR`, from the `apps/web/.env.local`
-that `node scripts/devnet.mjs all` writes.
+The `NEXT_PUBLIC_*` values are read at build time, so upload again after
+setting them. Copy them, and `KADEX_FAUCET_KEYPAIR`, from the
+`apps/web/.env.local` that `node scripts/devnet.mjs all` writes.
 
 `KADEX_SERVICE_KEYPAIR` takes the keypair JSON array itself, since there is no
 file to point at. Use a wallet made for the services and funded with a little
 devnet SOL, never the deployer.
 
 The keeper and the liquidator exit until `deployments/devnet.json` and
-`deployments/idl/` are in the repository. The deploy writes both; commit them.
+`deployments/idl/` exist in the checkout being uploaded. The deploy writes
+both.
 
 ## Local validator
 
