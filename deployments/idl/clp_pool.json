@@ -1,0 +1,1539 @@
+{
+  "address": "3XZkAqLeQDoNXD6Bb9YoGSEdnvqk9r7UMgrKsN5x3L9v",
+  "metadata": {
+    "name": "clp_pool",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Kadex — clp-pool"
+  },
+  "instructions": [
+    {
+      "name": "claim_protocol_fees",
+      "docs": [
+        "Pay out the protocol's share of fees. It sits in the vault, outside",
+        "the LP sleeve, until claimed."
+      ],
+      "discriminator": [
+        34,
+        142,
+        219,
+        112,
+        109,
+        54,
+        133,
+        23
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.usdc_mint",
+                "account": "Pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_vault",
+          "writable": true,
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "destination",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "deposit_fractions",
+      "docs": [
+        "Deposit card fractions and receive CLP, net of the haircut.",
+        "",
+        "The fractions are credited at the LOW mark and the CLP is priced at",
+        "the HIGH one: a deposit can only ever buy in at a discount to the",
+        "pool, never at a discount to the depositor."
+      ],
+      "discriminator": [
+        109,
+        37,
+        63,
+        9,
+        185,
+        2,
+        61,
+        60
+      ],
+      "accounts": [
+        {
+          "name": "depositor",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.usdc_mint",
+                "account": "Pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "oracle",
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "clp_mint",
+          "writable": true,
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "fraction_vault",
+          "writable": true,
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "depositor_fractions",
+          "writable": true
+        },
+        {
+          "name": "depositor_clp",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "deposit_usdc",
+      "docs": [
+        "Deposit USDC and receive CLP, priced at the ISSUE mark."
+      ],
+      "discriminator": [
+        184,
+        148,
+        250,
+        169,
+        224,
+        213,
+        34,
+        126
+      ],
+      "accounts": [
+        {
+          "name": "depositor",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.usdc_mint",
+                "account": "Pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "oracle",
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "clp_mint",
+          "writable": true,
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "usdc_vault",
+          "writable": true,
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "depositor_usdc",
+          "writable": true
+        },
+        {
+          "name": "depositor_clp",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize_pool",
+      "docs": [
+        "Create the pool. Upgrade authority only, once per USDC mint.",
+        "",
+        "Everything the pool will ever trust is checked here, because nothing",
+        "can rebind it later: the vaults must belong to the pool PDA, the CLP",
+        "mint must be the pool's alone and empty, and the oracle must be real."
+      ],
+      "discriminator": [
+        95,
+        180,
+        10,
+        172,
+        84,
+        174,
+        232,
+        40
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Must be this program's upgrade authority."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program",
+          "docs": [
+            "upgrade authority. Address-checked."
+          ],
+          "address": "3XZkAqLeQDoNXD6Bb9YoGSEdnvqk9r7UMgrKsN5x3L9v"
+        },
+        {
+          "name": "program_data",
+          "optional": true
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "clp_mint"
+        },
+        {
+          "name": "usdc_vault"
+        },
+        {
+          "name": "fraction_mint"
+        },
+        {
+          "name": "fraction_vault"
+        },
+        {
+          "name": "oracle"
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "usdc_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "PoolParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "record_open",
+      "docs": [
+        "Record a position opening. CPI ONLY, from the registered perp market.",
+        "",
+        "Margin and fee have already landed in `usdc_vault`. The margin is the",
+        "trader's and is held APART from the LP sleeve, so it can neither be",
+        "withdrawn by LPs nor counted as capacity. The fee is split now."
+      ],
+      "discriminator": [
+        98,
+        156,
+        91,
+        35,
+        15,
+        213,
+        216,
+        252
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "docs": [
+            "The perp market PDA, signing through CPI."
+          ],
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.usdc_mint",
+                "account": "Pool"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "margin",
+          "type": "u64"
+        },
+        {
+          "name": "fee",
+          "type": "u64"
+        },
+        {
+          "name": "book",
+          "type": {
+            "defined": {
+              "name": "BookSnapshot"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "redeem_settled",
+      "docs": [
+        "Burn CLP after the market has settled and take the final slice.",
+        "",
+        "The same NAV-sized slice as `withdraw`, which is what makes it fair:",
+        "when the pool owes more than it holds, NAV is lower than the assets",
+        "and every holder is scaled by the same factor. First come, first",
+        "served is what a bank run is. No capacity gate: nothing new can open,",
+        "and margin is held apart, so traders are not what LPs are leaving with."
+      ],
+      "discriminator": [
+        209,
+        90,
+        120,
+        86,
+        171,
+        127,
+        181,
+        161
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.usdc_mint",
+                "account": "Pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "oracle",
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "clp_mint",
+          "writable": true,
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "usdc_vault",
+          "writable": true,
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "fraction_vault",
+          "writable": true,
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "owner_clp",
+          "writable": true
+        },
+        {
+          "name": "owner_usdc",
+          "writable": true
+        },
+        {
+          "name": "owner_fractions",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "shares",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "set_params",
+      "docs": [
+        "Change the economic parameters. They live here and nowhere else."
+      ],
+      "discriminator": [
+        27,
+        234,
+        178,
+        52,
+        147,
+        2,
+        187,
+        141
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.usdc_mint",
+                "account": "Pool"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "PoolParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "set_perp_market",
+      "docs": [
+        "Bind the perp market allowed to touch the pool's risk accounting.",
+        "",
+        "Only the one PDA the perp program derives for THIS pool is accepted,",
+        "and `perp::initialize_market` only creates it with this pool's oracle."
+      ],
+      "discriminator": [
+        85,
+        77,
+        163,
+        1,
+        59,
+        20,
+        239,
+        174
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.usdc_mint",
+                "account": "Pool"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "market",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "set_state",
+      "docs": [
+        "Explicit state transition. There is no way back from `Settled`."
+      ],
+      "discriminator": [
+        65,
+        69,
+        101,
+        248,
+        20,
+        15,
+        200,
+        53
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.usdc_mint",
+                "account": "Pool"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "next",
+          "type": {
+            "defined": {
+              "name": "MarketState"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "settle_position",
+      "docs": [
+        "Settle one position against the pool. CPI ONLY, from the registered",
+        "perp market.",
+        "",
+        "The position's margin comes back out of `margin_held`; `to_recipient`",
+        "is paid (to the trader on a close, to the liquidator on a",
+        "liquidation); `fee` is carved out and split. Whatever is left of the",
+        "margin is the pool's gain, and whatever the payout exceeds it by is",
+        "the pool's loss."
+      ],
+      "discriminator": [
+        33,
+        156,
+        74,
+        218,
+        215,
+        42,
+        112,
+        175
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "docs": [
+            "The perp market PDA, signing through CPI. This single constraint is",
+            "what stops any other program from asking the pool to pay out."
+          ],
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.usdc_mint",
+                "account": "Pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_vault",
+          "writable": true,
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "trader_usdc",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "to_recipient",
+          "type": "u64"
+        },
+        {
+          "name": "fee",
+          "type": "u64"
+        },
+        {
+          "name": "bad_debt",
+          "type": "u64"
+        },
+        {
+          "name": "book",
+          "type": {
+            "defined": {
+              "name": "BookSnapshot"
+            }
+          }
+        },
+        {
+          "name": "margin_released",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "withdraw",
+      "docs": [
+        "Burn CLP and receive its value at NAV, as a slice of BOTH sleeves.",
+        "",
+        "Two things an earlier version got wrong, and a validator test proved:",
+        "",
+        "- it paid a raw proportional slice of the vaults, ignoring NAV. With",
+        "$25k of trader margin in the vault, depositing $100k and withdrawing",
+        "at once returned $110,416. Now the slice is sized by NAV.",
+        "- it let LPs drain the sleeve that open positions were admitted",
+        "against. Now a withdrawal stops at what open interest needs."
+      ],
+      "discriminator": [
+        183,
+        18,
+        70,
+        156,
+        148,
+        109,
+        161,
+        34
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool.usdc_mint",
+                "account": "Pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "oracle",
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "clp_mint",
+          "writable": true,
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "usdc_vault",
+          "writable": true,
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "fraction_vault",
+          "writable": true,
+          "relations": [
+            "pool"
+          ]
+        },
+        {
+          "name": "owner_clp",
+          "writable": true
+        },
+        {
+          "name": "owner_usdc",
+          "writable": true
+        },
+        {
+          "name": "owner_fractions",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "shares",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Pool",
+      "discriminator": [
+        241,
+        154,
+        109,
+        4,
+        17,
+        177,
+        109,
+        188
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "Deposited",
+      "discriminator": [
+        111,
+        141,
+        26,
+        45,
+        161,
+        35,
+        100,
+        57
+      ]
+    },
+    {
+      "name": "PositionSettled",
+      "discriminator": [
+        75,
+        100,
+        92,
+        189,
+        245,
+        116,
+        252,
+        221
+      ]
+    },
+    {
+      "name": "Redeemed",
+      "discriminator": [
+        14,
+        29,
+        183,
+        71,
+        31,
+        165,
+        107,
+        38
+      ]
+    },
+    {
+      "name": "StateChanged",
+      "discriminator": [
+        0,
+        150,
+        55,
+        224,
+        43,
+        26,
+        214,
+        192
+      ]
+    },
+    {
+      "name": "Withdrawn",
+      "discriminator": [
+        20,
+        89,
+        223,
+        198,
+        194,
+        124,
+        219,
+        13
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "NotAdmin",
+      "msg": "Only the pool admin"
+    },
+    {
+      "code": 6001,
+      "name": "BadParams",
+      "msg": "Invalid economic parameter"
+    },
+    {
+      "code": 6002,
+      "name": "CapacityExceeded",
+      "msg": "Open-interest capacity exceeded: the lower of the two ceilings was breached"
+    },
+    {
+      "code": 6003,
+      "name": "CardWeightExceeded",
+      "msg": "This card would exceed the maximum weight inside the sleeve"
+    },
+    {
+      "code": 6004,
+      "name": "AlreadySettled",
+      "msg": "Market is already settled"
+    },
+    {
+      "code": 6005,
+      "name": "NotSettled",
+      "msg": "This path is only available once the market has settled"
+    },
+    {
+      "code": 6006,
+      "name": "StateForbids",
+      "msg": "Market state forbids this operation"
+    },
+    {
+      "code": 6007,
+      "name": "InsufficientLiquidity",
+      "msg": "Insufficient liquid sleeve"
+    },
+    {
+      "code": 6008,
+      "name": "NotPerpMarket",
+      "msg": "Only the registered perp market"
+    },
+    {
+      "code": 6009,
+      "name": "ZeroAmount",
+      "msg": "Amount is zero"
+    },
+    {
+      "code": 6010,
+      "name": "DustDeposit",
+      "msg": "Deposit too small to mint any CLP"
+    },
+    {
+      "code": 6011,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6012,
+      "name": "WrongOracle",
+      "msg": "Oracle account differs from the one registered on the pool"
+    },
+    {
+      "code": 6013,
+      "name": "WrongMint",
+      "msg": "Token account uses the wrong mint"
+    },
+    {
+      "code": 6014,
+      "name": "WrongVault",
+      "msg": "Not one of the pool's registered vaults"
+    },
+    {
+      "code": 6015,
+      "name": "NotOwner",
+      "msg": "The token account does not belong to the signer"
+    },
+    {
+      "code": 6016,
+      "name": "SleeveTargetExceeded",
+      "msg": "Deposit would push the card sleeve past its target share"
+    },
+    {
+      "code": 6017,
+      "name": "Insolvent",
+      "msg": "Pool NAV is zero: it owes more than it holds and takes no deposits"
+    },
+    {
+      "code": 6018,
+      "name": "PayoutExceedsSleeve",
+      "msg": "Winning payout exceeds the liquid sleeve: the position stays open, nothing is paid in part"
+    }
+  ],
+  "types": [
+    {
+      "name": "BookSnapshot",
+      "docs": [
+        "The open book, as the pool needs it to mark NAV at today's price.",
+        "",
+        "An earlier version had `perp` push a PnL *number*, computed at the price",
+        "of the last close. Between closes it went stale, and NAV with it: opens",
+        "and price moves were invisible to every deposit and withdrawal. Storing",
+        "the book instead lets the pool mark it at whatever the oracle says now.",
+        "",
+        "CHANGED 9 Oct 2026 (issue #14), per the process at the top of this file.",
+        "Why: deposit NAV ignored borrow owed but not yet paid, so a depositor",
+        "bought in cheap at the existing LPs' expense. The book now carries the",
+        "borrow indices, their accrual time and the per-side borrow units, so the",
+        "pool can bring the indices to `now` with the same `kadex_risk::accrue`",
+        "perp uses and read the whole book's unpaid borrow. Affects: the `Pool`",
+        "account layout (clp-pool), the `Market` account (perp, new borrow-unit",
+        "fields appended), `record_open` / `settle_position` arguments, and the SDK",
+        "decoders and `navIssue`. Nothing was deployed when it changed."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oi_long",
+            "type": "u64"
+          },
+          {
+            "name": "oi_short",
+            "type": "u64"
+          },
+          {
+            "name": "units_long",
+            "type": "u128"
+          },
+          {
+            "name": "units_short",
+            "type": "u128"
+          },
+          {
+            "name": "borrow_idx_long",
+            "type": "u128"
+          },
+          {
+            "name": "borrow_idx_short",
+            "type": "u128"
+          },
+          {
+            "name": "last_accrual_ts",
+            "type": "i64"
+          },
+          {
+            "name": "borrow_units_long",
+            "type": "u128"
+          },
+          {
+            "name": "borrow_units_short",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Deposited",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "depositor",
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc",
+            "type": "u64"
+          },
+          {
+            "name": "fractions",
+            "type": "u64"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketState",
+      "docs": [
+        "The three market states. There is no fourth."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Active"
+          },
+          {
+            "name": "ReduceOnly"
+          },
+          {
+            "name": "Settled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Pool",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "clp_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "fraction_mint",
+            "docs": [
+              "The basket's fraction mint, bound at `initialize_pool` and never",
+              "changed.",
+              "",
+              "Issue #10 — fragmentation — is handled by this field rather than by a",
+              "convention: a `Pool` has exactly one fraction mint, its PDA is derived",
+              "from the USDC mint, and there is no instruction that rebinds it."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "fraction_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "oracle",
+            "type": "pubkey"
+          },
+          {
+            "name": "perp_market",
+            "docs": [
+              "The perp market allowed to touch risk accounting."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_sleeve",
+            "docs": [
+              "Liquid sleeve `U`, in native USDC: the LPs' money and nothing else.",
+              "Winners are paid from here.",
+              "",
+              "`usdc_vault` holds `usdc_sleeve + margin_held + accrued_fees_protocol`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "fraction_balance",
+            "docs": [
+              "Card sleeve as a TOKEN QUANTITY. Its value is marked at read time."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "clp_supply",
+            "type": "u64"
+          },
+          {
+            "name": "book",
+            "docs": [
+              "The open book, pushed by `perp` on every open and settle, marked at",
+              "read time. See [`BookSnapshot`]."
+            ],
+            "type": {
+              "defined": {
+                "name": "BookSnapshot"
+              }
+            }
+          },
+          {
+            "name": "bad_debt",
+            "docs": [
+              "Losses past a position's margin, recorded for visibility.",
+              "",
+              "NOT subtracted from NAV: the pool never received that money, so the",
+              "sleeve already reflects it. Subtracting it again counted it twice."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "margin_held",
+            "docs": [
+              "Trader margin sitting in `usdc_vault`, held apart from the sleeve."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "accrued_fees_lp",
+            "docs": [
+              "Running total of the LPs' fee share, already in the sleeve. Display."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "accrued_fees_protocol",
+            "docs": [
+              "The protocol's fee share, in the vault but not the sleeve, until",
+              "`claim_protocol_fees`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "params",
+            "type": {
+              "defined": {
+                "name": "PoolParams"
+              }
+            }
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "MarketState"
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PoolParams",
+      "docs": [
+        "All economic configuration lives here, inside the `Pool` account.",
+        "",
+        "Do not scatter these numbers through the codebase. If a value has to",
+        "change, it changes on the `Pool` and everyone sees the same thing."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "card_sleeve_target",
+            "docs": [
+              "Card sleeve target. WAD. Spec: 0.30."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "phi",
+            "docs": [
+              "Share of the USDC sleeve committable to traders. WAD. Spec: 0.50."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "delta_max",
+            "docs": [
+              "Adverse move the liquid sleeve must absorb. WAD. Spec: 0.30."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "mu",
+            "docs": [
+              "Share of open interest captured in a cascade. WAD. Spec: 0.30."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "delta_liq",
+            "docs": [
+              "Move that takes a max-leverage position to liquidation. WAD.",
+              "Spec: 0.1875 (5x with 6.25% maintenance)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "base_leverage",
+            "docs": [
+              "Maximum leverage. WAD. Spec: 5.0."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "maintenance_margin",
+            "docs": [
+              "Maintenance margin. WAD. Spec: 0.0625."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "r0",
+            "docs": [
+              "Base hourly borrow rate. WAD. Spec: 0.00005 (0.005%)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "r1",
+            "docs": [
+              "Quadratic borrow coefficient. WAD. Spec: 0.0005 (0.05%)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "psi",
+            "docs": [
+              "Crowded-side borrow surcharge. WAD. Spec: 0.5."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "open_close_fee_bps",
+            "docs": [
+              "Open and close fee, in basis points. Spec: 10."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "liquidator_fee_bps",
+            "docs": [
+              "Liquidator reward, in basis points of notional. Spec: 100."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "deposit_haircut_bps",
+            "docs": [
+              "Haircut on card-fraction deposits, in basis points. Spec: 300."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "max_card_weight",
+            "docs": [
+              "Weight ceiling for a single card inside the sleeve. WAD. Spec: 0.15."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "lp_fee_share_bps",
+            "docs": [
+              "Share of fees going to LPs, in basis points. Spec: 7500 (75%)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "reduce_only_utilization",
+            "docs": [
+              "Utilization at which the market goes `ReduceOnly`. WAD. Spec: 0.95."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "attack_safety",
+            "docs": [
+              "How many times attacking must cost what it pays, at the depth ceiling.",
+              "WAD. Default 2.0 — without it the ceiling has no margin at all."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PositionSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "to_recipient",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "bad_debt",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Redeemed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "usdc",
+            "type": "u64"
+          },
+          {
+            "name": "fractions",
+            "type": "u64"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StateChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "MarketState"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Withdrawn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "usdc",
+            "type": "u64"
+          },
+          {
+            "name": "fractions",
+            "type": "u64"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}

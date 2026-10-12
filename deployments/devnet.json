@@ -1,0 +1,81 @@
+{
+  "cluster": "devnet",
+  "transactions": {
+    "metadata_index": "3HkfeT2ZQAJW2Qt5PRm3Wp6kyDXNU5zAMZjpHtSe5C9hVYAEkwuPFubKw2163jVneYSeCGbjXTn3kuAiaQ8n7FCk",
+    "metadata_usd": "5fd6TjnBdokJbV2wnvC29gyBdhwAJqNBV1yjkANZfPAFgMhCFt8YoTzNBUUK5eLWznWndm1FkxZ7CdAnx3wZBEbo",
+    "create_pool": "2PRdMxnYCV9GvXRa51m2sDn4LCcWMcEPMXvjzLhNRiRvrK8hiwxFCbjCmSfZEmizQkzYzUi5HPFTZKk9jRpD8Mgf",
+    "initialize_oracle": "5YiXm9WzvCc83Kescn4sT68S87xJACkFTfKTkcU8N4zGiw3uJf4kbncNmSuGJ7JRreCApusE4GAvbuYxfPWBw3qu",
+    "refresh_price_initial": "45h4x2SKtBNQsyJq5gqyBthtbPDXjA33H6tkgbEQtTnuohFcCZXQNMkGY8y8SuwGjU2U48u2126xuLnq5piR5NW7",
+    "initialize_pool": "4kW6ZBuZ2VxfvBwZKiRsFwfE4X2bzY8anXfX3BnshUJDjoLKN9H2aa1EhqMsAJa3RE2moS72X3SqvX36UBoeDLsW",
+    "initialize_market": "4NwSs9FbaTYULhSBoV559kcmrMoRHV4BTdNrmBxktLdFnK61n8MSMLfBNApwQWd3aHet9hxnSKCvTmz3xS8zuZax",
+    "set_perp_market": "3VsH1pVvrkQjT59vyorpWePnrZeZYone3qZJmQrXxHUAL5RWkcFXsAHSY8DFWu3B6hi4z2b8SnhcTRuiaNA9vLKe",
+    "verify_refresh": "52nnCG9bUAFx7M1dY3eicuCG4NXETsBSqfduQMajGf2fMAwpSdzuchSLnJ3ESABkrZACKqVvLczAsyM42b3ivC2j",
+    "deposit_usdc": "3KuyXXwLqxsrPFqBsHHYTKKLR7vn2XyLn2XJW5eS6mafSVXNVwYACWxYo4zixUdAiStqVxgM4XeBjQgcQxeuiR84",
+    "open_position": "52kKAGwrQdoTd3Xchn388j8Pu1zN6NQCkYk7XPtWCsQ4vMuFkJTj38AkvUpktmKsfPcASMy8LMiVqrbLUR8PdYSY",
+    "close_position": "4HhF2R4m8Qgfzi5Z7DZ124zJwryBa4EYDCR3pmNNFW5r5SwnSf6FXnao3YkVNG4TXFoRWCcno3UZLsK6fmgPnHzK",
+    "fund_faucet_sol": "5t9Hj1VRCm1nRCK2p7qpmDVVTxFo5qWvKNHH9Fd4Km1Vq6MoeCgGraScajyVW3JR12xCBdiSsdxdTqmn82wBd4bc",
+    "fund_faucet_usd": "3z6ZjGLG6EACEhf8jh41wuCnSB94u9p2nvN1DEYsiEbB4FTT2qNPqG7cGRjsMU5gVCCQR5hCDUCeKTgNLKWVaoVx"
+  },
+  "deployer": "wre2uhkDwZ4tfotbj6fFXabQpSpEXdesHML8VvTw12J",
+  "programs": {
+    "oracle": "5288ShBXsFxqXiGm22FZi1ZrMnmet4i1ZR3bccyAguqp",
+    "clp_pool": "3XZkAqLeQDoNXD6Bb9YoGSEdnvqk9r7UMgrKsN5x3L9v",
+    "perp": "BcVwJ91Jd1k7xUNcGYzRygq2ubaCYn7p5MeUZzy1EyLR",
+    "card_vault": "J8Tef8N4YSfVwAxpBemCZrz3qCxehTeb2cd1jTwoBczW"
+  },
+  "mints": {
+    "index": {
+      "address": "FKNJbb86SZMFZgDVTK48atX4xiqwqACVDQi4vSaSx7F2",
+      "decimals": 6,
+      "mintAuthority": "wre2uhkDwZ4tfotbj6fFXabQpSpEXdesHML8VvTw12J",
+      "freezeAuthority": null,
+      "metadata": "8w2WPHGro25DpQys6u5JhH9ithWQs2aLSsXmbxKmwSt2",
+      "name": "Kadex Card Index (devnet test)",
+      "symbol": "tKDX",
+      "uri": "https://github.com/kadex-protocol/kadex/blob/main/docs/spec.md"
+    },
+    "usd": {
+      "address": "E2zRTPSvxyqTuiPvnGinCRWDLAfXUkNdLfUVcaFpTCzc",
+      "decimals": 6,
+      "mintAuthority": "wre2uhkDwZ4tfotbj6fFXabQpSpEXdesHML8VvTw12J",
+      "freezeAuthority": null,
+      "metadata": "HJAJ5FHySruGLVgCzE7UW9qNVKxxrhbNbcn4wT55EtZ6",
+      "name": "Kadex Devnet USD (not USDC)",
+      "symbol": "kdUSD",
+      "uri": "https://github.com/kadex-protocol/kadex/blob/main/docs/deploying.md"
+    }
+  },
+  "raydium": {
+    "program": "DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb",
+    "ammConfig": "5MxLgy9oPdTC3YgkiePHqr3EoCRD9uLVYRQS2ANAs7wy",
+    "tradeFee": "0.25%",
+    "pool": "FCidcNbQYoe24VwdkMwHeBWjdt3Jqz5Qazh7xPuMWdhV",
+    "authority": "CXniRufdq5xL8t8jZAPxsPZDpuudwuJSPWnbcD5Y5Nxq",
+    "lpMint": "BMUkoPwJcBfk6rSfAwimhGqmj3rPdAkzqKYdKxMnLbH7",
+    "observation": "FRs2amkq3Ls8XywJvxGEbjPeqYu1qPkhiuskfBDSxxmw",
+    "vaults": [
+      "Fo63cpVuUAH3VAYnhdPNUhUwK2Yggy4pjxMxPfTD7LWz",
+      "9LCTxihvNX1Bv8koySS5pwckPNwkGdVtY6iNmT1T1AwN"
+    ],
+    "mints": [
+      "E2zRTPSvxyqTuiPvnGinCRWDLAfXUkNdLfUVcaFpTCzc",
+      "FKNJbb86SZMFZgDVTK48atX4xiqwqACVDQi4vSaSx7F2"
+    ],
+    "seeded": {
+      "index": "50000000000",
+      "usd": "50000000000",
+      "price": "1.000000"
+    }
+  },
+  "protocol": {
+    "oracle": "HGjtgccRYwgvcNwrxjhSgb43UV1yr75PYpCGTKe5gz3h",
+    "clpPool": "Fp2cJu1yguxGUWM1c4f8HHZJivPtH7vEHYZ9wW4hHECN",
+    "clpMint": "2LVwGwfpVeqqzx2oTW9esUhRUjVX8w7MXRqy17HDBCcz",
+    "usdcVault": "97LdNdsEubGMoF8BUEGLP52zWdcdp1nKaCbs7mpqc486",
+    "fractionVault": "6WWbjsD4DC5nyGU2N3NkS8BnpcbnbSh63Y62UKPMVzmE",
+    "market": "4Z3vkbxEYsGKBJBZJZ4xaEkjnzCEBYmwgo5aLmujB6o1"
+  },
+  "faucet": {
+    "address": "jTdPpAGurxpEV2PAUZariSeL7bprtShjMwe5V9UpPch"
+  }
+}

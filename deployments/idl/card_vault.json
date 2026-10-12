@@ -1,0 +1,1157 @@
+{
+  "address": "J8Tef8N4YSfVwAxpBemCZrz3qCxehTeb2cd1jTwoBczW",
+  "metadata": {
+    "name": "card_vault",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Kadex — card-vault"
+  },
+  "instructions": [
+    {
+      "name": "fractionalize",
+      "docs": [
+        "Lock the NFT and mint the fractions to the depositor."
+      ],
+      "discriminator": [
+        183,
+        200,
+        238,
+        51,
+        180,
+        45,
+        49,
+        67
+      ],
+      "accounts": [
+        {
+          "name": "depositor",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "nft_mint",
+          "relations": [
+            "card"
+          ]
+        },
+        {
+          "name": "card",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "nft_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "nft_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "fraction_mint",
+          "writable": true,
+          "relations": [
+            "card"
+          ]
+        },
+        {
+          "name": "depositor_nft",
+          "writable": true
+        },
+        {
+          "name": "nft_escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  102,
+                  116,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "nft_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "depositor_fractions",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "fractionalize_core",
+      "docs": [
+        "Lock a Core card and mint its fractions.",
+        "",
+        "The vault PDA becomes the asset's owner, and the program checks the",
+        "chain agrees before minting a single fraction."
+      ],
+      "discriminator": [
+        144,
+        181,
+        132,
+        197,
+        152,
+        228,
+        44,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "depositor",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset",
+          "writable": true
+        },
+        {
+          "name": "collection"
+        },
+        {
+          "name": "card",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "asset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "asset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "fraction_mint",
+          "writable": true,
+          "relations": [
+            "card"
+          ]
+        },
+        {
+          "name": "depositor_fractions",
+          "writable": true
+        },
+        {
+          "name": "core_program",
+          "address": "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize_registry",
+      "docs": [
+        "Create the global registry. Once, by the admin.",
+        "",
+        "Upgrade authority only: the registry is a single PDA, so whoever",
+        "created it first used to become the whitelist admin forever.",
+        "`collection` is the Core collection whose cards may be whitelisted —",
+        "Collector Crypt's on mainnet."
+      ],
+      "discriminator": [
+        189,
+        181,
+        20,
+        17,
+        174,
+        57,
+        249,
+        59
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Must be this program's upgrade authority."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program",
+          "address": "J8Tef8N4YSfVwAxpBemCZrz3qCxehTeb2cd1jTwoBczW"
+        },
+        {
+          "name": "program_data",
+          "optional": true
+        },
+        {
+          "name": "registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "collection",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "redeem_card",
+      "docs": [
+        "Burn ALL fractions and return the NFT.",
+        "",
+        "There is no partial redemption: half the fractions do not buy half a card."
+      ],
+      "discriminator": [
+        131,
+        111,
+        251,
+        88,
+        180,
+        136,
+        12,
+        25
+      ],
+      "accounts": [
+        {
+          "name": "redeemer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "nft_mint",
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "nft_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "fraction_mint",
+          "writable": true,
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "redeemer_fractions",
+          "writable": true
+        },
+        {
+          "name": "nft_escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  102,
+                  116,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "nft_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "redeemer_nft",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "redeem_core",
+      "docs": [
+        "Burn the WHOLE fraction supply and take the Core card back out."
+      ],
+      "discriminator": [
+        52,
+        191,
+        206,
+        205,
+        221,
+        81,
+        183,
+        212
+      ],
+      "accounts": [
+        {
+          "name": "redeemer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset",
+          "writable": true
+        },
+        {
+          "name": "collection"
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "asset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "fraction_mint",
+          "writable": true,
+          "relations": [
+            "vault"
+          ]
+        },
+        {
+          "name": "redeemer_fractions",
+          "writable": true
+        },
+        {
+          "name": "core_program",
+          "address": "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "set_card_enabled",
+      "docs": [
+        "Disable a card without deleting its record. A disabled card accepts no",
+        "new `fractionalize`, but existing holders can still redeem."
+      ],
+      "discriminator": [
+        92,
+        131,
+        244,
+        129,
+        168,
+        173,
+        251,
+        183
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "registry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "card",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "card.nft_mint",
+                "account": "WhitelistedCard"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "enabled",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "whitelist_card",
+      "docs": [
+        "Whitelist an NFT mint and fix how many fractions it produces.",
+        "",
+        "The whitelist is a defence, not paperwork: without it anyone could",
+        "deposit the least sellable card they own and withdraw liquid CLP."
+      ],
+      "discriminator": [
+        155,
+        76,
+        9,
+        113,
+        151,
+        28,
+        185,
+        168
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "nft_mint"
+        },
+        {
+          "name": "fraction_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  114,
+                  97,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "nft_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "nft_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "card",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "nft_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "fractions_per_card",
+          "type": "u64"
+        },
+        {
+          "name": "weight_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "whitelist_core_card",
+      "docs": [
+        "Whitelist a Metaplex Core asset. Same record as `whitelist_card`, keyed",
+        "by the asset's address, and only for an asset the registry's",
+        "collection vouches for."
+      ],
+      "discriminator": [
+        36,
+        149,
+        133,
+        200,
+        18,
+        213,
+        115,
+        164
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "registry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "asset"
+        },
+        {
+          "name": "fraction_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  114,
+                  97,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "asset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "asset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "card",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "asset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "fractions_per_card",
+          "type": "u64"
+        },
+        {
+          "name": "weight_bps",
+          "type": "u16"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Registry",
+      "discriminator": [
+        47,
+        174,
+        110,
+        246,
+        184,
+        182,
+        252,
+        218
+      ]
+    },
+    {
+      "name": "VaultedCard",
+      "discriminator": [
+        82,
+        144,
+        106,
+        81,
+        198,
+        72,
+        94,
+        108
+      ]
+    },
+    {
+      "name": "WhitelistedCard",
+      "discriminator": [
+        253,
+        76,
+        218,
+        153,
+        32,
+        24,
+        209,
+        125
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "CardFractionalized",
+      "discriminator": [
+        51,
+        171,
+        50,
+        63,
+        129,
+        76,
+        235,
+        71
+      ]
+    },
+    {
+      "name": "CardRedeemed",
+      "discriminator": [
+        133,
+        166,
+        12,
+        57,
+        114,
+        90,
+        50,
+        85
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "NotACoreAsset",
+      "msg": "Account is not a Metaplex Core asset."
+    },
+    {
+      "code": 6001,
+      "name": "WrongCollection",
+      "msg": "Card is not in the expected collection."
+    },
+    {
+      "code": 6002,
+      "name": "NotAdmin",
+      "msg": "Only the registry admin"
+    },
+    {
+      "code": 6003,
+      "name": "ZeroFractions",
+      "msg": "Fraction supply must be greater than zero"
+    },
+    {
+      "code": 6004,
+      "name": "BadWeight",
+      "msg": "Weight outside the valid range"
+    },
+    {
+      "code": 6005,
+      "name": "CardDisabled",
+      "msg": "Card is disabled for new deposits"
+    },
+    {
+      "code": 6006,
+      "name": "AlreadyLocked",
+      "msg": "This card is already locked in the vault"
+    },
+    {
+      "code": 6007,
+      "name": "NotLocked",
+      "msg": "There is no locked NFT to redeem"
+    },
+    {
+      "code": 6008,
+      "name": "InsufficientFractions",
+      "msg": "Insufficient fractions: redemption requires the entire supply"
+    },
+    {
+      "code": 6009,
+      "name": "WrongCard",
+      "msg": "NFT mint differs from the registered one"
+    },
+    {
+      "code": 6010,
+      "name": "WrongFractionMint",
+      "msg": "Fraction mint differs from the registered one"
+    },
+    {
+      "code": 6011,
+      "name": "NotOwner",
+      "msg": "The token account does not belong to the signer"
+    },
+    {
+      "code": 6012,
+      "name": "NotAnNft",
+      "msg": "The account does not hold exactly 1 unit: not an NFT"
+    }
+  ],
+  "types": [
+    {
+      "name": "CardFractionalized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "nft_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "depositor",
+            "type": "pubkey"
+          },
+          {
+            "name": "fractions",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CardRedeemed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "nft_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "redeemer",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Registry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "collection",
+            "docs": [
+              "The Core collection whose cards may be whitelisted."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "card_count",
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultedCard",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "nft_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "fraction_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "depositor",
+            "type": "pubkey"
+          },
+          {
+            "name": "fractions_minted",
+            "type": "u64"
+          },
+          {
+            "name": "locked",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WhitelistedCard",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "nft_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "fraction_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "fractions_per_card",
+            "docs": [
+              "Fixed fraction supply for this card. Chosen at whitelist time, immutable."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "weight_bps",
+            "docs": [
+              "The card's weight in the basket index, in bps."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "enabled",
+            "type": "bool"
+          },
+          {
+            "name": "core",
+            "docs": [
+              "A Metaplex Core asset (true) or an SPL NFT (false). Each custody path",
+              "refuses the other's cards."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}

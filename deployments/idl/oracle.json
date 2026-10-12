@@ -1,0 +1,755 @@
+{
+  "address": "5288ShBXsFxqXiGm22FZi1ZrMnmet4i1ZR3bccyAguqp",
+  "metadata": {
+    "name": "oracle",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Kadex — oracle"
+  },
+  "instructions": [
+    {
+      "name": "initialize",
+      "docs": [
+        "Create a basket's oracle. Upgrade authority only, once per basket."
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Must be this program's upgrade authority."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program",
+          "docs": [
+            "upgrade authority. Address-checked."
+          ],
+          "address": "5288ShBXsFxqXiGm22FZi1ZrMnmet4i1ZR3bccyAguqp"
+        },
+        {
+          "name": "program_data",
+          "docs": [
+            "`require_deployer`; absent under loader v4."
+          ],
+          "optional": true
+        },
+        {
+          "name": "basket",
+          "docs": [
+            "the index token's mint, which `adapter::validate_pool` requires the",
+            "pool to pair; for the mock it is only a label."
+          ]
+        },
+        {
+          "name": "amm_pool"
+        },
+        {
+          "name": "oracle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "basket"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "adapter",
+          "type": {
+            "defined": {
+              "name": "AmmAdapter"
+            }
+          }
+        },
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "OracleParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "refresh_price",
+      "docs": [
+        "Read the AMM and republish the price. PERMISSIONLESS: anyone may call",
+        "it, which is exactly why there is no privileged oracle key here — and",
+        "exactly why nothing in it may get cheaper by calling it more often.",
+        "",
+        "Order of defences (each blocks a different attack):",
+        "",
+        "1. one update per slot -> a second call in the same slot is a no-op",
+        "2. time-weighted TWAP -> a pushed spot counts only for the seconds it stays",
+        "3. clamp scaled by elapsed time -> the price cannot outrun the clock",
+        "4. minimum depth over the window -> liquidity must stay to count",
+        "5. divergence against the external median -> blocks sustained manipulation"
+      ],
+      "discriminator": [
+        253,
+        61,
+        142,
+        248,
+        9,
+        32,
+        158,
+        32
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Permissionless by design: any keeper will do, and if ours goes down",
+            "someone else keeps the price alive."
+          ],
+          "signer": true
+        },
+        {
+          "name": "oracle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "oracle.basket",
+                "account": "OracleAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "amm_pool",
+          "docs": [
+            "Adapters that keep reserves outside the pool account read them from",
+            "the remaining accounts (Raydium: vault 0, vault 1) and verify each."
+          ],
+          "relations": [
+            "oracle"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "set_external_median",
+      "docs": [
+        "Publish the median of external fills, which is only the sanity bound.",
+        "",
+        "If this feed fails, the market loses ONE defence and keeps working off",
+        "the AMM price. It never becomes a price source."
+      ],
+      "discriminator": [
+        194,
+        82,
+        91,
+        152,
+        95,
+        18,
+        216,
+        255
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "oracle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "oracle.basket",
+                "account": "OracleAccount"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "median",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "set_params",
+      "docs": [
+        "Change the oracle's risk parameters. Admin only."
+      ],
+      "discriminator": [
+        27,
+        234,
+        178,
+        52,
+        147,
+        2,
+        187,
+        141
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "oracle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "oracle.basket",
+                "account": "OracleAccount"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "OracleParams"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "OracleAccount",
+      "discriminator": [
+        189,
+        23,
+        49,
+        197,
+        79,
+        96,
+        245,
+        91
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "PriceRefreshed",
+      "discriminator": [
+        64,
+        39,
+        28,
+        72,
+        53,
+        221,
+        84,
+        139
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "EmptyPool",
+      "msg": "AMM pool is empty or has no fraction reserve"
+    },
+    {
+      "code": 6001,
+      "name": "PriceOverflow",
+      "msg": "Price does not fit in u64"
+    },
+    {
+      "code": 6002,
+      "name": "NoObservations",
+      "msg": "No observations recorded"
+    },
+    {
+      "code": 6003,
+      "name": "WrongAmmPool",
+      "msg": "AMM pool account differs from the one registered on the oracle"
+    },
+    {
+      "code": 6004,
+      "name": "NotAdmin",
+      "msg": "Only the oracle admin"
+    },
+    {
+      "code": 6005,
+      "name": "BadParams",
+      "msg": "Invalid parameter"
+    },
+    {
+      "code": 6006,
+      "name": "AdapterUnsupported",
+      "msg": "AMM adapter not implemented yet"
+    },
+    {
+      "code": 6007,
+      "name": "AdapterBadAccount",
+      "msg": "AMM pool account has an unexpected layout"
+    },
+    {
+      "code": 6008,
+      "name": "AdapterWrongVault",
+      "msg": "Pool vault is missing or is not the vault the pool records"
+    },
+    {
+      "code": 6009,
+      "name": "AdapterWrongMint",
+      "msg": "Pool does not pair the oracle's basket mint, or a vault holds the wrong mint"
+    },
+    {
+      "code": 6010,
+      "name": "AdapterWrongAuthority",
+      "msg": "Pool vault is not owned by the AMM's own authority"
+    },
+    {
+      "code": 6011,
+      "name": "AdapterUnsupportedToken",
+      "msg": "Pool token uses a token program or decimals the oracle does not price"
+    },
+    {
+      "code": 6012,
+      "name": "AdapterPoolDisabled",
+      "msg": "Pool has swaps disabled, so its reserves are not a market price"
+    },
+    {
+      "code": 6013,
+      "name": "AdapterInsufficientVault",
+      "msg": "Pool vault holds less than the fees it owes"
+    }
+  ],
+  "types": [
+    {
+      "name": "AmmAdapter",
+      "docs": [
+        "Which external AMM the oracle reads. `Mock` exists because, as of day 1,",
+        "the on-chain layout of the real fraction pool is not confirmed — see",
+        "`docs/oracle.md`, \"Blocker #1\"."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Mock"
+          },
+          {
+            "name": "Meteora"
+          },
+          {
+            "name": "Orca"
+          },
+          {
+            "name": "Raydium"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Observation",
+      "docs": [
+        "A checkpoint of the running price integral.",
+        "",
+        "The TWAP is `(cumulative_now - cumulative_then) / (now - then)`: every",
+        "spot price counts for exactly as long as it was in force. Averaging the",
+        "raw readings instead let one caller stuff the buffer with copies of a",
+        "pushed price. Checkpoints are spaced at least `window / 31` apart, so the",
+        "buffer always reaches back a full window however often anyone refreshes."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ts",
+            "docs": [
+              "Unix timestamp of the checkpoint."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "cumulative",
+            "docs": [
+              "Sum of `spot * seconds` up to `ts`."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "depth",
+            "docs": [
+              "Lowest AMM USDC reserve seen from `ts` until the next checkpoint. The",
+              "published depth is the minimum over the window, so liquidity added for",
+              "one transaction cannot buy open interest."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OracleAccount",
+      "docs": [
+        "The oracle account. WRITTEN only by the `oracle` program.",
+        "",
+        "`perp` and `clp-pool` read it through [`read_oracle`], never deserializing",
+        "by hand and never assuming how the price was computed."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "basket",
+            "docs": [
+              "The basket this oracle prices."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "amm_pool",
+            "docs": [
+              "External AMM pool account the reserves are read from."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "adapter",
+            "docs": [
+              "Which adapter knows how to read `amm_pool`."
+            ],
+            "type": {
+              "defined": {
+                "name": "AmmAdapter"
+              }
+            }
+          },
+          {
+            "name": "admin",
+            "docs": [
+              "Authority allowed to change parameters. Cannot write a price."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "price",
+            "docs": [
+              "THE OFFICIAL PRICE, in WAD. Already through TWAP and clamp. This is",
+              "what liquidation and PnL use. Never the spot."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "twap",
+            "docs": [
+              "Raw window TWAP, before the clamp. Diagnostics only."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "spot",
+            "docs": [
+              "Last spot read from the AMM, unsmoothed. It enters the TWAP only for",
+              "the time it stays in force, starting at the NEXT refresh: a price",
+              "pushed for one transaction counts for the seconds until somebody",
+              "refreshes again, which is almost nothing."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "cumulative",
+            "docs": [
+              "Running integral of `spot * seconds`. See [`Observation`]."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "slow_twap",
+            "docs": [
+              "A deliberately sluggish EMA of the price, used ONLY to mark the pool's",
+              "card sleeve. See [`OracleView::mark_price`] for why it exists."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "depth_usdc",
+            "docs": [
+              "AMM USDC reserve, as the MINIMUM over the TWAP window. This is the",
+              "`R` in the depth ceiling. Liquidity counts once it has stayed."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "last_update_ts",
+            "type": "i64"
+          },
+          {
+            "name": "last_update_slot",
+            "type": "u64"
+          },
+          {
+            "name": "external_median",
+            "docs": [
+              "Median of external fills. SECONDARY DEFENCE: a sanity bound only, never",
+              "a price source."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "external_ts",
+            "type": "i64"
+          },
+          {
+            "name": "params",
+            "type": {
+              "defined": {
+                "name": "OracleParams"
+              }
+            }
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "OracleState"
+              }
+            }
+          },
+          {
+            "name": "observations",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "Observation"
+                  }
+                },
+                32
+              ]
+            }
+          },
+          {
+            "name": "obs_head",
+            "type": "u8"
+          },
+          {
+            "name": "obs_len",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OracleParams",
+      "docs": [
+        "Oracle configuration. WAD scale unless stated otherwise."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "twap_window_secs",
+            "docs": [
+              "TWAP window in seconds. Spec: 1800 (30 min)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "max_tick_move",
+            "docs": [
+              "Largest move accepted per `clamp_period_secs` of elapsed time. WAD.",
+              "Spec: 0.05.",
+              "",
+              "Scaled by TIME, not by update. An earlier version allowed this much",
+              "per call, and `refresh_price` is permissionless: twelve calls in one",
+              "transaction moved the price 79.6%."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_staleness_secs",
+            "docs": [
+              "Age at which the oracle goes `Stale`, in seconds. Spec: 900."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "min_pool_depth",
+            "docs": [
+              "Minimum AMM depth, in native USDC. Spec: 25_000_000_000 ($25k)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_divergence",
+            "docs": [
+              "Largest divergence tolerated against the external median. WAD. Spec: 0.15."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "slow_alpha",
+            "docs": [
+              "EMA coefficient for [`OracleAccount::slow_twap`]. WAD.",
+              "",
+              "Small on purpose. At 0.01 and a 30s refresh the slow price takes about",
+              "fifty minutes to follow a step change, which is the point: see",
+              "[`OracleView::mark_price`].",
+              "",
+              "Applied per `clamp_period_secs` of elapsed time, never per call, so",
+              "refreshing more often does not drag it faster."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "clamp_period_secs",
+            "docs": [
+              "The period `max_tick_move` and `slow_alpha` are expressed over, in",
+              "seconds. Spec: 15."
+            ],
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OracleState",
+      "docs": [
+        "Why the oracle is or is not healthy. `Ok` is the only state that allows a",
+        "position to be opened."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Ok"
+          },
+          {
+            "name": "Stale"
+          },
+          {
+            "name": "ShallowDepth"
+          },
+          {
+            "name": "Diverged"
+          },
+          {
+            "name": "Uninitialized"
+          },
+          {
+            "name": "CatchingUp"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PriceRefreshed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oracle",
+            "type": "pubkey"
+          },
+          {
+            "name": "spot",
+            "type": "u64"
+          },
+          {
+            "name": "twap",
+            "type": "u64"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "depth_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "OracleState"
+              }
+            }
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,280 @@
+{
+  "address": "AUPEWRMXpNvN42nCA6ovZRt4eYcaySyRhewxnTa6ygJi",
+  "metadata": {
+    "name": "mock_amm",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Kadex — constant-product fraction/USDC pool for devnet and tests. Never mainnet."
+  },
+  "instructions": [
+    {
+      "name": "add_liquidity",
+      "docs": [
+        "Add liquidity at the current ratio, leaving the price untouched.",
+        "",
+        "Deepening the pool raises the open-interest ceiling downstream, which",
+        "is the behaviour the depth invariant is built on."
+      ],
+      "discriminator": [
+        181,
+        157,
+        89,
+        67,
+        143,
+        182,
+        52,
+        72
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Permissionless: this is a test fixture, not an exchange."
+          ],
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "usdc",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "create_pool",
+      "docs": [
+        "Create the pool with its first liquidity.",
+        "",
+        "This is Blocker #2 in miniature: until someone funds a pool there is no",
+        "reserve, no price, and nothing downstream works."
+      ],
+      "discriminator": [
+        233,
+        146,
+        209,
+        142,
+        207,
+        104,
+        64,
+        188
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "usdc",
+          "type": "u64"
+        },
+        {
+          "name": "fraction",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "remove_liquidity",
+      "docs": [
+        "Remove liquidity at the current ratio.",
+        "",
+        "Exists so the team can drain the pool below `min_pool_depth` and watch",
+        "the oracle refuse to price it — the attack of pulling liquidity to make",
+        "the oracle cheap to push."
+      ],
+      "discriminator": [
+        80,
+        85,
+        209,
+        72,
+        24,
+        206,
+        177,
+        108
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Permissionless: this is a test fixture, not an exchange."
+          ],
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "usdc",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "swap",
+      "docs": [
+        "Swap against the curve, moving the price. `x * y = k`.",
+        "",
+        "`usdc_in > 0` buys fractions and pushes the price up; otherwise",
+        "`fraction_in` sells fractions and pushes it down."
+      ],
+      "discriminator": [
+        248,
+        198,
+        158,
+        145,
+        225,
+        117,
+        135,
+        200
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Permissionless: this is a test fixture, not an exchange."
+          ],
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "usdc_in",
+          "type": "u64"
+        },
+        {
+          "name": "fraction_in",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "MockPool",
+      "discriminator": [
+        58,
+        196,
+        208,
+        241,
+        31,
+        216,
+        243,
+        48
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "ReservesChanged",
+      "discriminator": [
+        75,
+        33,
+        170,
+        35,
+        52,
+        17,
+        178,
+        62
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "EmptyLiquidity",
+      "msg": "Liquidity must be greater than zero"
+    },
+    {
+      "code": 6001,
+      "name": "WouldEmptyPool",
+      "msg": "Operation would empty the pool"
+    },
+    {
+      "code": 6002,
+      "name": "ExactlyOneSide",
+      "msg": "Provide exactly one of usdc_in or fraction_in"
+    },
+    {
+      "code": 6003,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6004,
+      "name": "PriceDrifted",
+      "msg": "Proportional liquidity change moved the price"
+    }
+  ],
+  "types": [
+    {
+      "name": "MockPool",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "usdc",
+            "docs": [
+              "USDC reserve, native units. This is the `R` the depth ceiling reads."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "fraction",
+            "docs": [
+              "Card-fraction reserve, native units."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReservesChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc",
+            "type": "u64"
+          },
+          {
+            "name": "fraction",
+            "type": "u64"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}
