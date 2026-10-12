@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type CSSProperties, type PointerEvent } from "react";
+import type { CSSProperties, PointerEvent } from "react";
 import Link from "next/link";
 import { CONSTITUENTS, IS_SAMPLE } from "@/lib/market";
 import { USD_LABEL } from "@/lib/cluster";
@@ -10,45 +10,43 @@ interface Slot {
   x: number;
   y: number;
   w: number;
-  rx: number;
   ry: number;
   rz: number;
   depth: 0 | 1 | 2;
 }
 
 const SLOTS: Slot[] = [
-  { x: 7, y: 34, w: 170, rx: 8, ry: 26, rz: -12, depth: 0 },
-  { x: 86, y: 40, w: 180, rx: 6, ry: -28, rz: 11, depth: 0 },
-  { x: 97, y: 96, w: 160, rx: -10, ry: -22, rz: -16, depth: 0 },
-  { x: 20, y: 30, w: 105, rx: 4, ry: 18, rz: 7, depth: 1 },
-  { x: 71, y: 24, w: 100, rx: 10, ry: -16, rz: -9, depth: 1 },
-  { x: 15, y: 96, w: 115, rx: -14, ry: 24, rz: 18, depth: 1 },
-  { x: 30, y: 8, w: 74, rx: 12, ry: 14, rz: -6, depth: 2 },
-  { x: 62, y: 92, w: 80, rx: -8, ry: -12, rz: 10, depth: 2 },
-  { x: 40, y: 98, w: 68, rx: -12, ry: 10, rz: -14, depth: 2 },
-  { x: 99, y: 6, w: 84, rx: 10, ry: -20, rz: 20, depth: 2 },
+  { x: 7, y: 34, w: 170, ry: 26, rz: -12, depth: 0 },
+  { x: 86, y: 40, w: 180, ry: -28, rz: 11, depth: 0 },
+  { x: 97, y: 96, w: 160, ry: -22, rz: -16, depth: 0 },
+  { x: 20, y: 30, w: 105, ry: 18, rz: 7, depth: 1 },
+  { x: 71, y: 24, w: 100, ry: -16, rz: -9, depth: 1 },
+  { x: 15, y: 96, w: 115, ry: 24, rz: 18, depth: 1 },
+  { x: 30, y: 8, w: 74, ry: 14, rz: -6, depth: 2 },
+  { x: 62, y: 92, w: 80, ry: -12, rz: 10, depth: 2 },
+  { x: 40, y: 98, w: 68, ry: 10, rz: -14, depth: 2 },
+  { x: 99, y: 6, w: 84, ry: -20, rz: 20, depth: 2 },
 ];
 const PARALLAX_PX = [22, 12, 5];
 
+let pointerFrame = 0;
+
 const trackPointer = (e: PointerEvent<HTMLElement>) => {
-  const box = e.currentTarget.getBoundingClientRect();
-  e.currentTarget.style.setProperty("--px", (((e.clientX - box.left) / box.width) * 2 - 1).toFixed(3));
-  e.currentTarget.style.setProperty("--py", (((e.clientY - box.top) / box.height) * 2 - 1).toFixed(3));
+  const art = e.currentTarget.querySelector<HTMLElement>(".hbanner-art");
+  const { clientX, clientY } = e;
+  if (!art || pointerFrame) return;
+  pointerFrame = requestAnimationFrame(() => {
+    pointerFrame = 0;
+    const box = art.getBoundingClientRect();
+    art.style.setProperty("--px", (((clientX - box.left) / box.width) * 2 - 1).toFixed(3));
+    art.style.setProperty("--py", (((clientY - box.top) / box.height) * 2 - 1).toFixed(3));
+  });
 };
 
 function BannerArt({ cards }: { cards: VaultCard[] }) {
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    const watch = new IntersectionObserver(([entry]) => el.toggleAttribute("data-idle", !entry?.isIntersecting));
-    watch.observe(el);
-    return () => watch.disconnect();
-  }, []);
-
   const art = cards.filter((c) => c.frontImage);
   return (
-    <div className="hbanner-art" aria-hidden="true" ref={box}>
+    <div className="hbanner-art" aria-hidden="true">
       {art.length > 0 && SLOTS.map((slot, i) => (
         <span
           key={i}
@@ -57,11 +55,9 @@ function BannerArt({ cards }: { cards: VaultCard[] }) {
             "--x": `${slot.x}%`,
             "--y": `${slot.y}%`,
             "--w": `${slot.w}px`,
-            "--rx": `${slot.rx}deg`,
             "--ry": `${slot.ry}deg`,
             "--rz": `${slot.rz}deg`,
             "--par": `${PARALLAX_PX[slot.depth]}px`,
-            "--delay": `${-i * 1.3}s`,
           } as CSSProperties}
         >
           <span className="hslab">
