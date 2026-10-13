@@ -98,12 +98,22 @@ overrides the RPC.
 - **Loader.** Devnet takes `solana program deploy` (loader v3). Loader v4
   (SIMD-0167) is **inactive on devnet** as of 9 Oct 2026, so the
   `program-v4 deploy` the local harness uses would fail there.
-- **SOL.** About 6.6 SOL at the peak for oracle, clp_pool and perp: ~4.4 of
-  program rent, a refundable deploy buffer the size of the largest, the
-  0.15 SOL Raydium create-pool fee, and account rent. card_vault adds its own
-  rent on top, and the `env` step sends 1 SOL to the faucet wallet. `check`
-  prints the exact figure for the programs. Fund from https://faucet.solana.com (GitHub sign-in raises the
-  allowance); `solana airdrop` is rate-limited.
+- **SOL.** The deployment of 12 Oct 2026 cost 7.37 SOL before the faucet:
+  7.14 of program rent (oracle 1.17, clp_pool 1.99, perp 1.87, card_vault
+  2.11; devnet charges 5,080 lamports a byte), 0.03 for the two mints and
+  their metadata, 0.18 for the Raydium pool (0.15 of it Raydium's fee) and
+  0.02 for the oracle, the CLP pool and the market. There is no extra peak
+  for the upload buffer: the loader returns its lamports in the instruction
+  that funds the program. The `env` step then sends 1 SOL to the faucet
+  wallet, and seven test cards cost about 0.05. `check` prints the figure for
+  the programs. Fund from https://faucet.solana.com (GitHub sign-in raises
+  the allowance); `solana airdrop` is rate-limited.
+- **Uploads.** Programs are sent straight to the validators, not through the
+  RPC: on the public endpoint `--use-rpc` did not finish one program in four
+  minutes and had every other call from the same address refused with 429.
+  Each upload goes into a buffer whose keypair is kept in
+  `target/deploy/<name>-buffer.json`, so running `programs` again resumes an
+  interrupted one.
 - **What it creates.** A 6-decimal **index token** ("Kadex Card Index (devnet
   test)", `tKDX`, Metaplex metadata, mint authority the deployer, no freeze
   authority), a 6-decimal **Kadex Devnet USD** (`kdUSD` — not USDC: a $25k-deep
@@ -160,7 +170,9 @@ On Windows run all of this from WSL, where the toolchain is.
 8. **Make the price move on camera.** `npm run devnet:market -- swing 0.03
    600 15`. Each swap carries `refresh_price`, so it works without a keeper.
    The oracle keeps its 30-minute TWAP on devnet, so the price on screen
-   follows a swing slowly: about a tenth of a 3% swing over ten minutes.
+   follows a swing slowly: about a tenth of a 3% swing over ten minutes. A
+   fourth argument fixes the price the swing is centred on (`swing 0.06 3600
+   30 1`), which a long-running one needs so that a restart does not move it.
 
 What this does not give you:
 
@@ -173,35 +185,51 @@ What this does not give you:
 
 ## Hosting on Railway
 
-One Railway project, `kadex`, with three services. Each is deployed by
-uploading this checkout, from the repository root:
+One Railway project, `kadex`. Each service is deployed by uploading this
+checkout, from the repository root:
 
 ```sh
-railway up --service web        # or keeper, liquidator
+railway up --service web-devnet     # or web, keeper, liquidator, market
 ```
 
 `.railwayignore` keeps the Rust workspace out of the upload, so the builder
-treats it as a Node project. The build and start commands are set on each
+treats it as a Node project. Railway has no access to the GitHub repository,
+so nothing deploys on push. The build and start commands are set on each
 service:
 
 | Service | Build | Start | Variables |
 |---|---|---|---|
-| web | `npm run build -w @kadex/web` | `npm run start -w @kadex/web` | `NEXT_PUBLIC_KADEX_RPC_URL`, `NEXT_PUBLIC_KADEX_USDC_MINT`, `NEXT_PUBLIC_KADEX_NETWORK=devnet`, `KADEX_FAUCET_KEYPAIR` |
-| keeper | `npm run typecheck` | `node scripts/service.mjs keeper` | `KADEX_SERVICE_KEYPAIR`, `DEVNET_RPC` (optional) |
-| liquidator | `npm run typecheck` | `node scripts/service.mjs liquidator` | `KADEX_SERVICE_KEYPAIR`, `DEVNET_RPC` (optional) |
+| web | `npm run build -w @kadex/web` | `npm run start -w @kadex/web` | none: it serves the sample market |
+| web-devnet | same | same | `NEXT_PUBLIC_KADEX_RPC_URL`, `NEXT_PUBLIC_KADEX_USDC_MINT`, `NEXT_PUBLIC_KADEX_NETWORK=devnet`, `KADEX_FAUCET_KEYPAIR`, `KADEX_FAUCET_SOL=0.03` |
+| keeper | `npm run typecheck` | `node scripts/service.mjs keeper` | `KADEX_SERVICE_KEYPAIR`, `INTERVAL_MS=10000` |
+| liquidator | `npm run typecheck` | `node scripts/service.mjs liquidator` | `KADEX_SERVICE_KEYPAIR` |
+| market | `npm run typecheck` | `node scripts/devnet-market.mjs swing 0.06 3600 30 1` | `KADEX_MARKET_KEYPAIR` |
 
-The web service runs without any variable: it then serves the sample market.
-The `NEXT_PUBLIC_*` values are read at build time, so upload again after
-setting them. Copy them, and `KADEX_FAUCET_KEYPAIR`, from the
-`apps/web/.env.local` that `node scripts/devnet.mjs all` writes.
-
-`KADEX_SERVICE_KEYPAIR` takes the keypair JSON array itself, since there is no
-file to point at. Use a wallet made for the services and funded with a little
-devnet SOL, never the deployer.
-
-The keeper and the liquidator exit until `deployments/devnet.json` and
-`deployments/idl/` exist in the checkout being uploaded. The deploy writes
-both.
+- **web** is https://web-production-6940ad.up.railway.app and **web-devnet**
+  is https://web-devnet-production.up.railway.app. They are the same code;
+  only the variables differ.
+- The `NEXT_PUBLIC_*` values are read at build time, so upload again after
+  changing them. They, and `KADEX_FAUCET_KEYPAIR`, come from the
+  `apps/web/.env.local` that the `env` step writes. That file and Railway
+  are the only places the faucet key exists.
+- Every keypair variable takes the JSON array itself, since there is no file
+  to point at. The services, the price mover and the faucet each have their
+  own wallet with a little devnet SOL; none of them is the deployer.
+- The keeper, the liquidator and the price mover read
+  `deployments/devnet.json` and `deployments/idl/` from the upload. The
+  deploy writes both; upload again after `cards`, because the web app lists
+  the test cards from that record.
+- The three are set to always restart. The keeper refreshes every 10 s
+  instead of its default 5: the oracle's clamp allows 5% per 15 s whatever
+  the cadence, so this costs half the fees for the same price speed.
+- **market** is a trader that swaps in the Raydium pool so the index moves
+  6% around 1.00 over an hour. Without it the devnet price never changes and
+  every position shows no profit and no loss. It holds a million of each
+  test token and is not a mint authority.
+- The RPC is the public devnet endpoint, which refuses more than about 40
+  calls of one method per 10 s from an address. The web app shares its reads
+  for that reason. A keyed endpoint in `NEXT_PUBLIC_KADEX_RPC_URL` and
+  `DEVNET_RPC` removes the limit.
 
 ## Local validator
 
