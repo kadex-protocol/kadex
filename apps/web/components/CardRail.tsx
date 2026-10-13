@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState, type MouseEvent } from "react";
+import { memo, useCallback, useRef, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { fmtUsd } from "@/lib/market";
 import type { VaultCard } from "@/lib/collectorCrypt";
@@ -8,7 +8,7 @@ import { askOverAppraisal, titleParts } from "@/lib/cardText";
 import { TiltSlab } from "@/components/TiltSlab";
 import { CardPreview } from "@/components/CardPreview";
 
-export function CardRail({ cards, title = "Vaultable cards", note, failed = false, onRetry }: { cards: VaultCard[]; title?: string; note?: string; failed?: boolean; onRetry?: () => void }) {
+export const CardRail = memo(function CardRail({ cards, title = "Vaultable cards", note, failed = false, onRetry }: { cards: VaultCard[]; title?: string; note?: string; failed?: boolean; onRetry?: () => void }) {
   const track = useRef<HTMLDivElement>(null);
   const [preview, setPreview] = useState<VaultCard | null>(null);
   const closePreview = useCallback(() => setPreview(null), []);
@@ -63,4 +63,4 @@ export function CardRail({ cards, title = "Vaultable cards", note, failed = fals
       {preview && <CardPreview card={preview} onClose={closePreview} />}
     </section>
   );
-}
+});

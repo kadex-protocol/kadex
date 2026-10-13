@@ -1,15 +1,16 @@
 "use client";
 
 import { BRAND } from "@/lib/brand";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useWallet, shortKey } from "@/lib/wallet";
 import { fmtUsd, IS_SAMPLE, loadBalances } from "@/lib/market";
 import { USD_LABEL } from "@/lib/cluster";
 import { LEDGER_EVENT } from "@/lib/sim";
-import { UiSwitch } from "@/components/UiSwitch";
 import { WelcomeDialog } from "@/components/WelcomeDialog";
+import { ArrowIcon } from "@/components/ArrowIcon";
+import { HomeFaq } from "@/components/HomeFaq";
 
 /**
  * Four destinations, each named for what you do there. Anything that is
@@ -113,12 +114,12 @@ export function Frame({ children }: { children: React.ReactNode }) {
           <Link href="/pool?tab=withdraw" className="chip opt">Withdraw</Link>
           {connected && <span className="chip num">{usdc !== null ? `$${fmtUsd(usdc, 2)}` : "-"} {USD_LABEL}</span>}
           <WalletButton className="btn accent" />
-          <UiSwitch />
         </div>
       </header>
 
       <main className="main">{children}</main>
-      <WelcomeDialog />
+      <HomeFaq />
+      <Suspense fallback={null}><WelcomeDialog /></Suspense>
 
       <footer className="foot">
         <svg className="foot-slabs" viewBox="0 0 1440 320" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
@@ -158,10 +159,11 @@ export function Frame({ children }: { children: React.ReactNode }) {
             <div>
               <h4>Resources</h4>
               <Link href="/index-methodology">Index methodology</Link>
+              <Link href="/blog">Blog</Link>
               <Link href="/pool">How the pool works</Link>
               <Link href="/vault">How vaulting works</Link>
-              <a href="https://collectorcrypt.com" target="_blank" rel="noreferrer">Collector Crypt ↗</a>
-              <a href="https://solana.com" target="_blank" rel="noreferrer">Solana ↗</a>
+              <a href="https://collectorcrypt.com" target="_blank" rel="noreferrer">Collector Crypt <ArrowIcon direction="external" /></a>
+              <a href="https://solana.com" target="_blank" rel="noreferrer">Solana <ArrowIcon direction="external" /></a>
             </div>
           </nav>
         </div>

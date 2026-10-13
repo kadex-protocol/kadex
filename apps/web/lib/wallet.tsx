@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { CLUSTER, TEST_FUNDS } from "./cluster";
 import { requestTestFunds } from "./faucet";
+import { ArrowIcon } from "@/components/ArrowIcon";
 
 const REMEMBER_KEY = "kadex.wallet";
 const DEMO_KEY = "kadex.demo.v1";
@@ -107,6 +108,28 @@ function injectedAdapter(provider: InjectedProvider): Adapter {
   };
 }
 
+function withFallback(primary: Adapter, fallback: Adapter): Adapter {
+  let current = primary;
+  return {
+    name: primary.name,
+    icon: primary.icon,
+    async connect(silent) {
+      current = primary;
+      try {
+        return await primary.connect(silent);
+      } catch (e) {
+        if (silent || benign(e instanceof Error ? e.message : "")) throw e;
+        console.error("Wallet Standard connect failed, trying the injected provider:", e);
+        current = fallback;
+        return fallback.connect(false);
+      }
+    },
+    disconnect: () => current.disconnect(),
+    signTransaction: (tx) => current.signTransaction(tx),
+    onAccountChange: (listener) => current.onAccountChange?.(listener) ?? (() => {}),
+  };
+}
+
 function demoKeypair(): Keypair {
   try {
     const stored = window.localStorage.getItem(DEMO_KEY);
@@ -171,7 +194,10 @@ function useAdapters(): Adapter[] {
   }, []);
 
   return useMemo(() => {
-    const standard = wallets.map(standardAdapter);
+    const standard = wallets.map((wallet) => {
+      const adapter = standardAdapter(wallet);
+      return legacy?.isPhantom && wallet.name === "Phantom" ? withFallback(adapter, injectedAdapter(legacy)) : adapter;
+    });
     const real = standard.length > 0 || !legacy ? standard : [injectedAdapter(legacy)];
     return TEST_FUNDS ? [...real, DEMO] : real;
   }, [wallets, legacy]);
@@ -361,7 +387,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
                       <b>Install Phantom</b>
                       <em>No Solana wallet detected in this browser</em>
                     </span>
-                    <i aria-hidden="true">↗</i>
+                    <i aria-hidden="true"><ArrowIcon direction="external" /></i>
                   </a>
                 </li>
               )}

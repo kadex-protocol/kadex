@@ -9,7 +9,7 @@ export const SITE_DESCRIPTION =
   "Go long or short on an index of tokenized graded trading cards with perpetuals on Solana. Earn fees as the pool, or vault a graded card for fractions.";
 
 const COVER = {
-  url: "/opengraph-image.png",
+  url: "/opengraph-image.jpg",
   width: 1200,
   height: 630,
   alt: `${BRAND}: Trading cards. Traded. Go long or short on the graded card market with perpetuals on Solana.`,

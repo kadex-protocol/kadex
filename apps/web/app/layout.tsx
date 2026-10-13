@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { WalletProvider } from "@/lib/wallet";
 import { Frame } from "@/components/Frame";
+import { VisitorTracker } from "@/components/VisitorTracker";
 import { SITE_DESCRIPTION, SITE_TAGLINE, SITE_URL } from "@/lib/site";
 
 const TITLE = `${BRAND} · ${SITE_TAGLINE}`;
@@ -57,6 +58,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <WalletProvider>
           <Frame>{children}</Frame>
+          <VisitorTracker />
         </WalletProvider>
       </body>
     </html>

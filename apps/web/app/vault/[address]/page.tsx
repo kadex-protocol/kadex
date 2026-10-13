@@ -11,6 +11,7 @@ import { askOverAppraisal, gradeLine, shortAddress, titleParts } from "@/lib/car
 import { useWallet } from "@/lib/wallet";
 import { CardStage } from "@/components/CardStage";
 import { TiltSlab } from "@/components/TiltSlab";
+import { ArrowIcon } from "@/components/ArrowIcon";
 import { VaultActions, type VaultStatus } from "@/components/VaultActions";
 import { loadTestCards, twinOf } from "@/lib/testCards";
 
@@ -181,7 +182,7 @@ export default function CardPage() {
             </div>
             {faces.length > 1 && (
               <div className="cview-nav">
-                <button className="btn" type="button" aria-label="Previous photo" onClick={() => setBack((b) => !b)}>←</button>
+                <button className="btn" type="button" aria-label="Previous photo" onClick={() => setBack((b) => !b)}><ArrowIcon direction="left" /></button>
                 <span className="v-faces">
                   {faces.map((src, i) => (
                     <button key={src} type="button" aria-label={i === 1 ? "Show back" : "Show front"} data-on={back === (i === 1)} onClick={() => setBack(i === 1)}>
@@ -189,7 +190,7 @@ export default function CardPage() {
                     </button>
                   ))}
                 </span>
-                <button className="btn" type="button" aria-label="Next photo" onClick={() => setBack((b) => !b)}>→</button>
+                <button className="btn" type="button" aria-label="Next photo" onClick={() => setBack((b) => !b)}><ArrowIcon /></button>
               </div>
             )}
           </section>
@@ -247,14 +248,14 @@ export default function CardPage() {
               target="_blank"
               rel="noreferrer"
             >
-              View on Collector Crypt ↗
+              View on Collector Crypt <ArrowIcon direction="external" />
             </a>
           </div>
 
           {receipt && <p className={`hint${receipt.ok ? "" : " bad"}`} role="status">{receipt.text}</p>}
           {holder === wallet && wallet !== null && (
             <p className="hint">
-              In the vault. Its fractions are in your wallet: <Link href="/pool" className="link">deposit them to earn →</Link>
+              In the vault. Its fractions are in your wallet: <Link href="/pool" className="link">deposit them to earn <ArrowIcon /></Link>
             </p>
           )}
 

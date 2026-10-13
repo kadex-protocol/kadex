@@ -2,18 +2,19 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { fmtPct, fmtPrice, fmtUsd, quote, type MarketSnapshot } from "@/lib/market";
+import { fmtPrice, fmtUsd, type MarketSnapshot } from "@/lib/market";
 import { USD_LABEL } from "@/lib/cluster";
 import type { VaultCard } from "@/lib/collectorCrypt";
 import { titleParts } from "@/lib/cardText";
 import { useWallet, shortKey } from "@/lib/wallet";
 
-const EXAMPLE_NOTIONAL = 1_000_000_000n;
+const EXAMPLE_DEPOSIT = 1000;
 const WALLETS = [
   { name: "Phantom", icon: "/wallets/phantom.svg" },
-  { name: "Solflare", icon: null },
-  { name: "Backpack", icon: null },
+  { name: "Solflare", icon: "/wallets/solflare.svg" },
+  { name: "Backpack", icon: "/wallets/backpack.png" },
 ];
+const INDEX_LINE = "M0 66C16 62 24 44 42 47S68 70 86 62 110 32 130 38 156 63 174 55 202 24 224 32 250 47 266 36";
 
 function Step({ n, title, body, action, children }: { n: number; title: string; body: string; action: ReactNode; children: ReactNode }) {
   return (
@@ -24,18 +25,25 @@ function Step({ n, title, body, action, children }: { n: number; title: string; 
         <p>{body}</p>
         {action}
       </div>
-      <div className="hw-demo" aria-hidden="true">{children}</div>
+      <div className="hw-demo live" aria-hidden="true">{children}</div>
     </li>
   );
 }
 
 export function HowItWorks({ cards, data, onTrade }: { cards: VaultCard[]; data: MarketSnapshot | null; onTrade(): void }) {
   const { status, publicKey, walletName, detected, connect } = useWallet();
-  const found = (name: string) => detected.some((wallet) => wallet.toLowerCase().startsWith(name.toLowerCase()));
   const connected = status === "connected" && publicKey !== null;
-  const example = data ? quote(data, "long", EXAMPLE_NOTIONAL) : null;
-  const slab = cards.find((c) => c.frontImage && c.vaultable) ?? cards.find((c) => c.frontImage) ?? null;
+  const walletState = (name: string) => {
+    const key = name.toLowerCase();
+    if (connected && walletName?.toLowerCase().startsWith(key)) return "Connected";
+    return detected.some((wallet) => wallet.toLowerCase().startsWith(key)) ? "Detected" : "Supported";
+  };
+  const lead = WALLETS.find((wallet) => walletState(wallet.name) !== "Supported") ?? WALLETS[0]!;
+  const withArt = cards.filter((card) => card.frontImage);
+  const slab = withArt.find((card) => card.vaultable) ?? withArt[0] ?? null;
+  const behind = withArt.find((card) => card !== slab) ?? null;
   const slabTitle = slab ? titleParts(slab) : null;
+  const clpPrice = data ? Number(fmtPrice(data.poolStats.clpPrice)) : 0;
 
   return (
     <section className="how" aria-labelledby="how-h">
@@ -59,23 +67,15 @@ export function HowItWorks({ cards, data, onTrade }: { cards: VaultCard[]; data:
             )
           }
         >
-          <ul className="wconnect-list">
-            {WALLETS.map((w) => (
-              <li key={w.name}>
-                <div className="hw-row">
-                  {w.icon ? <img src={w.icon} alt="" /> : <span className="wconnect-ico">{w.name[0]}</span>}
-                  <span>
-                    <b>{w.name}</b>
-                    <em>
-                      {connected && walletName?.toLowerCase().startsWith(w.name.toLowerCase())
-                        ? "Connected"
-                        : found(w.name)
-                          ? "Detected"
-                          : "Supported"}
-                    </em>
-                  </span>
-                  <i>›</i>
-                </div>
+          <ul className="hwd hwd-wallets">
+            {WALLETS.map((wallet) => (
+              <li key={wallet.name} className={wallet === lead ? "on" : undefined}>
+                <img src={wallet.icon} alt="" />
+                <span>
+                  <b>{wallet.name}</b>
+                  <em>{walletState(wallet.name)}</em>
+                </span>
+                <i>{wallet === lead ? "Connect" : "›"}</i>
               </li>
             ))}
           </ul>
@@ -87,21 +87,33 @@ export function HowItWorks({ cards, data, onTrade }: { cards: VaultCard[]; data:
           body={`Long if you think graded cards go up, short if you think they fall. ${data ? `${Number(data.pool.params.baseLeverage) / 1e6}x, with` : "Use"} ${USD_LABEL} as margin.`}
           action={<button type="button" className="btn" onClick={onTrade}>Open the ticket</button>}
         >
-          <div className="hw-ticket">
-            <div className="hw-sides">
-              <span className="l on">Long</span>
-              <span className="s">Short</span>
+          <div className="hwd hwd-trade">
+            <div className="hwd-index">
+              <img src="/logo.png" alt="" />
+              <b>Kadex Index</b>
+              <em>{data ? fmtPrice(data.oracle.price) : "-"}</em>
             </div>
-            <div className="hw-amount">
-              <span>Order size</span>
-              <b>1,000.00</b>
-              <span className="tk-asset"><span className="coin usdc" />{USD_LABEL}</span>
+            <svg viewBox="0 0 300 90" preserveAspectRatio="none" fill="none">
+              <path d={`${INDEX_LINE}L266 90H0Z`} fill="url(#hwd-fill)" />
+              <path d={INDEX_LINE} stroke="currentColor" strokeWidth="2" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+              <path d="M270 36H300" stroke="currentColor" strokeOpacity=".4" strokeDasharray="2 4" vectorEffect="non-scaling-stroke" />
+              <defs>
+                <linearGradient id="hwd-fill" x1="0" y1="20" x2="0" y2="90" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="currentColor" stopOpacity=".14" />
+                  <stop offset="1" stopColor="currentColor" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+            </svg>
+            <div className="hwd-sides">
+              <span className="l">
+                <b>Long</b>
+                <em>Profit if the index rises</em>
+              </span>
+              <span className="s">
+                <b>Short</b>
+                <em>Profit if the index falls</em>
+              </span>
             </div>
-            <dl className="hw-rows">
-              <div><dt>Entry price</dt><dd>{example ? fmtPrice(example.entryPrice) : "-"}</dd></div>
-              <div><dt>Margin required</dt><dd>{example ? `$${fmtUsd(example.margin, 2)}` : "-"}</dd></div>
-              <div><dt>Est. liquidation price</dt><dd>{example ? fmtPrice(example.liquidationPrice) : "-"}</dd></div>
-            </dl>
           </div>
         </Step>
 
@@ -111,21 +123,21 @@ export function HowItWorks({ cards, data, onTrade }: { cards: VaultCard[]; data:
           body="Deposit into the pool and collect the fees traders pay. You take the other side of their trades."
           action={<Link href="/pool" className="btn">Go to Earn</Link>}
         >
-          <div className="hw-pool">
-            <div className="hw-figures">
-              <div><span>Pool value</span><b>{data ? `$${fmtUsd(data.poolStats.nav)}` : "-"}</b></div>
-              <div><span>CLP price</span><b>{data ? fmtPrice(data.poolStats.clpPrice) : "-"}</b></div>
+          <div className="hwd hwd-earn">
+            <div className="hwd-box">
+              <span>You deposit</span>
+              <b>{fmtAmount(EXAMPLE_DEPOSIT)}</b>
+              <em><img src="/tokens/usdc.svg" alt="" />{USD_LABEL}</em>
             </div>
-            {([
-              [USD_LABEL, data?.poolStats.usdcSleeveShare],
-              ["Card fractions", data?.poolStats.cardSleeveShare],
-              ["In use by traders", data?.capacity.utilization],
-            ] as const).map(([label, value]) => (
-              <div className="hw-bar" key={label}>
-                <div><span>{label}</span><b>{value !== undefined ? fmtPct(value, 1) : "-"}</b></div>
-                <i><i style={{ width: value !== undefined ? fmtPct(value, 1) : "0%" }} /></i>
-              </div>
-            ))}
+            <div className="hwd-box">
+              <span>You receive</span>
+              <b>{clpPrice > 0 ? fmtAmount(EXAMPLE_DEPOSIT / clpPrice) : "-"}</b>
+              <em><img src="/logo.png" alt="" />CLP</em>
+            </div>
+            <p className="hwd-foot">
+              <span>Traders pay the pool</span>
+              <b>Fees + borrow</b>
+            </p>
           </div>
         </Step>
 
@@ -135,14 +147,18 @@ export function HowItWorks({ cards, data, onTrade }: { cards: VaultCard[]; data:
           body="Vault a graded card for fractions worth its appraisal. Redeem the card when you hold them all."
           action={<Link href="/vault" className="btn">Go to Vault</Link>}
         >
-          <div className="hw-vault">
-            {slab ? <img src={slab.frontImage!} alt="" loading="lazy" /> : <span className="hw-blank" />}
-            <div>
+          <div className="hwd hwd-vault">
+            <div className="hwd-slabs">
+              {behind && <img className="b" src={behind.frontImage!} alt="" loading="lazy" />}
+              {slab ? <img src={slab.frontImage!} alt="" loading="lazy" /> : <span />}
+            </div>
+            <div className="hwd-card">
               <b>{slabTitle?.title ?? "A graded card"}</b>
               <em>{slabTitle?.grade ?? "Graded and held in custody"}</em>
-              <dl className="hw-rows">
+              <dl>
                 <div><dt>Appraised value</dt><dd>{slab ? `$${fmtUsd(slab.insuredValueUsdc, 2)}` : "-"}</dd></div>
                 <div><dt>You receive</dt><dd>{slab ? `${fmtUsd(slab.insuredValueUsdc, 2)} fractions` : "-"}</dd></div>
+                <div><dt>To redeem</dt><dd>All fractions</dd></div>
               </dl>
             </div>
           </div>
@@ -150,4 +166,8 @@ export function HowItWorks({ cards, data, onTrade }: { cards: VaultCard[]; data:
       </ol>
     </section>
   );
+}
+
+function fmtAmount(value: number) {
+  return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }

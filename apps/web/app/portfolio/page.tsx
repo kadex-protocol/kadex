@@ -14,6 +14,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { ArrowIcon } from "@/components/ArrowIcon";
 import { fmtUsd, loadMarket, loadPortfolio, type MarketSnapshot, type Portfolio } from "@/lib/market";
 import { USD_LABEL } from "@/lib/cluster";
 import { PnlNavPanel } from "@/components/PnlNavPanel";
@@ -150,7 +151,7 @@ export default function PortfolioPage() {
               <div className="empty">
                 <h3>No open positions</h3>
                 <p>Go long or short on the index and it will show up here.</p>
-                <Link href="/" className="btn accent">Trade the index →</Link>
+                <Link href="/" className="btn accent">Trade the index <ArrowIcon /></Link>
               </div>
             ) : (
               <section className="panel">
@@ -176,7 +177,7 @@ export default function PortfolioPage() {
               <div className="empty">
                 <h3>No cards vaulted</h3>
                 <p>Vault a graded card and it will appear here with its fractions.</p>
-                <Link href="/vault" className="btn accent">Vault a card →</Link>
+                <Link href="/vault" className="btn accent">Vault a card <ArrowIcon /></Link>
               </div>
             ) : (
               <div className="card-grid">
@@ -217,7 +218,7 @@ export default function PortfolioPage() {
               <div className="empty">
                 <h3>No pool shares</h3>
                 <p>Deposit {USD_LABEL} or card fractions into the pool to earn trading fees.</p>
-                <Link href="/pool" className="btn accent">Go to Earn →</Link>
+                <Link href="/pool" className="btn accent">Go to Earn <ArrowIcon /></Link>
               </div>
             ) : (
               <section className="panel">

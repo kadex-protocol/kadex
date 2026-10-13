@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import Link from "next/link";
+import { ArrowIcon } from "@/components/ArrowIcon";
 import { fmtUsd, IS_SAMPLE } from "@/lib/market";
 import type { CategoryGroup, MarketplaceSource, OrderBy } from "@kadex/collector-crypt";
 import { SOLANA_ADDRESS, loadVaultCard, loadVaultCards, type VaultCard } from "@/lib/collectorCrypt";
@@ -441,7 +442,7 @@ export default function VaultPage() {
           </details>
         ))}
         <p className="sub">
-          Open a card to vault it. Already have fractions? <Link href="/pool" className="link">Deposit them to earn →</Link>
+          Open a card to vault it. Already have fractions? <Link href="/pool" className="link">Deposit them to earn <ArrowIcon /></Link>
         </p>
       </section>
     </div>

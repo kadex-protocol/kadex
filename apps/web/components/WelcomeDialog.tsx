@@ -5,6 +5,8 @@ import { USD_LABEL } from "@/lib/cluster";
 import { borrowSpread, CONSTITUENTS, fmtPrice, fmtUsd } from "@/lib/market";
 import { useMarket } from "@/lib/useMarket";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ArrowIcon } from "@/components/ArrowIcon";
+import { useSearchParams } from "next/navigation";
 
 const SEEN_KEY = "kadex.welcome.v1";
 const FORCE_PARAM = "onboarding";
@@ -142,7 +144,7 @@ export function EarnStage() {
   );
 }
 
-export function VaultStage() {
+function VaultStage() {
   const card = BASKET.find((c) => c.image) ?? BASKET[0];
   if (!card) return null;
   const value = Number(card.appraisalUsd);
@@ -220,19 +222,20 @@ const STEPS: Step[] = [
 ];
 
 export function WelcomeDialog() {
+  const searchParams = useSearchParams();
+  const forced = searchParams.get(FORCE_PARAM) === "true";
   const [open, setOpen] = useState(false);
   const [index, setIndex] = useState(0);
   const primary = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    const forced = new URLSearchParams(window.location.search).get(FORCE_PARAM) === "true";
     let seen = true;
     try {
       seen = window.localStorage.getItem(SEEN_KEY) === "1";
       if (!seen) window.localStorage.setItem(SEEN_KEY, "1");
     } catch {}
     if (forced || !seen) setOpen(true);
-  }, []);
+  }, [forced]);
 
   useEffect(() => {
     if (!open) return;
@@ -275,7 +278,7 @@ export function WelcomeDialog() {
             {index === 0 ? (
               <button type="button" className="welcome-ghost" onClick={() => setOpen(false)}>Skip</button>
             ) : (
-              <button type="button" className="welcome-ghost" onClick={() => setIndex(index - 1)}>← Back</button>
+              <button type="button" className="welcome-ghost" onClick={() => setIndex(index - 1)}><ArrowIcon direction="left" /> Back</button>
             )}
             <button
               ref={primary}
@@ -283,7 +286,7 @@ export function WelcomeDialog() {
               className="btn accent welcome-next"
               onClick={() => (isLast ? setOpen(false) : setIndex(index + 1))}
             >
-              {isLast ? `Enter ${BRAND}` : "Next"} →
+              {isLast ? `Enter ${BRAND}` : "Next"} <ArrowIcon />
             </button>
           </div>
         </div>

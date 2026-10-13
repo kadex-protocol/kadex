@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 /** @type {(phase: string) => import('next').NextConfig} */
 export default (phase) => ({
   reactStrictMode: true,
+  distDir: process.env.KADEX_DIST_DIR || ".next",
   transpilePackages: ["@kadex/types", "@kadex/sdk", "@kadex/oracle", "@kadex/collector-crypt"],
   // The repo root, not the home directory — there is a stray lockfile above it.
   outputFileTracingRoot: fileURLToPath(new URL("../..", import.meta.url)),

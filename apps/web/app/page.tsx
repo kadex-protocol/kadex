@@ -2,14 +2,14 @@
 
 import { BRAND } from "@/lib/brand";
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import {
-  borrowSpread, fmtPct, fmtUsd, HISTORY_STEP_SECS, IS_SAMPLE, loadIndexHistory, loadPortfolio, priceAt,
+  borrowSpread, fmtPct, fmtUsd, HISTORY_STEP_SECS, loadIndexHistory, loadPortfolio, priceAt,
   type IndexPoint, type Portfolio,
 } from "@/lib/market";
 import { useMarket } from "@/lib/useMarket";
 import { useWallet } from "@/lib/wallet";
 import { AccountPanel } from "@/components/AccountPanel";
+import { BlogSection } from "@/components/BlogSection";
 import { loadVaultCards, type VaultCard } from "@/lib/collectorCrypt";
 import { CardRail } from "@/components/CardRail";
 import { focusTicket, HomeBanner } from "@/components/HomeBanner";
@@ -91,7 +91,6 @@ export default function HomePage() {
   const changeLabel = changeSpan >= 86_400 - HISTORY_STEP_SECS
     ? "24h change"
     : `Change (${Math.floor(changeSpan / 3600) > 0 ? `${Math.floor(changeSpan / 3600)}h${Math.floor(changeSpan / 60) % 60 ? ` ${Math.floor(changeSpan / 60) % 60}m` : ""}` : `${Math.floor(changeSpan / 60)}m`})`;
-  const oracleOk = data?.oracle.state === "ok";
   const marketAvailable = !loading && !error && !!data && data.marketInitialized &&
     data.pool.state === "active" && (data.oracle.state === "ok" || data.oracle.state === "stale") &&
     data.capacity.free > 0n;
@@ -165,18 +164,7 @@ export default function HomePage() {
 
       <HowItWorks cards={cards} data={data} onTrade={focusTicket} />
 
-      <footer className="statusbar">
-        <span>
-          <i className={oracleOk ? "up" : "down"} /> Oracle {data?.oracle.state ?? "-"}
-          <i className="up" /> Solana
-          {IS_SAMPLE && <em>Preview · sample data</em>}
-        </span>
-        <span>
-          <Link href="/index-methodology">Index methodology</Link>
-          <Link href="/pool">Earn</Link>
-          <Link href="/vault">Vault</Link>
-        </span>
-      </footer>
+      <BlogSection />
     </div>
   );
 }

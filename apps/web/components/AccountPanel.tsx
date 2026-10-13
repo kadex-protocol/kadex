@@ -7,6 +7,7 @@ import { fmtUsd, type MarketSnapshot, type Portfolio } from "@/lib/market";
 import { USD_LABEL } from "@/lib/cluster";
 import { useWallet } from "@/lib/wallet";
 import { PositionsTable } from "@/components/PositionsTable";
+import { ArrowIcon } from "@/components/ArrowIcon";
 
 type Tab = "positions" | "cards" | "shares";
 
@@ -45,7 +46,7 @@ export function AccountPanel({ portfolio, positions, snapshot, onTrade, onClosed
             </button>
           ))}
         </div>
-        <Link href="/portfolio" className="acct-all">Portfolio →</Link>
+        <Link href="/portfolio" className="acct-all">Portfolio <ArrowIcon /></Link>
       </header>
 
       {!connected ? (

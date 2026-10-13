@@ -9,7 +9,7 @@ const WINDOW_MS = 90_000;
 const NARROW_WINDOW_MS = 45_000;
 const NARROW_PX = 480;
 const STEP_MS = 500;
-const FRAME_MS = 50;
+const FRAME_MS = 100;
 const LABEL_STEPS_MS = [15_000, 30_000, 60_000];
 const LABEL_GAP_PX = 76;
 const HEAD = 0.86;
@@ -84,7 +84,7 @@ export function LiveChart({ priceAt }: { priceAt: PriceAt }) {
       const ms = Date.now();
       fill(ms);
       const head = IS_SAMPLE ? read(ms) ?? pts[pts.length - 1]?.[1] : pts[pts.length - 1]?.[1];
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
       if (el.width !== Math.round(w * dpr) || el.height !== Math.round(h * dpr)) {
         el.width = Math.round(w * dpr);
         el.height = Math.round(h * dpr);
@@ -194,6 +194,7 @@ export function LiveChart({ priceAt }: { priceAt: PriceAt }) {
     };
 
     const loop = () => {
+      if (!seen || document.hidden) return;
       paint();
       timer = window.setTimeout(() => {
         frame = requestAnimationFrame(loop);
@@ -208,8 +209,12 @@ export function LiveChart({ priceAt }: { priceAt: PriceAt }) {
       if (visible === seen) return;
       seen = visible;
       stop();
-      if (seen) frame = requestAnimationFrame(loop);
+      if (seen && !document.hidden) frame = requestAnimationFrame(loop);
     });
+    const onVisibility = () => {
+      stop();
+      if (seen && !document.hidden) frame = requestAnimationFrame(loop);
+    };
     const sizes = new ResizeObserver(([entry]) => {
       if (!entry) return;
       w = entry.contentRect.width;
@@ -217,11 +222,13 @@ export function LiveChart({ priceAt }: { priceAt: PriceAt }) {
     });
     watch.observe(el);
     sizes.observe(el);
+    document.addEventListener("visibilitychange", onVisibility);
     frame = requestAnimationFrame(loop);
     return () => {
       stop();
       watch.disconnect();
       sizes.disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 
