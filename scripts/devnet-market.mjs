@@ -3,10 +3,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import { Connection, PublicKey, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import { createAssociatedTokenAccountIdempotent, getAccount, getMint, mintTo } from "@solana/spl-token";
 import { readRaydium, refreshAccounts, spotPrice, swapBaseInputIx } from "../packages/oracle/dist/index.js";
 import { decodeOracle, refreshPriceIx } from "../packages/sdk/dist/chain.js";
+import { loadKeypair } from "../packages/sdk/dist/node.js";
 
 const USAGE = `Move the price of the devnet index pool by trading in it. DEVNET AND LOCAL ONLY.
 
@@ -15,10 +16,11 @@ const USAGE = `Move the price of the devnet index pool by trading in it. DEVNET 
   node scripts/devnet-market.mjs nudge -2               move the spot price by -2% from where it is
   node scripts/devnet-market.mjs swing 0.03 600 15      oscillate 3% around the current price, one
                                                         cycle every 600 s, one trade every 15 s
+  node scripts/devnet-market.mjs swing 0.03 600 15 1    the same around 1.00, so a restart does not move the centre
 
 Reads the addresses from deployments/devnet.json (KADEX_DEPLOYMENT overrides the path).
-Env: DEVNET_RPC (default https://api.devnet.solana.com), KADEX_MARKET_KEYPAIR (default
-KADEX_DEPLOYER, then ~/.config/solana/id.json). The trader needs index tokens and test USD;
+Env: DEVNET_RPC (default https://api.devnet.solana.com), KADEX_MARKET_KEYPAIR (a keypair file or
+the JSON array itself; default KADEX_DEPLOYER, then ~/.config/solana/id.json). The trader needs index tokens and test USD;
 if it is the mint authority of either, as the devnet deployer is, it mints what a trade lacks.
 Each trade moves the spot price at most KADEX_MARKET_MAX_STEP (default 0.02) and is followed,
 in the same transaction, by refresh_price. Run \`npm run typecheck\` first: it builds the packages.`;
@@ -77,12 +79,11 @@ async function main() {
   }
 
   const rpc = process.env.DEVNET_RPC ?? "https://api.devnet.solana.com";
-  const keypairPath = (process.env.KADEX_MARKET_KEYPAIR ?? process.env.KADEX_DEPLOYER ?? join(homedir(), ".config/solana/id.json")).replace(/^~/, homedir());
   const maxStep = toWad(process.env.KADEX_MARKET_MAX_STEP ?? "0.02");
   const conn = new Connection(rpc, "confirmed");
   if ((await conn.getGenesisHash()) === MAINNET_GENESIS) throw new Error("this script never trades on mainnet");
 
-  const trader = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(keypairPath, "utf8"))));
+  const trader = loadKeypair(process.env.KADEX_MARKET_KEYPAIR ?? process.env.KADEX_DEPLOYER ?? join(homedir(), ".config/solana/id.json"), "KADEX_MARKET_KEYPAIR");
   const index = new PublicKey(record.mints.index.address);
   const usd = new PublicKey(record.mints.usd.address);
   const ammPool = new PublicKey(record.raydium.pool);
@@ -161,7 +162,7 @@ async function main() {
   const period = Number(args[1] ?? 600);
   const interval = Number(args[2] ?? 15);
   if (!(amplitude > 0 && amplitude < 0.5) || !(period > 0) || !(interval > 0)) throw new Error("swing takes an amplitude below 0.5, a period and an interval in seconds");
-  const base = await spotNow();
+  const base = args[3] ? toWad(args[3]) : await spotNow();
   console.log(`[market] swinging ${amplitude * 100}% around ${fmt(base)}, period ${period} s, a trade every ${interval} s. Ctrl+C stops it.`);
   const started = Date.now();
   for (;;) {
