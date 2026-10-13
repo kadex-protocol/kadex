@@ -9,6 +9,10 @@ import { ArrowIcon } from "@/components/ArrowIcon";
 const REMEMBER_KEY = "kadex.wallet";
 const DEMO_KEY = "kadex.demo.v1";
 const INSTALL_URL = "https://phantom.app/download";
+const TIP_KEY = "kadex.testnet-tip";
+const TEST_NETWORK = CLUSTER && CLUSTER.network !== "mainnet" ? CLUSTER.network : null;
+const CHAIN = CLUSTER ? `solana:${CLUSTER.network === "local" ? "localnet" : CLUSTER.network}` : undefined;
+const TESTNET_STEPS = "Settings → Developer Settings → Testnet Mode";
 const PHANTOM_ICON = "/wallets/phantom.svg";
 
 interface StandardAccount {
@@ -30,7 +34,7 @@ interface DisconnectFeature {
   disconnect(): Promise<void>;
 }
 interface SignTransactionFeature {
-  signTransaction(input: { account: StandardAccount; transaction: Uint8Array }): Promise<{ signedTransaction: Uint8Array }[]>;
+  signTransaction(input: { account: StandardAccount; transaction: Uint8Array; chain?: string }): Promise<{ signedTransaction: Uint8Array }[]>;
 }
 interface EventsFeature {
   on(event: "change", listener: (event: { accounts?: readonly StandardAccount[] }) => void): () => void;
@@ -77,6 +81,7 @@ function standardAdapter(wallet: StandardWallet): Adapter {
       const [signed] = await feature<SignTransactionFeature>("solana:signTransaction")!.signTransaction({
         account,
         transaction: new Uint8Array(bytes),
+        chain: CHAIN,
       });
       if (!signed) throw new Error("The wallet returned no signature.");
       return Transaction.from(signed.signedTransaction);
@@ -244,6 +249,8 @@ const remember = (name: string | null) => {
 };
 
 const benign = (message: string) => /reject|denied|cancel|closed/i.test(message);
+const explain = (name: string, message: string) =>
+  /unexpected error/i.test(message) ? `${name} could not open its approval window. Open the ${name} extension, unlock it and try again.` : message;
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const adapters = useAdapters();
@@ -252,6 +259,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [pending, setPending] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tipSeen, setTipSeen] = useState(true);
   const restored = useRef(false);
   const connection = useRef(0);
   const opener = useRef<HTMLElement | null>(null);
@@ -274,7 +282,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       if (attempt !== connection.current) return;
       const message = e instanceof Error ? e.message : "Connection was rejected.";
-      if (!silent && !benign(message)) setError(message);
+      if (!silent && !benign(message)) setError(explain(adapter.name, message));
     } finally {
       if (attempt === connection.current) setPending(null);
     }
@@ -341,6 +349,23 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     };
   }, [picking]);
 
+  useEffect(() => {
+    try {
+      setTipSeen(window.localStorage.getItem(TIP_KEY) === "1");
+    } catch {
+      setTipSeen(false);
+    }
+  }, []);
+
+  const dismissTip = useCallback(() => {
+    setTipSeen(true);
+    try {
+      window.localStorage.setItem(TIP_KEY, "1");
+    } catch {}
+  }, []);
+
+  const showTip = TEST_NETWORK !== null && !tipSeen && publicKey !== null && active !== null && active !== DEMO;
+
   const status: Status = publicKey ? "connected" : pending ? "connecting" : "disconnected";
   const value = useMemo(
     () => ({
@@ -394,9 +419,22 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             </ul>
 
             {error && <p className="hint bad" role="alert">{error}</p>}
+            {TEST_NETWORK && adapters.some((adapter) => adapter !== DEMO) && (
+              <p className="hint">
+                Using your own wallet on {TEST_NETWORK}? Turn on its test network first ({TESTNET_STEPS} in Phantom), or the wallet blocks the transaction as unsafe.
+              </p>
+            )}
             <p className="wconnect-foot">Self-custody · Solana</p>
           </div>
         </div>
+      )}
+      {showTip && (
+        <aside className="wallet-tip" role="status">
+          <p>
+            <b>Turn on Testnet Mode in {active?.name ?? "your wallet"}.</b> Kadex runs on {TEST_NETWORK}. Without it the wallet checks each transaction against mainnet and blocks it as unsafe. In Phantom: {TESTNET_STEPS}.
+          </p>
+          <button type="button" className="btn" onClick={dismissTip}>Got it</button>
+        </aside>
       )}
     </Ctx.Provider>
   );

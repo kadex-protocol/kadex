@@ -150,25 +150,27 @@ function VaultStage() {
   const value = Number(card.appraisalUsd);
   return (
     <div className="wstage ws-vault">
-      <figure className="ws-slab">
-        {card.image ? <img src={card.image} alt="" loading="lazy" /> : <i />}
-        <figcaption>${usd(value)}</figcaption>
-      </figure>
-      <div className="ws-arrow" aria-hidden="true">→</div>
-      <div className="ws-fractions">
-        <small>{card.grade}</small>
-        <p>{card.name}</p>
-        <b>${usd(value, 2)}</b>
-        <span>in fractions, at the appraised value</span>
-        <div className="ws-dots" aria-hidden="true">
-          {Array.from({ length: 30 }, (_, i) => (
-            <i key={i} style={{ animationDelay: `${200 + i * 30}ms` }} />
-          ))}
-        </div>
-        <ul>
-          <li>Deposit them to earn CLP</li>
-          <li>Hold them all to redeem the card</li>
-        </ul>
+      <div className="ws-vault-art">
+        <figure className="ws-slab" aria-hidden="true">
+          {card.image && (
+            <>
+              <img className="back left" src={card.image} alt="" loading="lazy" />
+              <img className="back right" src={card.image} alt="" loading="lazy" />
+              <img className="front" src={card.image} alt="" loading="lazy" />
+            </>
+          )}
+        </figure>
+        <span className="ws-vault-cta">Vault this card</span>
+      </div>
+      <div className="ws-vault-copy">
+        <small>Collector</small>
+        <p>
+          Locks the slab,
+          <em>keeps its value.</em>
+        </p>
+        <i aria-hidden="true" />
+        <span>{usd(value, 2)} fractions minted</span>
+        <span className="dim">Return them all to redeem</span>
       </div>
     </div>
   );

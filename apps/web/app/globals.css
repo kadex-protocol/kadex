@@ -925,6 +925,33 @@ details.acc > .rows, details.acc > .hint { margin-top: 12px; }
 .ws-clp b { font-weight: 600; font-size: 14.5px; }
 .ws-clp em { font-style: normal; font-family: var(--mono); font-size: 10.5px; padding-left: 9px; border-left: 1px solid color-mix(in srgb, var(--bg) 30%, transparent); }
 
+.ws-vault { flex-direction: row; gap: 34px; padding: 0 24px; background: #0a0a0b; }
+.ws-vault-art { flex: none; display: flex; flex-direction: column; align-items: center; gap: 16px; animation: welcome-rise .4s ease-out backwards; }
+.ws-slab { position: relative; height: 244px; aspect-ratio: 676 / 1136; }
+.ws-slab img { position: absolute; aspect-ratio: 676 / 1136; border-radius: 6px; }
+.ws-slab .front { inset: 0; height: 100%; box-shadow: 0 0 0 1px rgb(255 255 255 / .22), 0 22px 44px -16px #000; }
+.ws-slab .back { top: 9%; height: 82%; filter: blur(3px) brightness(.48) saturate(1.1); }
+.ws-slab .back.left { right: 58%; }
+.ws-slab .back.right { left: 58%; }
+.ws-vault-cta { display: flex; justify-content: center; width: 214px; padding: 10px 18px; border-radius: 100px; background: var(--accent, var(--ink)); color: #101014; font-weight: 600; font-size: 13px; white-space: nowrap; }
+.ws-vault-copy { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 10px; animation: welcome-rise .4s ease-out .15s backwards; }
+.ws-vault-copy small { font-family: var(--mono); font-size: 10.5px; letter-spacing: .22em; text-transform: uppercase; color: #9c9c9c; }
+.ws-vault-copy p { font-weight: 900; font-size: 26px; line-height: 1.14; text-transform: uppercase; color: #fff; }
+.ws-vault-copy em { display: block; font-style: normal; background: linear-gradient(180deg, #ffc266 20%, #f7780f 85%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.ws-vault-copy i { width: 44px; height: 2px; margin: 6px 0 2px; background: rgb(255 255 255 / .3); }
+.ws-vault-copy span { font-family: var(--mono); font-weight: 500; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: #c4c4c4; }
+.ws-vault-copy .dim { color: #9c9c9c; }
+@media (max-width: 560px) {
+  .ws-vault { gap: 24px; padding: 0 14px; }
+  .ws-slab { height: 150px; }
+  .ws-vault-cta { width: 120px; padding: 8px 10px; font-size: 11px; }
+  .ws-vault-copy { gap: 6px; width: 142px; }
+  .ws-vault-copy small { font-size: 9px; }
+  .ws-vault-copy p { font-size: 15px; }
+  .ws-vault-copy i { margin: 3px 0 1px; }
+  .ws-vault-copy span { font-size: 8.5px; letter-spacing: .06em; }
+}
+
 @keyframes ws-reveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
 @keyframes ws-grow { from { width: 0; } }
 @media (max-width: 560px) {
@@ -1030,6 +1057,10 @@ details.acc > .rows, details.acc > .hint { margin-top: 12px; }
 .wconnect-list i { margin-left: auto; font-style: normal; font-size: 18px; color: var(--mute); transition: translate .12s; }
 .wconnect-list :is(button, a):hover:not(:disabled) i { translate: 2px 0; }
 .wconnect .hint { margin: 0; font-size: 12.5px; }
+.wallet-tip { position: fixed; z-index: 60; left: 50%; bottom: 20px; translate: -50% 0; width: min(560px, calc(100vw - 32px)); display: flex; align-items: center; gap: 16px; padding: 14px 16px; border-radius: var(--r, 12px); border: 1px solid var(--accent, var(--line)); background: var(--panel, var(--bg)); box-shadow: 0 18px 50px rgba(0, 0, 0, .5); font-family: var(--sans); font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+.wallet-tip p { margin: 0; }
+.wallet-tip b { color: var(--ink); font-weight: 600; }
+.wallet-tip .btn { flex: none; }
 .wconnect-foot { margin: 4px 0 0; text-align: center; font-family: var(--sans); font-size: 12px; color: var(--mute); }
 
 .hw-steps { grid-template-columns: repeat(4, minmax(0, 1fr)); }
