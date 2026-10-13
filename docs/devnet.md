@@ -42,7 +42,7 @@ flowchart TD
 | What | Where |
 |---|---|
 | Live app, wired to devnet | https://web-devnet-production.up.railway.app |
-| Product domain | https://kadex.kc1t.com |
+| Product domain, the same devnet build | https://kadex.kc1t.com |
 | Pitch deck | https://kadex-deck-production.up.railway.app |
 | Repository | https://github.com/kadex-protocol/Kadex |
 | Machine-readable market state | `GET /api/market` on the live app |
@@ -118,7 +118,7 @@ The four programs are owned by the upgradeable loader. Their upgrade authority i
 | Vault of token 0, `kdUSD` | [`Fo63cpVuUAH3VAYnhdPNUhUwK2Yggy4pjxMxPfTD7LWz`](https://explorer.solana.com/address/Fo63cpVuUAH3VAYnhdPNUhUwK2Yggy4pjxMxPfTD7LWz?cluster=devnet) |
 | Vault of token 1, `tKDX` | [`9LCTxihvNX1Bv8koySS5pwckPNwkGdVtY6iNmT1T1AwN`](https://explorer.solana.com/address/9LCTxihvNX1Bv8koySS5pwckPNwkGdVtY6iNmT1T1AwN?cluster=devnet) |
 
-The pool was seeded with 50,000 `tKDX` against 50,000 `kdUSD`, a price of 1.00.
+The pool was seeded with 50,000 `tKDX` against 50,000 `kdUSD`, a price of 1.00. On 2026-10-13 the deployer added liquidity at the pool's own price, which brought the depth to 2,000,000 `kdUSD`.
 
 ### Transactions
 
@@ -135,6 +135,8 @@ Signatures of the deployment steps and of the verification run.
 | `deposit_usdc` | [`3KuyXXwL...QxeuiR84`](https://explorer.solana.com/tx/3KuyXXwLqxsrPFqBsHHYTKKLR7vn2XyLn2XJW5eS6mafSVXNVwYACWxYo4zixUdAiStqVxgM4XeBjQgcQxeuiR84?cluster=devnet) |
 | `open_position` | [`52kKAGwr...UR8PdYSY`](https://explorer.solana.com/tx/52kKAGwrQdoTd3Xchn388j8Pu1zN6NQCkYk7XPtWCsQ4vMuFkJTj38AkvUpktmKsfPcASMy8LMiVqrbLUR8PdYSY?cluster=devnet) |
 | `close_position` | [`4HhF2R4m...fmgPnHzK`](https://explorer.solana.com/tx/4HhF2R4m8Qgfzi5Z7DZ124zJwryBa4EYDCR3pmNNFW5r5SwnSf6FXnao3YkVNG4TXFoRWCcno3UZLsK6fmgPnHzK?cluster=devnet) |
+| `deposit_usdc`, 2026-10-13: pool reserve to 200,000 `kdUSD` | [`2bFqGLn7...kEoLvg7v`](https://explorer.solana.com/tx/2bFqGLn7VDiWnMKtprFS8tx9LnRpz1fCEqkWDNocLH2kMY3hbH5MKtXsY4gdcQBnUvohkDgjLdyXFhEwkEoLvg7v?cluster=devnet) |
+| Raydium `deposit`, 2026-10-13: depth to 2,000,000 `kdUSD` | [`31KMdofS...dwLLuwkA`](https://explorer.solana.com/tx/31KMdofSU9ZhooZrG3TnDQ5NTQCzQz1YVKgnLaRzMqBGEayKEM9iJWjvQyY6T7X6D8WM3vEnt562DnpBdwLLuwkA?cluster=devnet) |
 
 The record holds more signatures: the token metadata, the verification refresh and the funding of the faucet.
 
@@ -155,7 +157,7 @@ Oracle parameters, as initialized by `scripts/devnet.mjs`:
 
 Pool parameters are the defaults of `PoolParams`. They are listed in [overview.md](overview.md#main-parameters).
 
-At the seeded depth of 50,000 `kdUSD` the depth ceiling is about 7,477 `kdUSD` of open interest: `50,000 × (sqrt(1.1875) − 1) / (0.30 × 2)`. The solvency ceiling is `usdc_sleeve × 0.50 / 0.30`. The lower of the two is the capacity, and `/index-methodology` on the live app shows both with the current numbers.
+The depth ceiling is `depth × (sqrt(1.1875) − 1) / (0.30 × 2)`: about 7,477 `kdUSD` of open interest at the seeded 50,000 `kdUSD`, and about 299,000 at the 2,000,000 the pool holds since 2026-10-13. The solvency ceiling is `usdc_sleeve × 0.50 / 0.30`: about 333,000 with the 200,000 `kdUSD` the deployer has kept in the pool reserve since the same day. The lower of the two is the capacity, and `/index-methodology` on the live app shows both with the current numbers.
 
 ## Tokens on devnet
 

@@ -201,15 +201,17 @@ service:
 
 | Service | Build | Start | Variables |
 |---|---|---|---|
-| web | `npm run build -w @kadex/web` | `npm run start -w @kadex/web` | none: it serves the sample market |
+| web | `npm run build -w @kadex/web` | `npm run start -w @kadex/web` | the same as web-devnet, since 2026-10-13 |
 | web-devnet | same | same | `NEXT_PUBLIC_KADEX_RPC_URL`, `NEXT_PUBLIC_KADEX_USDC_MINT`, `NEXT_PUBLIC_KADEX_NETWORK=devnet`, `KADEX_FAUCET_KEYPAIR`, `KADEX_FAUCET_SOL=0.03` |
 | keeper | `npm run typecheck` | `node scripts/service.mjs keeper` | `KADEX_SERVICE_KEYPAIR`, `INTERVAL_MS=10000` |
 | liquidator | `npm run typecheck` | `node scripts/service.mjs liquidator` | `KADEX_SERVICE_KEYPAIR` |
 | market | `npm run typecheck` | `node scripts/devnet-market.mjs swing 0.06 3600 30 1` | `KADEX_MARKET_KEYPAIR` |
 
 - **web** is https://web-production-6940ad.up.railway.app and **web-devnet**
-  is https://web-devnet-production.up.railway.app. They are the same code;
-  only the variables differ.
+  is https://web-devnet-production.up.railway.app. They are the same code
+  and, since 2026-10-13, the same variables, so both serve devnet. The
+  product domain https://kadex.kc1t.com is attached to **web**: upload both
+  after a change. The sample market now runs only locally.
 - The `NEXT_PUBLIC_*` values are read at build time, so upload again after
   changing them. They, and `KADEX_FAUCET_KEYPAIR`, come from the
   `apps/web/.env.local` that the `env` step writes. That file and Railway

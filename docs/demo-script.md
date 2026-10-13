@@ -17,7 +17,7 @@ Before recording: the wallet used on camera needs test copies of cards (`node sc
 | 2:15–2:35 | Index Methodology. The solvency and depth capacity figures and which one binds. | “Open interest is capped twice, by what the pool can pay and by how deep the pricing pool is. The tighter limit wins.” |
 | 2:35–2:50 | Portfolio, close the position. End on the home page. | “The programs, the price keeper and the liquidator are live on devnet. The index token there is a demonstration token; a basket backed by vaulted cards is the next step.” |
 
-If the devnet site is unavailable, the same walkthrough works on the sample-data preview, https://web-production-6940ad.up.railway.app, with its “Demo wallet”. Say then that it is a simulation in the browser and that nothing is signed.
+If the devnet site is unavailable, the same walkthrough works on the sample market, which the web app shows when it runs locally with no cluster variables, with its “Demo wallet”. Say then that it is a simulation in the browser and that nothing is signed.
 
 ## Where to go next
 

@@ -2,7 +2,7 @@
 
 > [Docs](README.md) › Team working notes › Submission · Up: [Docs index](README.md) · Related: [Overview](overview.md), [Devnet](devnet.md), [Demo script](demo-script.md)
 
-Kadex is a Solana prototype for trading the price of graded collectible cards without buying a card. It combines a card vault, an AMM-priced index instrument, a perpetual market, and a shared liquidity pool. The programs are deployed on Solana devnet, where the web app, a price keeper and a liquidator run against them with test tokens: https://web-devnet-production.up.railway.app. The web app also has a sample-data preview that needs no chain: https://web-production-6940ad.up.railway.app.
+Kadex is a Solana prototype for trading the price of graded collectible cards without buying a card. It combines a card vault, an AMM-priced index instrument, a perpetual market, and a shared liquidity pool. The programs are deployed on Solana devnet, where the web app, a price keeper and a liquidator run against them with test tokens: https://kadex.kc1t.com (also at https://web-devnet-production.up.railway.app).
 
 ## The problem
 
