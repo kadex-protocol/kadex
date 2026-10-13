@@ -1,5 +1,7 @@
 # Custody — who holds what, and who you are trusting
 
+> [Docs](README.md) › Custody · Up: [Programs](programs.md) · Related: [Collector Crypt](collector-crypt.md), [Upgrade authority](upgrade-authority.md), [Flows](flows.md)
+
 Last reviewed 9 Oct 2026.
 
 Kadex prices a token, not a card. Whether that token is worth anything depends
@@ -50,3 +52,11 @@ and the submission should say so.
   redeemable for the underlying fractions, or the index is backed by nothing.
 - Only Core assets are supported. Collector Crypt's `pnft` cards (about a
   quarter of listings) cannot be deposited.
+
+## Where to go next
+
+- [programs.md](programs.md#card-vault): the vault's instructions, accounts and errors.
+- [flows.md](flows.md#vault-a-card): vaulting and redeeming as sequence graphs.
+- [collector-crypt.md](collector-crypt.md): where the cards and their appraisals come from.
+- [upgrade-authority.md](upgrade-authority.md): what the admin and upgrade keys can do.
+- [Docs index](README.md)

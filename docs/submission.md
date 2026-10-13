@@ -1,5 +1,7 @@
 # Kadex
 
+> [Docs](README.md) › Team working notes › Submission · Up: [Docs index](README.md) · Related: [Overview](overview.md), [Devnet](devnet.md), [Demo script](demo-script.md)
+
 Kadex is a Solana prototype for trading the price of graded collectible cards without buying a card. It combines a card vault, an AMM-priced index instrument, a perpetual market, and a shared liquidity pool. The programs are deployed on Solana devnet, where the web app, a price keeper and a liquidator run against them with test tokens: https://web-devnet-production.up.railway.app. The web app also has a sample-data preview that needs no chain: https://web-production-6940ad.up.railway.app.
 
 ## The problem
@@ -40,4 +42,11 @@ On 12 October 2026 the vault, oracle, perp and pool programs were deployed to de
 - Devnet uses test assets throughout: the margin token (kdUSD) and the index token are mints the deployer controls, the cards are copies of real Collector Crypt cards rather than the originals, and the price moves because a scripted trader moves it.
 - The external-reference feed runs in dry run unless publishing is explicitly enabled.
 - The first AMM liquidity provider and launch funding remain decisions. Kadex is not operating with real funds.
+
+## Where to go next
+
+- [overview.md](overview.md): the product in one page, with the roadmap.
+- [devnet.md](devnet.md): what is live and how to try it.
+- [demo-script.md](demo-script.md): the recorded walkthrough.
+- [Docs index](README.md)
 

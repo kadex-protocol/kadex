@@ -1,5 +1,7 @@
 # Collector Crypt — what we read, and how
 
+> [Docs](README.md) › Collector Crypt · Up: [Web app](web-app.md) · Related: [Custody](custody.md), [Services](services.md), [Devnet](devnet.md)
+
 Verified live on 5 Oct 2026 by calling the API and then checking the same
 asset on mainnet-beta. Nothing here is taken from documentation alone; where
 the docs and the chain disagreed, the chain won.
@@ -257,3 +259,11 @@ Reading their chain data proves the token exists. It does not prove the card
 does. The trust moves from our admin to Collector Crypt, PSA and a Delaware
 vault — better, because they have a business to lose, but it is delegation
 rather than elimination. See `docs/custody.md`.
+
+## Where to go next
+
+- [custody.md](custody.md): the chain of custody behind a tokenized card.
+- [web-app.md](web-app.md#api-routes): the routes that call these APIs.
+- [services.md](services.md#external-feed): the feed that publishes the external reference.
+- [devnet.md](devnet.md#launch-basket): the launch basket and the devnet test cards.
+- [Docs index](README.md)

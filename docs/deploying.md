@@ -1,5 +1,7 @@
 # Deploying
 
+> [Docs](README.md) › Deploying · Up: [Devnet](devnet.md) · Related: [Services](services.md), [Testing](testing.md), [Upgrade authority](upgrade-authority.md)
+
 > Read this before your first deploy. `anchor build` alone produces binaries
 > that **cannot be deployed**, and the error message does not say why.
 
@@ -247,3 +249,11 @@ never really loaded. Preloading at genesis with `--bpf-program` or
 `--upgradeable-program` produces exactly this: the accounts appear, with
 `executable: true`, and every call fails anyway. Deploy after boot instead,
 which is what the harness does.
+
+## Where to go next
+
+- [devnet.md](devnet.md): the addresses this deployment produced and how to try it.
+- [services.md](services.md): the keeper, the liquidator, the price mover and every script.
+- [testing.md](testing.md): the suites to run before a deploy.
+- [upgrade-authority.md](upgrade-authority.md): who holds the keys after a deploy.
+- [Docs index](README.md)

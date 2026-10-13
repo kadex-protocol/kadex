@@ -1,5 +1,7 @@
 # Upgrade authority and admin keys (#12)
 
+> [Docs](README.md) › Upgrade authority · Up: [Programs](programs.md) · Related: [Custody](custody.md), [Deploying](deploying.md), [Regulatory](regulatory.md)
+
 Status: **analysis and recommendation. Nothing here has been done on chain.**
 Today every program's upgrade authority, and every account's `admin`, is the
 deployer key (`KADEX_DEPLOYER`, default `~/.config/solana/id.json`). Fine for
@@ -107,3 +109,11 @@ protocol is not live with real funds, and the path below is the plan.
 oracle the protocol will need exists, and once the admin design is final.
 The oracle is the most likely candidate, since it is small and has no funds
 of its own.
+
+## Where to go next
+
+- [programs.md](programs.md): the instructions each key can call.
+- [devnet.md](devnet.md#keys-on-devnet): who holds the keys on devnet.
+- [deploying.md](deploying.md): who initializes, and the program keypairs.
+- [regulatory.md](regulatory.md): what else must be settled before real funds.
+- [Docs index](README.md)

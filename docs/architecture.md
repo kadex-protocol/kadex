@@ -1,5 +1,7 @@
 # Architecture
 
+> [Docs](README.md) › Architecture · Up: [System map](system-map.md) · Related: [Programs](programs.md), [Custody](custody.md), [Invariants](invariants.md), [Spec](spec.md)
+
 ## Program boundaries
 
 ```
@@ -85,3 +87,11 @@ Scales: WAD 1e6 (ratios and prices), BPS 1e4 (configured fees), RAY 1e12
 USDC has 6 decimals and so do the fractions. The coincidence is deliberate: a
 WAD price times a native quantity lands directly in native USDC, with no
 conversion step to get wrong.
+
+## Where to go next
+
+- [system-map.md](system-map.md): the same boundaries as dependency, account and token graphs.
+- [programs.md](programs.md): instructions, accounts and PDAs of each program.
+- [oracle.md](oracle.md): how the price is built and defended.
+- [invariants.md](invariants.md): the economic rules.
+- [Docs index](README.md)

@@ -1,5 +1,7 @@
 # Demo script
 
+> [Docs](README.md) › Team working notes › Demo script · Up: [Docs index](README.md) · Related: [Devnet](devnet.md), [Flows](flows.md), [Submission](submission.md)
+
 **Runtime:** 2 minutes 50 seconds. Record the devnet site, https://web-devnet-production.up.railway.app, in a private window so the wallet starts empty. Every action below is a real transaction on Solana devnet with test tokens.
 
 Before recording: the wallet used on camera needs test copies of cards (`node scripts/devnet.mjs cards <wallet>`, then upload `web-devnet` again). The price moves on its own, slowly: a position opened at the start shows a visible profit or loss by the Portfolio shot.
@@ -16,3 +18,10 @@ Before recording: the wallet used on camera needs test copies of cards (`node sc
 | 2:35–2:50 | Portfolio, close the position. End on the home page. | “The programs, the price keeper and the liquidator are live on devnet. The index token there is a demonstration token; a basket backed by vaulted cards is the next step.” |
 
 If the devnet site is unavailable, the same walkthrough works on the sample-data preview, https://web-production-6940ad.up.railway.app, with its “Demo wallet”. Say then that it is a simulation in the browser and that nothing is signed.
+
+## Where to go next
+
+- [devnet.md](devnet.md#try-it): the same walkthrough as steps, with every address.
+- [flows.md](flows.md): what each action on screen does on chain.
+- [submission.md](submission.md): the submission text.
+- [Docs index](README.md)

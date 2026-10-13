@@ -1,5 +1,7 @@
 # Economic invariants
 
+> [Docs](README.md) › Invariants · Up: [Programs](programs.md) · Related: [Oracle](oracle.md), [Testing](testing.md), [Architecture](architecture.md), [Glossary](glossary.md)
+
 Each one is a test. If a test on this list goes red, the protocol is wrong —
 not the test.
 
@@ -170,3 +172,11 @@ Always in the pool's favour, never the user's.
 
 Documented in `packages/kadex-math/src/lib.rs` and verified by
 `kadex_math::tests::deposit_then_withdraw_never_creates_value`.
+
+## Where to go next
+
+- [programs.md](programs.md): the instructions that enforce these rules.
+- [testing.md](testing.md): how to run the tests named above.
+- [oracle.md](oracle.md): the price these rules are evaluated at.
+- [glossary.md](glossary.md): the terms and symbols.
+- [Docs index](README.md)

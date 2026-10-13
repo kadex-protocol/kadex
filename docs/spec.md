@@ -1,5 +1,7 @@
 # Kadex — what it is and how it works
 
+> [Docs](README.md) › Spec · Up: [Overview](overview.md) · Related: [System map](system-map.md), [Flows](flows.md), [Invariants](invariants.md), [Oracle](oracle.md)
+
 Kadex is a perpetual futures exchange on Solana where the asset is the price of
 collectible cards. A trader bets on that price going up or down, a shared pool
 takes the other side of every trade, and the price is read from an on-chain
@@ -194,3 +196,11 @@ market-cap-weighted basket on Solana.
 - Upgrade authority is the deployer on devnet (#12).
 - Regulatory: securities, derivatives and gambling regimes overlap. Declared,
   not resolved.
+
+## Where to go next
+
+- [overview.md](overview.md): the same design in one page, with the roadmap.
+- [flows.md](flows.md): each flow as a sequence graph.
+- [programs.md](programs.md): the instruction and account reference.
+- [devnet.md](devnet.md): what is deployed today.
+- [Docs index](README.md)

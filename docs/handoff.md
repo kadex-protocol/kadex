@@ -1,5 +1,7 @@
 # Handoff — start here
 
+> [Docs](README.md) › Team working notes › Handoff · Up: [Docs index](README.md) · Related: [Issues](issues.md), [Implementation plan](implementation-plan.md), [System map](system-map.md)
+
 > What Kadex is lives in `docs/spec.md`. This file is the state of the code
 > and the rules for changing it. Ten minutes, and it saves a week of rework.
 
@@ -134,3 +136,11 @@ more than any pool deposit. `node scripts/size-market.mjs` gives the table.
 4. `docs/oracle.md` — the defences
 5. `docs/frontend-contract.md` — frontend only
 6. `docs/collector-crypt.md`, `docs/custody.md` — where the cards come from
+
+## Where to go next
+
+- [system-map.md](system-map.md): the structure of the code as graphs.
+- [programs.md](programs.md): the instruction and account reference.
+- [devnet.md](devnet.md): the current state of the deployment.
+- [issues.md](issues.md): the reasoning behind each design decision.
+- [Docs index](README.md)

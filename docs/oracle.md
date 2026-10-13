@@ -1,5 +1,7 @@
 # Oracle
 
+> [Docs](README.md) › Oracle · Up: [Programs](programs.md) · Related: [Invariants](invariants.md), [Flows](flows.md), [Services](services.md), [Devnet](devnet.md)
+
 > Owner: Backend A. Consumed by Backend B only through `OracleView`.
 
 ## The design
@@ -150,3 +152,11 @@ runs against Raydium's real devnet binary.
 - **Liquidity depth beyond the existing floor.** Thin pools are handled by
   `min_pool_depth` ($25k, window minimum) and the depth ceiling on open
   interest, unchanged.
+
+## Where to go next
+
+- [programs.md](programs.md#oracle): the oracle's instructions, account fields and errors.
+- [flows.md](flows.md#price-refresh): the refresh as a sequence graph.
+- [services.md](services.md#keeper): the keeper that calls `refresh_price`.
+- [invariants.md](invariants.md): the rules that consume this price.
+- [Docs index](README.md)

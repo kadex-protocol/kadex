@@ -1,5 +1,7 @@
 # Kadex — implementation plan
 
+> [Docs](README.md) › Team working notes › Implementation plan · Up: [Docs index](README.md) · Related: [Handoff](handoff.md), [System map](system-map.md), [Testing](testing.md)
+
 > `docs/spec.md` is what the product is. This document records how the code is
 > split, where it deviates from the original spec, and how it is tested.
 
@@ -94,3 +96,11 @@ The **negative** tests matter more and are marked as such: capacity exceeded,
 forged oracle, a jump past the clamp, stale oracle, insufficient depth,
 divergence, opening outside `Active`, insufficient margin, liquidation before
 the threshold, bad debt, pro-rata haircut.
+
+## Where to go next
+
+- [system-map.md](system-map.md): the current dependency graph.
+- [testing.md](testing.md): the suites and their current test counts.
+- [devnet.md](devnet.md): the current state of the deployment.
+- [handoff.md](handoff.md): the onboarding note.
+- [Docs index](README.md)

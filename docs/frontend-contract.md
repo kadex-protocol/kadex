@@ -1,5 +1,7 @@
 # Frontend contract
 
+> [Docs](README.md) › Frontend contract · Up: [Web app](web-app.md) · Related: [System map](system-map.md), [Programs](programs.md), [Flows](flows.md)
+
 > The frontend does NOT deserialize accounts by hand and does NOT derive PDAs
 > by hand. Everything goes through `@kadex/sdk`, so a layout change breaks the
 > SDK build instead of breaking the screen in silence.
@@ -227,3 +229,11 @@ light RPC returns less, and the chart shows what it gets.
 - the basket constituents and weights come from `deployments/basket.json`
   (the launch basket, #10) through `CONSTITUENTS` in `apps/web/lib/market.ts`,
   not read from chain (#1)
+
+## Where to go next
+
+- [web-app.md](web-app.md): the pages, API routes and `lib/` modules that use this contract.
+- [flows.md](flows.md): what each transaction does on chain.
+- [programs.md](programs.md): the accounts the decoders read.
+- [system-map.md](system-map.md#node-reference): what each package exports.
+- [Docs index](README.md)

@@ -1,0 +1,74 @@
+# Kadex
+
+> Kadex is a perpetual futures market on an index of tokenized graded trading cards, built on Solana with Anchor and live on Solana devnet. Traders go long or short on the Kadex Index with up to 5x leverage, a shared liquidity pool (CLP) takes the other side of every trade, and card owners lock graded cards in a vault for fractions. The index price is recomputed on chain from the reserves of a Raydium CPMM pool by a permissionless instruction, so no key signs a price.
+
+Facts to hold while reading the repository:
+
+- Four Anchor programs: `oracle` (5288ShBXsFxqXiGm22FZi1ZrMnmet4i1ZR3bccyAguqp), `clp-pool` (3XZkAqLeQDoNXD6Bb9YoGSEdnvqk9r7UMgrKsN5x3L9v), `perp` (BcVwJ91Jd1k7xUNcGYzRygq2ubaCYn7p5MeUZzy1EyLR), `card-vault` (J8Tef8N4YSfVwAxpBemCZrz3qCxehTeb2cd1jTwoBczW). The same IDs are used on a local validator and on devnet.
+- The deployment is on devnet. The stable token is `kdUSD` and the index token is `tKDX`. Both are devnet test tokens. The program code names the stable token `usdc_*`.
+- `perp` and `clp-pool` read the oracle account and never call the oracle program. `perp` calls `clp-pool` by CPI (`record_open`, `settle_position`). `card-vault` is independent of the other three.
+- The Earn pool accepts its stable mint and its one fraction mint: `kdUSD` and `tKDX` on devnet. Each vaulted card has its own fraction mint. An index token backed by vaulted cards is planned work (issue #1).
+- Risk rules are pure functions in `packages/kadex-risk`. Arithmetic is integer fixed point in `packages/kadex-math`: WAD = 1e6, BPS = 1e4, RAY = 1e12, and every token has 6 decimals.
+- Order of trust when sources disagree: source code, then `deployments/devnet.json`, then the documents. The team working notes are dated.
+- Every document in `docs/` starts with a routing line (parent and related documents) and ends with a "Where to go next" list. The documents form a graph rooted at `docs/README.md`.
+
+## Start here
+
+- [Documentation index](docs/README.md): The document graph, a routing table by question and a one-line summary of every document.
+- [Repository README](README.md): The product in one page, the devnet addresses, the quick start and the repository map.
+- [Overview](docs/overview.md): What Kadex is, the three sides (Trade, Earn, Vault), the actors, the main parameters and the roadmap.
+- [Glossary](docs/glossary.md): Every term, token and unit used in the code and in the documents.
+
+## Structure
+
+- [System map](docs/system-map.md): Graphs of code dependencies, on-chain calls, accounts and PDAs, and token movements, with a reference table for every crate, package and app.
+- [Flows](docs/flows.md): Sequence graphs for opening and closing a position, liquidation, price refresh, Earn deposit and withdrawal, vaulting and redeeming a card, hedging, the faucet and the price chart.
+- [Architecture](docs/architecture.md): Program boundaries, code layers, token custody and arithmetic scales.
+- [Spec](docs/spec.md): The design end to end in prose.
+
+## On chain
+
+- [Programs](docs/programs.md): Per program: instructions, accounts, PDA seeds, events and errors.
+- [Oracle](docs/oracle.md): How the price is built from AMM reserves, each defence and the attack it blocks, the Raydium CPMM adapter.
+- [Invariants](docs/invariants.md): The economic invariants, each with the test that guards it, and the rounding policy.
+- [Custody](docs/custody.md): Who holds each link between the physical card and its fractions, and what the programs check.
+- [Upgrade authority](docs/upgrade-authority.md): What the upgrade authority and the admin keys can do, and the plan before real funds.
+
+## Off chain
+
+- [Web app](docs/web-app.md): Pages, API routes, `lib/` modules and their dependencies, components and environment variable names.
+- [Frontend contract](docs/frontend-contract.md): How the frontend uses `@kadex/sdk`: PDAs, decoders, derived values, transactions, price history.
+- [Services and scripts](docs/services.md): Keeper, liquidator, price mover, external feed and every script: what each does and how it is run.
+- [Collector Crypt](docs/collector-crypt.md): The marketplace and gacha APIs the card data comes from, the collection address, the launch basket and the external reference.
+
+## Operations
+
+- [Devnet](docs/devnet.md): What is live: URLs, every address, parameters, test cards, the launch basket and how to try it.
+- [Deploying](docs/deploying.md): Building deployable programs, who initializes, the devnet deployment script, hosting.
+- [Testing](docs/testing.md): The test suites, what each proves, how to run them and how many tests each holds.
+- [Devnet record](deployments/devnet.json): Addresses and transaction signatures of the devnet deployment.
+- [Launch basket](deployments/basket.json): The ten Collector Crypt cards selected by rule, with weights.
+
+## Source code
+
+- [kadex-interface](packages/kadex-interface/src/lib.rs): Shared account layouts, PDA seeds, states and the oracle view.
+- [kadex-risk](packages/kadex-risk/src/lib.rs): Every risk rule as a pure function.
+- [kadex-math](packages/kadex-math/src/lib.rs): Fixed-point arithmetic, scales and rounding policy.
+- [oracle program](programs/oracle/src/lib.rs): `refresh_price` and the price defences.
+- [oracle adapter](programs/oracle/src/adapter.rs): The Raydium CPMM reserve reader.
+- [clp-pool program](programs/clp-pool/src/lib.rs): Deposits, withdrawals, NAV and settlement.
+- [perp program](programs/perp/src/lib.rs): Positions, borrow and liquidation.
+- [card-vault program](programs/card-vault/src/lib.rs): Card custody and fractions.
+- [TypeScript types](packages/types/src/index.ts): Program IDs, seeds, PDA derivation and scales.
+- [TypeScript SDK](packages/sdk/src/index.ts): Decoders, maths, instruction builders, price history and vault helpers.
+- [package.json](package.json): Every command.
+
+## Optional
+
+- [Users](docs/users.md): The five user roles and the screen that serves each one.
+- [Regulatory](docs/regulatory.md): The regulatory questions the team declares.
+- [Handoff](docs/handoff.md): Team working note. Onboarding for developers, dated.
+- [Issues](docs/issues.md): Team working note. Design issues and the reasoning behind each decision.
+- [Implementation plan](docs/implementation-plan.md): Team working note. How the code is split and the test strategy.
+- [Demo script](docs/demo-script.md): Team working note. Shot list for the recorded demo.
+- [Submission](docs/submission.md): Team working note. The hackathon submission text.

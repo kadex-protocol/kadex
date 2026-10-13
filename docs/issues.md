@@ -1,5 +1,7 @@
 # Open issues
 
+> [Docs](README.md) › Team working notes › Issues · Up: [Docs index](README.md) · Related: [Handoff](handoff.md), [Invariants](invariants.md), [Oracle](oracle.md), [Upgrade authority](upgrade-authority.md)
+
 Status of the twelve. Four are closed in code, three are decisions nobody can
 make for you, three were already structural, one is a communication job, one is
 accepted.
@@ -307,4 +309,12 @@ submission, not resolved. Nothing in the backend changes this either way.
   moves up to `delta_max`: `OI * delta_max <= U * phi`, tested at the ceiling.
 - **Program keypairs in `keys/`** are fine for devnet and must not be used on
   mainnet — see `docs/deploying.md`.
+
+## Where to go next
+
+- [invariants.md](invariants.md): the rules these decisions produced.
+- [oracle.md](oracle.md): the oracle defences in their current form.
+- [upgrade-authority.md](upgrade-authority.md): the analysis behind issue 9.
+- [devnet.md](devnet.md): the current state of the deployment.
+- [Docs index](README.md)
 
