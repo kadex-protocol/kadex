@@ -1,6 +1,7 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { derivePosition } from "@kadex/sdk";
 import { RAY } from "@kadex/types";
+import { forgetChainReads } from "./chain";
 import { CLUSTER } from "./cluster";
 import type { VaultCard } from "./collectorCrypt";
 import { loadMarket, quote, quoteDeposit, quoteWithdraw } from "./market";
@@ -23,6 +24,7 @@ const receipt = () => Keypair.generate().publicKey.toBase58();
 const settle = () => new Promise((done) => setTimeout(done, SETTLE_MS));
 const confirmed = async (transaction: Promise<string>) => {
   const signature = await transaction;
+  forgetChainReads();
   window.dispatchEvent(new Event(LEDGER_EVENT));
   return signature;
 };

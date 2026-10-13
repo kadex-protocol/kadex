@@ -94,9 +94,10 @@ export const findMarket = (pool: PublicKey) =>
   pda([SEEDS.market, pool.toBuffer()], PROGRAM_IDS.perp);
 
 export const findPosition = (market: PublicKey, owner: PublicKey, nonce: bigint) => {
-  const n = Buffer.alloc(8);
-  n.writeBigUInt64LE(nonce);
-  return pda([SEEDS.position, market.toBuffer(), owner.toBuffer(), n], PROGRAM_IDS.perp);
+  // Not Buffer.writeBigUInt64LE: the Buffer a browser bundle gets may not have the BigInt methods.
+  const n = new Uint8Array(8);
+  new DataView(n.buffer).setBigUint64(0, nonce, true);
+  return pda([SEEDS.position, market.toBuffer(), owner.toBuffer(), Buffer.from(n)], PROGRAM_IDS.perp);
 };
 
 // ---------------------------------------------------------------------------

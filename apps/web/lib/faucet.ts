@@ -1,4 +1,5 @@
 import type { PublicKey } from "@solana/web3.js";
+import { forgetChainReads } from "./chain";
 import { CLUSTER } from "./cluster";
 import { LEDGER_EVENT } from "./sim";
 
@@ -17,7 +18,10 @@ export async function requestTestFunds(wallet: PublicKey): Promise<FaucetReply> 
       body: JSON.stringify({ wallet: wallet.toBase58() }),
     });
     const reply = (await res.json()) as FaucetReply;
-    if (reply.funded) window.dispatchEvent(new Event(LEDGER_EVENT));
+    if (reply.funded) {
+      forgetChainReads();
+      window.dispatchEvent(new Event(LEDGER_EVENT));
+    }
     return reply;
   } catch {
     return { funded: false, error: "The faucet is unreachable." };

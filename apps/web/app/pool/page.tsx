@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { ArrowIcon } from "@/components/ArrowIcon";
 import { gates } from "@kadex/types";
 import { formatAmount, parseAmount } from "@/lib/amount";
 import { USD_LABEL } from "@/lib/cluster";
@@ -20,6 +21,7 @@ import {
   borrowSpread, fmtPct, fmtPrice, fmtUsd, loadBalances, quoteDeposit, quoteWithdraw,
   IS_SAMPLE, type Balances, type DepositKind,
 } from "@/lib/market";
+import { LEDGER_EVENT } from "@/lib/sim";
 import { clusterName } from "@/lib/testCards";
 import { poolAction, type PoolAction } from "@/lib/actions";
 import { explainTxError, shortSignature } from "@/lib/tx";
@@ -53,6 +55,10 @@ export default function PoolPage() {
 
   const connected = status === "connected" && publicKey !== null;
   const reloadBalances = useCallback(() => setBalanceVersion((v) => v + 1), []);
+  useEffect(() => {
+    window.addEventListener(LEDGER_EVENT, reloadBalances);
+    return () => window.removeEventListener(LEDGER_EVENT, reloadBalances);
+  }, [reloadBalances]);
   useEffect(() => {
     let live = true;
     setBalances(null);
@@ -268,7 +274,7 @@ export default function PoolPage() {
         )}
 
         <p className="sub">
-          No fractions yet? <Link href="/vault" className="link">Vault a card →</Link>
+          No fractions yet? <Link href="/vault" className="link">Vault a card <ArrowIcon /></Link>
         </p>
         <p className="fine">
           {IS_SAMPLE

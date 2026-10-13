@@ -32,8 +32,11 @@ export async function sendInstructions(
 export function explainTxError(error: unknown): string {
   const logs = (error as { logs?: string[] } | null)?.logs?.join("\n") ?? "";
   const text = `${error instanceof Error ? error.message : String(error)}\n${logs}`;
-  const anchor = /Error Message: (.+?)\.?$/m.exec(text);
+  const anchor = /Error Message: ([^"\n]+?)\.?(?:"|$)/m.exec(text);
   if (anchor?.[1]) return `${anchor[1]}.`;
+  if (/\b429\b|rate limit/i.test(text)) return "The network is rate limiting requests. Wait a few seconds and try again.";
+  const custom = /"Custom":\s*(\d+)/.exec(text);
+  if (custom) return `The program refused this transaction (error ${custom[1]}).`;
   if (/reject/i.test(text)) return "The signature was rejected in the wallet.";
   if (/insufficient (funds|lamports)/i.test(text)) return "Not enough balance to cover this.";
   if (/Attempt to debit an account but found no record/i.test(text)) return "This wallet has no SOL on this cluster to pay the fee.";

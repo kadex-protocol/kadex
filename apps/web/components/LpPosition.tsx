@@ -7,6 +7,10 @@ import { CLUSTER, USD_LABEL } from "@/lib/cluster";
 import type { IndexHistoryWire } from "@/lib/history";
 import { fmtPct, fmtUsd, quoteWithdraw, type Balances, type MarketSnapshot } from "@/lib/market";
 
+const HISTORY_TRANSACTIONS = 15;
+const EVENT_READS = 3;
+const EVENT_RETRY_MS = 2_500;
+const sharesOf = (events: readonly LpEvent[]) => events.reduce((sum, e) => sum + (e.kind === "deposit" ? e.shares : -e.shares), 0n);
 const day = (ts: number) => new Date(ts * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
 /** Utilisation through time as a line, with the current value at the end. */
@@ -35,34 +39,58 @@ export function LpPosition({ data, balances, wallet }: { data: MarketSnapshot | 
   const [trend, setTrend] = useState<UtilisationPoint[]>([]);
   const [history, setHistory] = useState<IndexHistoryWire["points"]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [reading, setReading] = useState(false);
 
   const pool = data?.pool.address.toBase58() ?? null;
   const market = data?.market.address.toBase58() ?? null;
+  const held = balances?.clp ?? 0n;
+  const holds = held > 0n;
   useEffect(() => {
     let live = true;
-    if (!CLUSTER || !wallet || !data) return;
-    setError(null);
+    if (!CLUSTER || !data || !holds) return;
     Promise.all([
-      readLpEvents(CLUSTER.connection, data.pool.address, wallet),
-      readUtilisation(CLUSTER.connection, data.market.address),
+      readUtilisation(CLUSTER.connection, data.market.address, HISTORY_TRANSACTIONS),
       fetch("/api/index-history").then((r) => {
         if (!r.ok) throw new Error("Could not read the index history.");
         return r.json() as Promise<IndexHistoryWire>;
       }),
     ])
-      .then(([e, t, h]) => {
+      .then(([t, h]) => {
         if (!live) return;
-        setEvents(e);
         setTrend(t);
         setHistory(h.points);
       })
-      .catch((e) => live && setError(e instanceof Error ? e.message : "Could not read the pool's history."));
+      .catch(() => {});
     return () => {
       live = false;
     };
-    // Re-read when the pool or the wallet's CLP changes, which is after every deposit or withdrawal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pool, market, wallet?.toBase58(), balances?.clp]);
+  }, [pool, market, holds]);
+
+  useEffect(() => {
+    let live = true;
+    const connection = CLUSTER?.connection;
+    if (!connection || !wallet || !data || !holds) return;
+    setError(null);
+    setReading(true);
+    const read = async () => {
+      for (let attempt = 0; attempt < EVENT_READS && live; attempt += 1) {
+        // A deposit or exit that just confirmed can take a moment to reach the wallet's history.
+        if (attempt > 0) await new Promise((done) => setTimeout(done, EVENT_RETRY_MS));
+        const found = await readLpEvents(connection, data.pool.address, wallet, HISTORY_TRANSACTIONS);
+        if (!live) return;
+        setEvents(found);
+        if (sharesOf(found) === held) return;
+      }
+    };
+    read()
+      .catch((e) => live && setError(e instanceof Error ? e.message : "Could not read the pool's history."))
+      .finally(() => live && setReading(false));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pool, wallet?.toBase58(), held]);
 
   if (!CLUSTER || !wallet || !data || !balances) return null;
   if (balances.clp === 0n && (events?.length ?? 0) === 0) return null;
@@ -74,7 +102,8 @@ export function LpPosition({ data, balances, wallet }: { data: MarketSnapshot | 
     const before = history.filter((p) => p.ts <= ts).at(-1);
     return { price: before ? BigInt(before.price) : data.oracle.price, exact: false };
   };
-  const r = events ? lpReturn(events, quote.totalValue, priceAt) : null;
+  const reconciled = events !== null && sharesOf(events) === balances.clp;
+  const r = events && reconciled ? lpReturn(events, quote.totalValue, priceAt) : null;
   const hasFractionDeposit = events?.some((e) => e.kind === "deposit" && e.fractions > 0n) ?? false;
   const gain = r ? r.return >= 0n : true;
 
@@ -94,9 +123,16 @@ export function LpPosition({ data, balances, wallet }: { data: MarketSnapshot | 
           <div><span>You took out</span><b>${fmtUsd(r.withdrawn, 2)}</b></div>
         </div>
       )}
+      {events && !reconciled && (
+        <p className="fine">
+          {reading
+            ? "Updating your return…"
+            : `Return is not shown: your last ${HISTORY_TRANSACTIONS} transactions do not account for every share you hold.`}
+        </p>
+      )}
       <p className="fine">
         Return is fees and trader PnL together, net of the card-deposit haircut: both move the value of a share, so
-        the pool cannot say which part was fees. It is read from your last 300 transactions.
+        the pool cannot say which part was fees. It is read from your last {HISTORY_TRANSACTIONS} transactions.
         {hasFractionDeposit && " Card deposits are valued at the index price nearest before them, so that part is approximate."}
       </p>
       <h3 className="kicker" style={{ marginTop: 12 }}>Utilisation · now {fmtPct(data.capacity.utilization, 1)}</h3>

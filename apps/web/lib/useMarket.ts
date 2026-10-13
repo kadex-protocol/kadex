@@ -13,10 +13,11 @@
  * not placeholders.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { IS_SAMPLE, loadMarket, type MarketSnapshot } from "./market";
 
 const REFRESH_MS = IS_SAMPLE ? 5_000 : 10_000;
+const FAILURES_BEFORE_ERROR = 3;
 
 export interface MarketQuery {
   data: MarketSnapshot | null;
@@ -25,32 +26,67 @@ export interface MarketQuery {
   reload(): void;
 }
 
+type State = Omit<MarketQuery, "reload">;
+
+// One poll for the whole page: each component that reads the market subscribes to it.
+let state: State = { data: null, loading: true, error: null };
+let timer: ReturnType<typeof setInterval> | null = null;
+let reading = false;
+let queued = false;
+let failures = 0;
+const listeners = new Set<(next: State) => void>();
+
+function publish(next: State) {
+  state = next;
+  listeners.forEach((listener) => listener(next));
+}
+
+function reload() {
+  if (reading) {
+    queued = true;
+    return;
+  }
+  reading = true;
+  loadMarket()
+    .then((data) => {
+      failures = 0;
+      publish({ data, loading: false, error: null });
+    })
+    .catch((e) => {
+      failures += 1;
+      // A rate-limited read is common on a public RPC; the last snapshot stays up until it keeps failing.
+      if (state.data && failures < FAILURES_BEFORE_ERROR) return;
+      publish({ data: null, loading: false, error: e instanceof Error ? e.message : "Could not read market state." });
+    })
+    .finally(() => {
+      reading = false;
+      if (queued) {
+        queued = false;
+        reload();
+      }
+    });
+}
+
+function subscribe(listener: (next: State) => void) {
+  listeners.add(listener);
+  if (listeners.size === 1) {
+    reload();
+    timer = setInterval(() => document.hidden || reload(), REFRESH_MS);
+  }
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0 && timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+  };
+}
+
 export function useMarket(): MarketQuery {
-  const [state, setState] = useState<Omit<MarketQuery, "reload">>({ data: null, loading: true, error: null });
-  const [version, setVersion] = useState(0);
-  const reload = useCallback(() => setVersion((v) => v + 1), []);
-
+  const [current, setCurrent] = useState(state);
   useEffect(() => {
-    const timer = setInterval(() => document.hidden || reload(), REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [reload]);
-
-  useEffect(() => {
-    let live = true;
-    loadMarket()
-      .then((data) => live && setState({ data, loading: false, error: null }))
-      .catch((e) =>
-        live &&
-        setState({
-          data: null,
-          loading: false,
-          error: e instanceof Error ? e.message : "Could not read market state.",
-        }),
-      );
-    return () => {
-      live = false;
-    };
-  }, [version]);
-
-  return { ...state, reload };
+    setCurrent(state);
+    return subscribe(setCurrent);
+  }, []);
+  return { ...current, reload };
 }

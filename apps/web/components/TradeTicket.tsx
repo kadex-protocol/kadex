@@ -29,12 +29,12 @@ export function TradeTicket({ snapshot, onOpened }: { snapshot: MarketSnapshot; 
   const connected = status === "connected" && publicKey !== null;
   const hedge = mode === "hedge";
 
+  useEffect(() => setBalances(null), [publicKey]);
   useEffect(() => {
     let live = true;
-    setBalances(null);
     loadBalances(publicKey)
       .then((value) => live && setBalances(value))
-      .catch(() => live && setBalances(null));
+      .catch(() => {});
     return () => {
       live = false;
     };

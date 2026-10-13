@@ -1,15 +1,14 @@
 "use client";
 
 import { BRAND } from "@/lib/brand";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  borrowSpread, fmtPct, fmtUsd, HISTORY_STEP_SECS, IS_SAMPLE, loadIndexHistory, loadPortfolio, loadPositions, priceAt,
+  borrowSpread, fmtPct, fmtUsd, HISTORY_STEP_SECS, IS_SAMPLE, loadIndexHistory, loadPortfolio, priceAt,
   type IndexPoint, type Portfolio,
 } from "@/lib/market";
 import { useMarket } from "@/lib/useMarket";
 import { useWallet } from "@/lib/wallet";
-import type { PositionView } from "@kadex/types";
 import { AccountPanel } from "@/components/AccountPanel";
 import { loadVaultCards, type VaultCard } from "@/lib/collectorCrypt";
 import { CardRail } from "@/components/CardRail";
@@ -23,13 +22,16 @@ const CARDS_SHOWN = 24;
 
 export default function HomePage() {
   const { data, loading, error, reload } = useMarket();
-  const [positions, setPositions] = useState<PositionView[]>([]);
   const { publicKey } = useWallet();
   const [history, setHistory] = useState<IndexPoint[]>([]);
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [cards, setCards] = useState<VaultCard[]>([]);
   const [cardsFailed, setCardsFailed] = useState(false);
   const [cardsVersion, setCardsVersion] = useState(0);
+  const currentSnapshot = useRef(data);
+  currentSnapshot.current = data;
+  const hasMarket = data !== null;
+  const retryCards = useCallback(() => setCardsVersion((v) => v + 1), []);
 
   useEffect(() => {
     let live = true;
@@ -48,28 +50,36 @@ export default function HomePage() {
 
   useEffect(() => {
     let live = true;
-    loadPortfolio(publicKey).then((p) => live && setPortfolio(p)).catch(() => live && setPortfolio(null));
+    loadPortfolio(publicKey, data ?? undefined).then((p) => live && setPortfolio(p)).catch(() => {});
     return () => {
       live = false;
     };
   }, [publicKey, data]);
 
   useEffect(() => {
-    if (!data) return;
+    if (!hasMarket) return;
     let live = true;
-    loadIndexHistory(data).then((points) => live && setHistory(points)).catch(() => live && setHistory([]));
+    let reading = false;
+    const read = () => {
+      const snapshot = currentSnapshot.current;
+      if (!snapshot || reading) return;
+      reading = true;
+      loadIndexHistory(snapshot)
+        .then((points) => live && setHistory(points))
+        .catch(() => live && setHistory([]))
+        .finally(() => { reading = false; });
+    };
+    read();
+    const timer = window.setInterval(read, 60_000);
     return () => {
       live = false;
+      window.clearInterval(timer);
     };
-  }, [data]);
+  }, [hasMarket]);
 
   useEffect(() => {
-    let live = true;
-    loadPositions(publicKey, data).then((list) => live && setPositions(list)).catch(() => live && setPositions([]));
-    return () => {
-      live = false;
-    };
-  }, [publicKey, data]);
+    setPortfolio(null);
+  }, [publicKey]);
 
   const markAt = useCallback((ts: number) => priceAt(data, ts), [data]);
   const spread = data ? borrowSpread(data) : null;
@@ -135,9 +145,9 @@ export default function HomePage() {
             }
           />
 
-          <AccountPanel portfolio={portfolio} positions={positions} snapshot={data} onTrade={focusTicket} onClosed={reload} />
+          <AccountPanel portfolio={portfolio} positions={portfolio?.positions ?? []} snapshot={data} onTrade={focusTicket} onClosed={reload} />
 
-          <CardRail cards={cards} failed={cardsFailed} onRetry={() => setCardsVersion((v) => v + 1)} />
+          <CardRail cards={cards} failed={cardsFailed} onRetry={retryCards} />
         </div>
 
         {loading ? (
