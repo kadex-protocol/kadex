@@ -197,7 +197,7 @@ export function IndexChart({
           <LiveChart priceAt={priceAt} />
         </div>
       ) : candles.length < 2 ? (
-        <p className="sub">No price history yet.</p>
+        <p className="sub">{points.length > 1 ? "Not enough history for this interval yet. Pick a shorter one." : "No price history yet."}</p>
       ) : (
         <History candles={candles} mode={mode} />
       )}
