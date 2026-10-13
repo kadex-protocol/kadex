@@ -609,7 +609,7 @@ export async function loadPortfolio(owner: PublicKey | null, loaded?: MarketSnap
   const totalPnl = sum((p) => p.pnl - p.borrowOwed);
   return {
     cards,
-    fractions: balances.fractions,
+    fractions: balances.fractions + cards.reduce((sum, card) => sum + (card.held ?? 0n), 0n),
     clp: balances.clp,
     clpValue: quoteWithdraw(snapshot, balances.clp).totalValue,
     totalValue: balances.usdc + sum((p) => p.margin) + totalPnl,

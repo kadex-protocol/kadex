@@ -4,6 +4,7 @@ export interface TestCard {
   mainnet: string;
   asset: string;
   name: string;
+  valueUsd: number;
 }
 
 export interface TestCardRecord {

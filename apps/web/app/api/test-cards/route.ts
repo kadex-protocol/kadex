@@ -12,7 +12,7 @@ export async function GET() {
   const path = process.env.KADEX_DEPLOYMENT ?? join(process.cwd(), "..", "..", "deployments", `${CLUSTER.network}.json`);
   try {
     const record = JSON.parse(await readFile(path, "utf8")) as { cards?: TestCard[] };
-    return NextResponse.json({ cards: (record.cards ?? []).map(({ mainnet, asset, name }) => ({ mainnet, asset, name })), recorded: true });
+    return NextResponse.json({ cards: (record.cards ?? []).map(({ mainnet, asset, name, valueUsd }) => ({ mainnet, asset, name, valueUsd: valueUsd ?? 0 })), recorded: true });
   } catch {
     return NextResponse.json({ cards: [], recorded: false });
   }

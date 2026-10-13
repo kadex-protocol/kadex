@@ -1,15 +1,40 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
+import { coreAssetOwner } from "@kadex/sdk";
 import { parseAmount } from "@/lib/amount";
-import { USD_LABEL } from "@/lib/cluster";
+import { CLUSTER, USD_LABEL, type Cluster } from "@/lib/cluster";
 import { loadVaultCards, type VaultCard } from "@/lib/collectorCrypt";
 import { suggestHedge } from "@/lib/hedge";
-import { CONSTITUENTS, fmtPct, fmtPrice, fmtUsd, IS_SAMPLE, type MarketSnapshot } from "@/lib/market";
+import { CONSTITUENTS, fmtPct, fmtPrice, fmtUsd, IS_SAMPLE, loadVaultedCards, type MarketSnapshot } from "@/lib/market";
 import { readLedger, walletOf } from "@/lib/sim";
+import { loadTestCards } from "@/lib/testCards";
 
 const basketAssets = new Set(CONSTITUENTS.map((card) => card.asset));
+
+type Holding = Pick<VaultCard, "nftAddress" | "insuredValueUsdc">;
+
+async function testCardHoldings({ connection }: Cluster, owner: PublicKey): Promise<Holding[]> {
+  const twins = await loadTestCards();
+  if (twins.length === 0) return [];
+  const [accounts, vaulted] = await Promise.all([
+    connection.getMultipleAccountsInfo(twins.map((twin) => new PublicKey(twin.asset))),
+    loadVaultedCards(owner),
+  ]);
+  const held = twins.filter((_, i) => {
+    const account = accounts[i];
+    try {
+      return !!account && coreAssetOwner(account.owner, account.data).equals(owner);
+    } catch {
+      return false;
+    }
+  });
+  return [
+    ...held.map((twin) => ({ nftAddress: twin.mainnet, insuredValueUsdc: BigInt(Math.round(twin.valueUsd * 1_000_000)) })),
+    ...vaulted.filter((card) => card.deposited).map((card) => ({ nftAddress: card.nftAddress, insuredValueUsdc: card.minted })),
+  ];
+}
 
 
 export function HedgeSuggestion({
@@ -22,7 +47,7 @@ export function HedgeSuggestion({
   onFill(notional: bigint): void;
 }) {
   const ownerAddress = owner?.toBase58() ?? null;
-  const [cards, setCards] = useState<Pick<VaultCard, "nftAddress" | "insuredValueUsdc">[] | null>(null);
+  const [cards, setCards] = useState<Holding[] | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [maxNotional, setMaxNotional] = useState("");
   const [maxMonthlyCost, setMaxMonthlyCost] = useState("");
@@ -53,7 +78,8 @@ export function HedgeSuggestion({
       const simulated = IS_SAMPLE
         ? walletOf(readLedger(), ownerAddress).cards.map((card) => ({ nftAddress: card.nftAddress, insuredValueUsdc: card.minted }))
         : [];
-      if (live) setCards([...all, ...simulated]);
+      const copies = CLUSTER && CLUSTER.network !== "mainnet" ? await testCardHoldings(CLUSTER, new PublicKey(ownerAddress)) : [];
+      if (live) setCards([...all, ...simulated, ...copies]);
     };
 
     void load().catch((error: unknown) => {
@@ -94,7 +120,7 @@ export function HedgeSuggestion({
   if (!ownerAddress) return <p className="hint">Connect a wallet to read your card inventory.</p>;
   if (failure) return <p className="hint bad" role="alert">{failure}</p>;
   if (cards === null) return <p className="hint">Reading your card inventory…</p>;
-  if (cards.length === 0) return <p className="hint">{IS_SAMPLE ? "No cards in this wallet yet. Vault one to size a hedge against it." : "No Collector Crypt cards found for this wallet."}</p>;
+  if (cards.length === 0) return <p className="hint">{IS_SAMPLE || CLUSTER?.network !== "mainnet" ? "No cards in this wallet yet. Vault one to size a hedge against it." : "No Collector Crypt cards found for this wallet."}</p>;
 
   return (
     <section className="panel" aria-label="Inventory hedge suggestion">
