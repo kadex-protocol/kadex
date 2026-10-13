@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { PublicKey } from "@solana/web3.js";
-import { lpReturn, readLpEvents, readUtilisation, type LpEvent, type UtilisationPoint } from "@kadex/sdk";
+import { lpReturn, type LpEvent, type UtilisationPoint } from "@kadex/sdk";
+import { marketUtilisation, walletLpEvents } from "@/lib/activity";
 import { CLUSTER, USD_LABEL } from "@/lib/cluster";
 import type { IndexHistoryWire } from "@/lib/history";
 import { fmtPct, fmtUsd, quoteWithdraw, type Balances, type MarketSnapshot } from "@/lib/market";
@@ -12,6 +13,7 @@ const LP_TRANSACTIONS = 5;
 const MARKET_TRANSACTIONS = 3;
 const SETTLE_MS = 2_500;
 const RETRY_MS = 11_000;
+const CENT = 10_000n;
 const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
 const sharesOf = (events: readonly LpEvent[]) => events.reduce((sum, e) => sum + (e.kind === "deposit" ? e.shares : -e.shares), 0n);
 const day = (ts: number) => new Date(ts * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -53,7 +55,7 @@ export function LpPosition({ data, balances, wallet }: { data: MarketSnapshot | 
     let live = true;
     if (!CLUSTER || !data || !holds) return;
     Promise.all([
-      readUtilisation(CLUSTER.connection, data.market.address, MARKET_TRANSACTIONS),
+      marketUtilisation(CLUSTER.connection, data.market.address, MARKET_TRANSACTIONS),
       fetch("/api/index-history").then((r) => {
         if (!r.ok) throw new Error("Could not read the index history.");
         return r.json() as Promise<IndexHistoryWire>;
@@ -85,7 +87,7 @@ export function LpPosition({ data, balances, wallet }: { data: MarketSnapshot | 
       for (const wait of [0, RETRY_MS]) {
         if (wait) await pause(wait);
         if (!live) return;
-        const found = await readLpEvents(connection, data.pool.address, wallet, LP_TRANSACTIONS);
+        const found = await walletLpEvents(connection, data.pool.address, wallet, LP_TRANSACTIONS);
         if (!live) return;
         setEvents(found);
         if (sharesOf(found) === held) return;
@@ -113,12 +115,12 @@ export function LpPosition({ data, balances, wallet }: { data: MarketSnapshot | 
   const reconciled = events !== null && sharesOf(events) === balances.clp;
   const r = events && reconciled ? lpReturn(events, quote.totalValue, priceAt) : null;
   const hasFractionDeposit = events?.some((e) => e.kind === "deposit" && e.fractions > 0n) ?? false;
-  const gain = r ? r.return >= 0n : true;
+  const gain = r ? r.return > -CENT / 2n : true;
 
   return (
     <section className="panel" aria-labelledby="lp-h">
       <h2 className="title sm" id="lp-h">Your position</h2>
-      {error && <p className="hint bad" role="alert">{error}</p>}
+      {error && !reconciled && <p className="hint bad" role="alert">{error}</p>}
       <div className="spec">
         <div><span>Shares held</span><b>{fmtUsd(balances.clp, 2)} CLP</b></div>
         <div><span>Worth now, at the withdrawal price</span><b>${fmtUsd(quote.totalValue, 2)}</b></div>
@@ -126,7 +128,7 @@ export function LpPosition({ data, balances, wallet }: { data: MarketSnapshot | 
       </div>
       {r && (
         <div className="spec">
-          <div><span>Return since {r.firstDepositTs ? day(r.firstDepositTs) : "your first deposit"}</span><b className={gain ? "up" : "down"}>{gain ? "+" : "−"}${fmtUsd(gain ? r.return : -r.return, 2)}</b></div>
+          <div><span>Return since {r.firstDepositTs ? day(r.firstDepositTs) : "your first deposit"}</span><b className={gain ? "up" : "down"}>{gain ? "+" : "−"}${fmtUsd(r.return < 0n ? -r.return : r.return, 2)}</b></div>
           <div><span>You put in</span><b>${fmtUsd(r.contributed, 2)}</b></div>
           <div><span>You took out</span><b>${fmtUsd(r.withdrawn, 2)}</b></div>
         </div>
@@ -135,12 +137,12 @@ export function LpPosition({ data, balances, wallet }: { data: MarketSnapshot | 
         <p className="fine">
           {reading
             ? "Updating your return…"
-            : `Return is not shown: your last ${LP_TRANSACTIONS} transactions do not account for every share you hold.`}
+            : "Return is not shown: your recent transactions do not account for every share you hold."}
         </p>
       )}
       <p className="fine">
         Return is fees and trader PnL together, net of the card-deposit haircut: both move the value of a share, so
-        the pool cannot say which part was fees. It is read from your last {LP_TRANSACTIONS} transactions.
+        the pool cannot say which part was fees. It is read from your recent transactions.
         {hasFractionDeposit && " Card deposits are valued at the index price nearest before them, so that part is approximate."}
       </p>
       <h3 className="kicker" style={{ marginTop: 12 }}>Utilisation · now {fmtPct(data.capacity.utilization, 1)}</h3>
