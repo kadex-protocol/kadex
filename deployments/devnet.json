@@ -77,5 +77,18 @@
   },
   "faucet": {
     "address": "jTdPpAGurxpEV2PAUZariSeL7bprtShjMwe5V9UpPch"
-  }
+  },
+  "cardVault": {
+    "registry": "DKJiyJLgGHXrR7StGJeHoHNZ3yxjQJ63wLrxvtAe9Knj",
+    "collection": "CuERQTHyYb9LUhqGwM76LffDGPzEpaqyFVYMZsKrwZmp"
+  },
+  "cards": [
+    {
+      "mainnet": "5sggg5oYLU5VrxWm4sVXXVd37ezhhmQJTU9PeiFxtgYZ",
+      "asset": "BPC9CjwvFQnnGXx8WDxsUa1czum6yRsCjKRwHVEo9MR4",
+      "name": "2025 #210 N's Zekrom PSA 10 Japanese M2a-Mega Dream EX",
+      "valueUsd": 40,
+      "owner": "24JT58gshXNDpiivoVtkpp3CNQ8Rb2BU6VCKwRUD5Dia"
+    }
+  ]
 }
