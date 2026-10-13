@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PublicKey } from "@solana/web3.js";
 import { lpReturn, readLpEvents, readUtilisation, type LpEvent, type UtilisationPoint } from "@kadex/sdk";
 import { CLUSTER, USD_LABEL } from "@/lib/cluster";
 import type { IndexHistoryWire } from "@/lib/history";
 import { fmtPct, fmtUsd, quoteWithdraw, type Balances, type MarketSnapshot } from "@/lib/market";
 
-const HISTORY_TRANSACTIONS = 15;
-const EVENT_READS = 3;
-const EVENT_RETRY_MS = 2_500;
+// A public RPC answers about ten getTransaction calls per ten seconds, and both readers below spend from that.
+const LP_TRANSACTIONS = 5;
+const MARKET_TRANSACTIONS = 3;
+const SETTLE_MS = 2_500;
+const RETRY_MS = 11_000;
+const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
 const sharesOf = (events: readonly LpEvent[]) => events.reduce((sum, e) => sum + (e.kind === "deposit" ? e.shares : -e.shares), 0n);
 const day = (ts: number) => new Date(ts * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
@@ -40,6 +43,7 @@ export function LpPosition({ data, balances, wallet }: { data: MarketSnapshot | 
   const [history, setHistory] = useState<IndexHistoryWire["points"]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
+  const lastRead = useRef<bigint | null>(null);
 
   const pool = data?.pool.address.toBase58() ?? null;
   const market = data?.market.address.toBase58() ?? null;
@@ -49,7 +53,7 @@ export function LpPosition({ data, balances, wallet }: { data: MarketSnapshot | 
     let live = true;
     if (!CLUSTER || !data || !holds) return;
     Promise.all([
-      readUtilisation(CLUSTER.connection, data.market.address, HISTORY_TRANSACTIONS),
+      readUtilisation(CLUSTER.connection, data.market.address, MARKET_TRANSACTIONS),
       fetch("/api/index-history").then((r) => {
         if (!r.ok) throw new Error("Could not read the index history.");
         return r.json() as Promise<IndexHistoryWire>;
@@ -73,18 +77,22 @@ export function LpPosition({ data, balances, wallet }: { data: MarketSnapshot | 
     if (!connection || !wallet || !data || !holds) return;
     setError(null);
     setReading(true);
+    // A deposit or exit that just confirmed takes a moment to reach the wallet's history.
+    const moved = lastRead.current !== null && lastRead.current !== held;
+    lastRead.current = held;
     const read = async () => {
-      for (let attempt = 0; attempt < EVENT_READS && live; attempt += 1) {
-        // A deposit or exit that just confirmed can take a moment to reach the wallet's history.
-        if (attempt > 0) await new Promise((done) => setTimeout(done, EVENT_RETRY_MS));
-        const found = await readLpEvents(connection, data.pool.address, wallet, HISTORY_TRANSACTIONS);
+      if (moved) await pause(SETTLE_MS);
+      for (const wait of [0, RETRY_MS]) {
+        if (wait) await pause(wait);
+        if (!live) return;
+        const found = await readLpEvents(connection, data.pool.address, wallet, LP_TRANSACTIONS);
         if (!live) return;
         setEvents(found);
         if (sharesOf(found) === held) return;
       }
     };
     read()
-      .catch((e) => live && setError(e instanceof Error ? e.message : "Could not read the pool's history."))
+      .catch(() => live && setError("Could not read your pool history right now."))
       .finally(() => live && setReading(false));
     return () => {
       live = false;
@@ -127,12 +135,12 @@ export function LpPosition({ data, balances, wallet }: { data: MarketSnapshot | 
         <p className="fine">
           {reading
             ? "Updating your return…"
-            : `Return is not shown: your last ${HISTORY_TRANSACTIONS} transactions do not account for every share you hold.`}
+            : `Return is not shown: your last ${LP_TRANSACTIONS} transactions do not account for every share you hold.`}
         </p>
       )}
       <p className="fine">
         Return is fees and trader PnL together, net of the card-deposit haircut: both move the value of a share, so
-        the pool cannot say which part was fees. It is read from your last {HISTORY_TRANSACTIONS} transactions.
+        the pool cannot say which part was fees. It is read from your last {LP_TRANSACTIONS} transactions.
         {hasFractionDeposit && " Card deposits are valued at the index price nearest before them, so that part is approximate."}
       </p>
       <h3 className="kicker" style={{ marginTop: 12 }}>Utilisation · now {fmtPct(data.capacity.utilization, 1)}</h3>
