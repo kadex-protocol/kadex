@@ -84,11 +84,39 @@
   },
   "cards": [
     {
-      "mainnet": "5sggg5oYLU5VrxWm4sVXXVd37ezhhmQJTU9PeiFxtgYZ",
-      "asset": "BPC9CjwvFQnnGXx8WDxsUa1czum6yRsCjKRwHVEo9MR4",
-      "name": "2025 #210 N's Zekrom PSA 10 Japanese M2a-Mega Dream EX",
-      "valueUsd": 40,
-      "owner": "24JT58gshXNDpiivoVtkpp3CNQ8Rb2BU6VCKwRUD5Dia"
+      "mainnet": "GqzXm1VBsMHKXKzHizgoW7RvZLhFosA16t3aA57exdTv",
+      "asset": "3NChgdo6sogFDpLph7BBZ8rXNz9u6coreVGq2YArMUbg",
+      "name": "2019 #170 Full Art/Latias & Latios GX PSA 9 Sun & Moon Team Up",
+      "valueUsd": 5350,
+      "owner": "GHomaw14fjFAecCpJeuuRHb6YdhL1UZM9yHusN6uH1Zx"
+    },
+    {
+      "mainnet": "EDnoXV7KJyv6Zvni3cYmmYZnvz7o6iZHtv1JgqRs1q8H",
+      "asset": "ocKg8hfft7Dxigvt5DP5ZipkmXj1Nyr8JuBvLynXfw7",
+      "name": "2020 #074 Special Delivery Pikachu-Holo PSA 10 Swsh Black Star Promo",
+      "valueUsd": 4200,
+      "owner": "GHomaw14fjFAecCpJeuuRHb6YdhL1UZM9yHusN6uH1Zx"
+    },
+    {
+      "mainnet": "d65X1NXww8suJ448SWcPsehbFFGmFA1TH5J2JrXi9rX",
+      "asset": "2nmQQCKxdivoWYGkia7zZsNx7cYoQSQtu2befa8p5pst",
+      "name": "2009 #002 Charizard G LV.X-Holo 1st Edition PSA 10 Japanese Charizard Half Deck",
+      "valueUsd": 4000,
+      "owner": "GHomaw14fjFAecCpJeuuRHb6YdhL1UZM9yHusN6uH1Zx"
+    },
+    {
+      "mainnet": "GaxnTKM1RrrVy3jT59CNYiUp4xU4VPUN1Qd2XiQxtn2z",
+      "asset": "7wD282M6RTCc3qZA9VQvs1beaqeiZoxcDifNwmmYTdEy",
+      "name": "2015 #015 Full Art/Team Magma's Groudon EX 1st Edition PSA 10 Japanese XY Double Crisis",
+      "valueUsd": 3850,
+      "owner": "GHomaw14fjFAecCpJeuuRHb6YdhL1UZM9yHusN6uH1Zx"
+    },
+    {
+      "mainnet": "GKPzSS9mxRo7vhWTfuHTCDEdXgjUtRuxN7JHJa6V4EmS",
+      "asset": "BAgZDbzx2rqB6niXJ45ymvfpvhZHMb7vy4zEuZdjwXa",
+      "name": "2026 #284 Mega Gengar ex SIR BGS 10 TCG Mega Evolution Ascended Heroes",
+      "valueUsd": 3650,
+      "owner": "GHomaw14fjFAecCpJeuuRHb6YdhL1UZM9yHusN6uH1Zx"
     }
   ]
 }
