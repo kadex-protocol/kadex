@@ -169,6 +169,11 @@ async function main(): Promise<void> {
   }
 }
 
+// web3.js keeps polling a signature after a confirmation gives up; without this one failed poll ends the process.
+process.on("unhandledRejection", (reason) => {
+  console.error(`[keeper] unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
+});
+
 main().catch((err) => {
   console.error(`[keeper] fatal: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
