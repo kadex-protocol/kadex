@@ -82,7 +82,7 @@ export default function PortfolioPage() {
   const cashPct = p ? (Number(p.cash) / denom) * 100 : 0;
 
   return (
-    <div className="page wide">
+    <div className="page wide portfolio">
       <header className="vmkt-head">
         <h1>
           Portfolio: <span>{connected ? shortKey(publicKey) : "your holdings"}</span>

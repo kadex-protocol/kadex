@@ -67,6 +67,10 @@ export function TradeTicket({ snapshot, onOpened }: { snapshot: MarketSnapshot; 
   const used = !hasAmount || !balances || balances.usdc === 0n ? 0 : Math.min(100, Number((cost * 10_000n) / balances.usdc) / 100);
   const short = connected && balances !== null && hasAmount && balances.usdc < cost;
 
+  const problem = short
+    ? `Needs ${fmtUsd(cost, 2)} ${USD_LABEL} for margin and fee; this wallet has ${fmtUsd(balances.usdc, 2)}.`
+    : q.problem;
+
   const submit = async () => {
     if (!publicKey || invalid || balances === null) return;
     setSending(true);
@@ -94,13 +98,13 @@ export function TradeTicket({ snapshot, onOpened }: { snapshot: MarketSnapshot; 
         <h2 id="ticket-h">{hedge ? "Hedge" : "Trade"}</h2>
         <span className="tk-chip">Isolated · {leverage}x</span>
         <div className="tk-switch" role="group" aria-label="Order type">
-          <button type="button" aria-pressed={!hedge} onClick={() => setMode("trade")}>Trade</button>
-          <button type="button" aria-pressed={hedge} onClick={() => setMode("hedge")}>Hedge</button>
+          <button type="button" aria-pressed={!hedge} onClick={() => { setReceipt(null); setMode("trade"); }}>Trade</button>
+          <button type="button" aria-pressed={hedge} onClick={() => { setReceipt(null); setMode("hedge"); }}>Hedge</button>
         </div>
       </header>
 
       <div className="tk-sides" role="group" aria-label="Side">
-        <button type="button" className="l" aria-pressed={side === "long"} disabled={hedge} onClick={() => setPicked("long")}>
+        <button type="button" className="l" aria-pressed={side === "long"} disabled={hedge} onClick={() => { setReceipt(null); setPicked("long"); }}>
           <i aria-hidden="true">
             <svg viewBox="0 0 20 20" fill="none">
               <path d="M4 14l4.2-4.6 2.8 2.8L16 6.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -112,7 +116,7 @@ export function TradeTicket({ snapshot, onOpened }: { snapshot: MarketSnapshot; 
             <em>Profit if the index rises</em>
           </span>
         </button>
-        <button type="button" className="s" aria-pressed={side === "short"} disabled={hedge} onClick={hedge ? undefined : () => setPicked("short")}>
+        <button type="button" className="s" aria-pressed={side === "short"} disabled={hedge} onClick={hedge ? undefined : () => { setReceipt(null); setPicked("short"); }}>
           <i aria-hidden="true">
             <svg viewBox="0 0 20 20" fill="none">
               <path d="M4 6l4.2 4.6 2.8-2.8L16 13.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -138,7 +142,7 @@ export function TradeTicket({ snapshot, onOpened }: { snapshot: MarketSnapshot; 
             placeholder="0.00"
             aria-label={hedge ? `Inventory value in ${USD_LABEL}` : `Position size in ${USD_LABEL}`}
             value={amount}
-            onChange={(e) => setAmount(e.target.value.replace(/[^0-9.,]/g, ""))}
+            onChange={(e) => { setReceipt(null); setAmount(e.target.value.replace(/[^0-9.,]/g, "")); }}
           />
           <span className="tk-asset"><span className="coin usdc" aria-hidden="true" />{USD_LABEL}</span>
         </div>
@@ -146,7 +150,7 @@ export function TradeTicket({ snapshot, onOpened }: { snapshot: MarketSnapshot; 
         {!hedge && (
           <div className="pct" role="group" aria-label="Use part of what the balance can open">
             {[25, 50, 75, 100].map((percent) => (
-              <button key={percent} type="button" disabled={ceiling <= 0n} onClick={() => setAmount(formatAmount((ceiling * BigInt(percent)) / 100n))}>
+              <button key={percent} type="button" disabled={ceiling <= 0n} onClick={() => { setReceipt(null); setAmount(formatAmount((ceiling * BigInt(percent)) / 100n)); }}>
                 {percent === 100 ? "Max" : `${percent}%`}
               </button>
             ))}
@@ -163,7 +167,7 @@ export function TradeTicket({ snapshot, onOpened }: { snapshot: MarketSnapshot; 
             max={100}
             step={5}
             value={coverPct}
-            onChange={(e) => setCoverPct(Number(e.target.value))}
+            onChange={(e) => { setReceipt(null); setCoverPct(Number(e.target.value)); }}
             style={{ padding: 0, border: "none", background: "transparent", accentColor: "var(--ink)" }}
           />
         </label>
@@ -174,6 +178,7 @@ export function TradeTicket({ snapshot, onOpened }: { snapshot: MarketSnapshot; 
           snapshot={snapshot}
           owner={publicKey}
           onFill={(size) => {
+            setReceipt(null);
             setCoverPct(100);
             setAmount(formatAmount(size));
           }}
@@ -191,13 +196,10 @@ export function TradeTicket({ snapshot, onOpened }: { snapshot: MarketSnapshot; 
         <i><i style={{ width: `${used}%` }} /></i>
       </div>
 
-      {blocked && hasAmount && <p className="hint bad" style={{ margin: 0 }}>{q.problem}</p>}
-      {!blocked && short && (
-        <p className="hint bad" style={{ margin: 0 }}>Needs {fmtUsd(cost, 2)} {USD_LABEL} for margin and fee; this wallet has {fmtUsd(balances.usdc, 2)}.</p>
-      )}
+      {problem && hasAmount && <p className="hint bad" style={{ margin: 0 }}>{problem}</p>}
 
       {connected ? (
-        <button className={`btn block ${side}`} disabled={!hasAmount || invalid || balances === null || blocked || short || sending} title={q.problem ?? undefined} onClick={() => void submit()}>
+        <button className={`btn block ${side}`} disabled={!hasAmount || invalid || balances === null || blocked || short || sending} title={problem ?? undefined} onClick={() => void submit()}>
           {sending ? "Confirm in your wallet…" : !hasAmount ? "Enter an amount" : hedge ? "Open cover" : `Open ${side}`}
         </button>
       ) : (
@@ -238,8 +240,7 @@ export function TradeTicket({ snapshot, onOpened }: { snapshot: MarketSnapshot; 
         </div>
         {spread.spread > 0.5 && (
           <p className="hint">
-            The book is {spread.crowded}. Taking the {spread.paidSide} side is paid{" "}
-            {spread.spread.toFixed(2)}% a month to balance it.
+            Longs pay {spread.longMonthly.toFixed(2)}% and shorts pay {spread.shortMonthly.toFixed(2)}% per month in borrow.
           </p>
         )}
       </details>

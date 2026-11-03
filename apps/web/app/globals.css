@@ -656,6 +656,7 @@ details.acc > .rows, details.acc > .hint { margin-top: 12px; }
 .notice a { text-decoration: underline; text-underline-offset: 2px; }
 .notice button { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); background: none; border: none; color: inherit; font-size: 13px; cursor: pointer; padding: 4px; }
 @media (max-width: 1180px) { .sample-flag { display: none; } .top { gap: 16px; } }
+@media (max-width: 1040px) { .top-right:has(.chip.num) .chip.opt { display: none; } }
 @media (max-width: 900px) { .top { gap: 10px; padding-left: 16px; padding-right: 16px; } .top-right { gap: 8px; } .top .chip.opt { display: none; } .notice { font-size: 12px; padding: 8px 36px; } }
 @media (max-width: 560px) { .top .gear { display: none; } }
 
@@ -1898,4 +1899,29 @@ html:root:is([data-ui="cobalt"], [data-ui="ember"]) .wide.vmkt .market .v-ask[da
   .post-links a { grid-template-columns: minmax(0, 1fr) auto; }
   .post-links i { grid-column: 1; grid-row: 2; }
   .post-more { grid-template-columns: minmax(0, 1fr); }
+}
+
+.not-found-actions { justify-content: center; }
+.earn .spec b { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+.earn :is(.spec span, .earn-facts dt, .earn-facts dd) { min-width: 0; overflow-wrap: anywhere; }
+.earn-box-row output { overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+
+@media (max-width: 640px) {
+  .pos-table { min-width: 0; }
+  .pos-table table.t { display: block; min-width: 0; }
+  .pos-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .pos-table tbody { display: grid; gap: 16px; }
+  .pos-table tbody tr { display: block; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+  .pos-table tbody tr:last-child { padding-bottom: 0; border-bottom: none; }
+  .pos-table table.t td { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 12px; padding: 6px 0; border-bottom: none; text-align: right; overflow-wrap: anywhere; }
+  .pos-table td[data-label]::before { content: attr(data-label); color: var(--mute); text-align: left; }
+  .pos-table .pill { justify-self: end; }
+  .pos-table table.t .pos-actions { display: block; padding-top: 12px; }
+  .pos-table .pos-actions .btn { width: 100%; justify-content: center; }
+  .portfolio > .tabs { flex-wrap: wrap; }
+  .portfolio :is(.stat, .holding-body, .rows span, .rows b) { min-width: 0; overflow-wrap: anywhere; }
+  .earn .spec div { flex-direction: column; gap: 6px; }
+  .earn .spec b { text-align: left; }
+  .earn-box-top, .earn-bal { flex-wrap: wrap; }
+  .earn .earn-facts dd { text-align: right; }
 }

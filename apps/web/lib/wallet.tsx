@@ -262,6 +262,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [tipSeen, setTipSeen] = useState(true);
   const restored = useRef(false);
   const connection = useRef(0);
+  const fundingRequested = useRef(new Set<string>());
   const opener = useRef<HTMLElement | null>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
 
@@ -276,9 +277,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       setPublicKey(key);
       remember(adapter.name);
       setPicking(false);
-      void requestTestFunds(key).then((reply) => {
-        if (attempt === connection.current && reply.error) setError(reply.error);
-      });
     } catch (e) {
       if (attempt !== connection.current) return;
       const message = e instanceof Error ? e.message : "Connection was rejected.";
@@ -321,6 +319,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     return active.onAccountChange?.((key) => {
       connection.current += 1;
       setPending(null);
+      setError(null);
       setPublicKey(key);
       if (!key) {
         setActive(null);
@@ -328,6 +327,17 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       }
     });
   }, [active]);
+
+  useEffect(() => {
+    if (!publicKey) return;
+    const address = publicKey.toBase58();
+    if (fundingRequested.current.has(address)) return;
+    fundingRequested.current.add(address);
+    const attempt = connection.current;
+    void requestTestFunds(publicKey).then((reply) => {
+      if (attempt === connection.current && reply.error) setError(reply.error);
+    });
+  }, [publicKey]);
 
   const signTransaction = useCallback(
     async (tx: Transaction) => {

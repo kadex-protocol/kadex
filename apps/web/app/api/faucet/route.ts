@@ -57,7 +57,12 @@ export async function POST(req: Request) {
 
   const body = (await req.json().catch(() => null)) as { wallet?: unknown } | null;
   if (typeof body?.wallet !== "string" || !SOLANA_ADDRESS.test(body.wallet)) return refuse(400, "That is not a Solana address.");
-  const wallet = new PublicKey(body.wallet);
+  let wallet: PublicKey;
+  try {
+    wallet = new PublicKey(body.wallet);
+  } catch {
+    return refuse(400, "That is not a Solana address.");
+  }
   const { connection, usdcMint } = CLUSTER;
 
   const now = Date.now();

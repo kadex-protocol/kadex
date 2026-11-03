@@ -2,13 +2,14 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { fmtPrice, fmtUsd, type MarketSnapshot } from "@/lib/market";
+import { WAD } from "@kadex/types";
+import { fmtPrice, fmtUsd, quoteDeposit, type MarketSnapshot } from "@/lib/market";
 import { USD_LABEL } from "@/lib/cluster";
 import type { VaultCard } from "@/lib/collectorCrypt";
 import { titleParts } from "@/lib/cardText";
 import { useWallet, shortKey } from "@/lib/wallet";
 
-const EXAMPLE_DEPOSIT = 1000;
+const EXAMPLE_DEPOSIT = 1_000n * WAD;
 const WALLETS = [
   { name: "Phantom", icon: "/wallets/phantom.svg" },
   { name: "Solflare", icon: "/wallets/solflare.svg" },
@@ -43,7 +44,7 @@ export function HowItWorks({ cards, data, onTrade }: { cards: VaultCard[]; data:
   const slab = withArt.find((card) => card.vaultable) ?? withArt[0] ?? null;
   const behind = withArt.find((card) => card !== slab) ?? null;
   const slabTitle = slab ? titleParts(slab) : null;
-  const clpPrice = data ? Number(fmtPrice(data.poolStats.clpPrice)) : 0;
+  const deposit = data ? quoteDeposit(data, "usdc", EXAMPLE_DEPOSIT) : null;
 
   return (
     <section className="how" aria-labelledby="how-h">
@@ -126,12 +127,12 @@ export function HowItWorks({ cards, data, onTrade }: { cards: VaultCard[]; data:
           <div className="hwd hwd-earn">
             <div className="hwd-box">
               <span>You deposit</span>
-              <b>{fmtAmount(EXAMPLE_DEPOSIT)}</b>
+              <b>{fmtUsd(EXAMPLE_DEPOSIT, 2)}</b>
               <em><img src="/tokens/usdc.svg" alt="" />{USD_LABEL}</em>
             </div>
             <div className="hwd-box">
               <span>You receive</span>
-              <b>{clpPrice > 0 ? fmtAmount(EXAMPLE_DEPOSIT / clpPrice) : "-"}</b>
+              <b>{deposit ? fmtUsd(deposit.shares, 2) : "-"}</b>
               <em><img src="/logo.png" alt="" />CLP</em>
             </div>
             <p className="hwd-foot">
@@ -168,6 +169,3 @@ export function HowItWorks({ cards, data, onTrade }: { cards: VaultCard[]; data:
   );
 }
 
-function fmtAmount(value: number) {
-  return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}

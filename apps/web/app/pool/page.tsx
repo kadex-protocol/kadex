@@ -9,8 +9,9 @@
  * behind a tooltip.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowIcon } from "@/components/ArrowIcon";
 import { gates } from "@kadex/types";
 import { formatAmount, parseAmount } from "@/lib/amount";
@@ -39,13 +40,17 @@ const portion = (balance: bigint, percent: number) => formatAmount((balance * Bi
 const UsdcCoin = () => <span className="coin usdc" aria-hidden="true" />;
 const KadexCoin = () => <span className="coin" aria-hidden="true"><span className="star" /></span>;
 
+function TabFromUrl({ onTab }: { onTab(side: TicketSide): void }) {
+  const tab = useSearchParams().get("tab");
+  useEffect(() => onTab(tab === "withdraw" ? "withdraw" : "deposit"), [tab, onTab]);
+  return null;
+}
+
 export default function PoolPage() {
   const { status, publicKey, connect, signTransaction } = useWallet();
   const { data, loading, error, reload } = useMarket();
+  const router = useRouter();
   const [side, setSide] = useState<TicketSide>("deposit");
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("tab") === "withdraw") setSide("withdraw");
-  }, []);
   const [kind, setKind] = useState<DepositKind>("usdc");
   const [amount, setAmount] = useState("");
   const [balances, setBalances] = useState<Balances | null>(null);
@@ -86,10 +91,15 @@ export default function PoolPage() {
   const problem = entered ? (depositing ? dep?.problem : red?.problem) ?? null : null;
   const haircutPct = (data ? data.pool.params.depositHaircutBps / 100 : 3).toFixed(1);
 
-  const pick = (next: TicketSide) => {
+  const showTab = useCallback((next: TicketSide) => {
     setSide(next);
     setAmount("");
     setReceipt(null);
+  }, []);
+
+  const pick = (next: TicketSide) => {
+    showTab(next);
+    router.replace(next === "withdraw" ? "/pool?tab=withdraw" : "/pool", { scroll: false });
   };
 
   const submit = async () => {
@@ -132,6 +142,7 @@ export default function PoolPage() {
 
   return (
     <div className="page wide earn">
+      <Suspense fallback={null}><TabFromUrl onTab={showTab} /></Suspense>
       {error && (
         <div className="empty" role="alert">
           <p>Could not read the pool. {error}</p>

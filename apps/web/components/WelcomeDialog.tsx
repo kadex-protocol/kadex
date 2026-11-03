@@ -4,7 +4,7 @@ import { BRAND } from "@/lib/brand";
 import { USD_LABEL } from "@/lib/cluster";
 import { borrowSpread, CONSTITUENTS, fmtPrice, fmtUsd } from "@/lib/market";
 import { useMarket } from "@/lib/useMarket";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowIcon } from "@/components/ArrowIcon";
 import { useSearchParams } from "next/navigation";
 
@@ -239,15 +239,31 @@ export function WelcomeDialog() {
     if (forced || !seen) setOpen(true);
   }, [forced]);
 
+  const dismiss = useCallback(() => {
+    setOpen(false);
+    try {
+      window.localStorage.setItem(SEEN_KEY, "1");
+    } catch {}
+  }, []);
+
   useEffect(() => {
     if (!open) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const previous = document.body.style.overflow;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      dismiss();
+    };
     document.body.style.overflow = "hidden";
     primary.current?.focus();
+    window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = previous;
+      window.removeEventListener("keydown", onKey);
+      opener?.focus();
     };
-  }, [open]);
+  }, [open, dismiss]);
 
   if (!open) return null;
 
@@ -266,6 +282,7 @@ export function WelcomeDialog() {
               <span key={i} className={i <= index ? "on" : undefined} />
             ))}
             <em>{two(index + 1)} / {two(STEPS.length)}</em>
+            <button type="button" className="welcome-ghost" aria-label="Close" onClick={dismiss}>×</button>
           </div>
 
           <div className="welcome-copy" key={index}>
@@ -278,7 +295,7 @@ export function WelcomeDialog() {
 
           <div className="welcome-nav">
             {index === 0 ? (
-              <button type="button" className="welcome-ghost" onClick={() => setOpen(false)}>Skip</button>
+              <button type="button" className="welcome-ghost" onClick={dismiss}>Skip</button>
             ) : (
               <button type="button" className="welcome-ghost" onClick={() => setIndex(index - 1)}><ArrowIcon direction="left" /> Back</button>
             )}
@@ -286,7 +303,7 @@ export function WelcomeDialog() {
               ref={primary}
               type="button"
               className="btn accent welcome-next"
-              onClick={() => (isLast ? setOpen(false) : setIndex(index + 1))}
+              onClick={() => (isLast ? dismiss() : setIndex(index + 1))}
             >
               {isLast ? `Enter ${BRAND}` : "Next"} <ArrowIcon />
             </button>
