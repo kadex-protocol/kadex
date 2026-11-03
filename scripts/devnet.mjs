@@ -384,8 +384,8 @@ async function env() {
 }
 
 async function cards() {
-  const owner = pk(process.argv[3]);
-  if (!owner) throw new Error("usage: node scripts/devnet.mjs cards <wallet that will own the test cards>");
+  const owner = pk(process.argv[3] ?? process.env.KADEX_CARD_OWNER);
+  if (!owner) throw new Error("usage: node scripts/devnet.mjs cards <wallet that will own the test cards> (or set KADEX_CARD_OWNER)");
   await mirrorCards({ conn, payer, vault: p.cardVault, programData: await programData(IDLS.cardVault.address), owner, record, save });
 }
 

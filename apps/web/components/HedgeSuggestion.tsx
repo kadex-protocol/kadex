@@ -9,17 +9,18 @@ import { loadVaultCards, type VaultCard } from "@/lib/collectorCrypt";
 import { suggestHedge } from "@/lib/hedge";
 import { CONSTITUENTS, fmtPct, fmtPrice, fmtUsd, IS_SAMPLE, loadVaultedCards, type MarketSnapshot } from "@/lib/market";
 import { readLedger, walletOf } from "@/lib/sim";
-import { loadTestCards } from "@/lib/testCards";
+import { loadTestCardRecord } from "@/lib/testCards";
+import { ClaimTestCard } from "@/components/ClaimTestCard";
 
 const basketAssets = new Set(CONSTITUENTS.map((card) => card.asset));
 
 type Holding = Pick<VaultCard, "nftAddress" | "insuredValueUsdc">;
 
 async function testCardHoldings({ connection }: Cluster, owner: PublicKey): Promise<Holding[]> {
-  const twins = await loadTestCards();
-  if (twins.length === 0) return [];
+  const record = await loadTestCardRecord(owner.toBase58());
+  const twins = record.cards.filter((twin) => record.owned.includes(twin.asset));
   const [accounts, vaulted] = await Promise.all([
-    connection.getMultipleAccountsInfo(twins.map((twin) => new PublicKey(twin.asset))),
+    twins.length === 0 ? [] : connection.getMultipleAccountsInfo(twins.map((twin) => new PublicKey(twin.asset))),
     loadVaultedCards(owner),
   ]);
   const held = twins.filter((_, i) => {
@@ -49,6 +50,7 @@ export function HedgeSuggestion({
   const ownerAddress = owner?.toBase58() ?? null;
   const [cards, setCards] = useState<Holding[] | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
   const [maxNotional, setMaxNotional] = useState("");
   const [maxMonthlyCost, setMaxMonthlyCost] = useState("");
 
@@ -89,7 +91,7 @@ export function HedgeSuggestion({
     return () => {
       live = false;
     };
-  }, [ownerAddress]);
+  }, [ownerAddress, version]);
 
   const { inBasketValue, outsideBasketValue } = useMemo(
     () =>
@@ -120,7 +122,14 @@ export function HedgeSuggestion({
   if (!ownerAddress) return <p className="hint">Connect a wallet to read your card inventory.</p>;
   if (failure) return <p className="hint bad" role="alert">{failure}</p>;
   if (cards === null) return <p className="hint">Reading your card inventory…</p>;
-  if (cards.length === 0) return <p className="hint">{IS_SAMPLE || CLUSTER?.network !== "mainnet" ? "No cards in this wallet yet. Vault one to size a hedge against it." : "No Collector Crypt cards found for this wallet."}</p>;
+  if (cards.length === 0) {
+    return (
+      <>
+        <p className="hint">{IS_SAMPLE || CLUSTER?.network !== "mainnet" ? "No cards in this wallet yet. Vault one to size a hedge against it." : "No Collector Crypt cards found for this wallet."}</p>
+        <ClaimTestCard onClaimed={() => setVersion((v) => v + 1)} />
+      </>
+    );
+  }
 
   return (
     <section className="panel" aria-label="Inventory hedge suggestion">

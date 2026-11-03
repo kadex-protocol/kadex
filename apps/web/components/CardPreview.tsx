@@ -7,10 +7,13 @@ import { CLUSTER } from "@/lib/cluster";
 import { fmtUsd, IS_SAMPLE } from "@/lib/market";
 import type { VaultCard } from "@/lib/collectorCrypt";
 import { askOverAppraisal, gradeLine, titleParts } from "@/lib/cardText";
-import { loadTestCards, twinOf } from "@/lib/testCards";
+import { loadTestCardRecord, twinOf } from "@/lib/testCards";
 import { loadCoreCard } from "@/lib/vaultTx";
+import { useWallet } from "@/lib/wallet";
 
 export function CardPreview({ card, onClose }: { card: VaultCard; onClose(): void }) {
+  const { publicKey } = useWallet();
+  const wallet = publicKey?.toBase58() ?? null;
   const [back, setBack] = useState(false);
   const [fractions, setFractions] = useState<bigint | null>(null);
   const [chainStatus, setChainStatus] = useState<string | null>(null);
@@ -40,8 +43,8 @@ export function CardPreview({ card, onClose }: { card: VaultCard; onClose(): voi
     setFractions(null);
     setChainStatus(null);
     setFailure(false);
-    loadTestCards()
-      .then((list) => loadCoreCard(cluster, new PublicKey(twinOf(list, card.nftAddress) ?? card.nftAddress), null))
+    loadTestCardRecord(wallet)
+      .then((record) => loadCoreCard(cluster, new PublicKey(twinOf(record, card.nftAddress) ?? card.nftAddress), null))
       .then((s) => {
         if (!live) return;
         setChainStatus(s.vault?.locked ? "Vaulted" : s.assetOwner && s.registry && s.card?.core && s.card.enabled && s.vault ? "Available to owner" : "Not vaultable here");
@@ -59,7 +62,7 @@ export function CardPreview({ card, onClose }: { card: VaultCard; onClose(): voi
     return () => {
       live = false;
     };
-  }, [card.nftAddress, version]);
+  }, [card.nftAddress, wallet, version]);
 
   return (
     <div className="welcome-overlay" onClick={onClose}>

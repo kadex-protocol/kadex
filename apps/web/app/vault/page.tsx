@@ -17,9 +17,10 @@ import type { CategoryGroup, MarketplaceSource, OrderBy } from "@kadex/collector
 import { SOLANA_ADDRESS, loadVaultCard, loadVaultCards, type VaultCard } from "@/lib/collectorCrypt";
 import { askOverAppraisal, titleParts } from "@/lib/cardText";
 import { useWallet } from "@/lib/wallet";
-import { loadTestCards } from "@/lib/testCards";
+import { loadTestCardRecord } from "@/lib/testCards";
 import { VaultInventory } from "@/components/VaultInventory";
 import { TestCards } from "@/components/TestCards";
+import { ClaimTestCard } from "@/components/ClaimTestCard";
 import { TiltSlab } from "@/components/TiltSlab";
 import { VaultBanner } from "@/components/HomeBanner";
 
@@ -157,6 +158,7 @@ export default function VaultPage() {
   const [twinAddresses, setTwinAddresses] = useState<Set<string> | null>(null);
   const [testCardsError, setTestCardsError] = useState(false);
   const [testCardsVersion, setTestCardsVersion] = useState(0);
+  const [inventoryVersion, setInventoryVersion] = useState(0);
   const request = useRef(0);
 
   const connected = status === "connected" && publicKey !== null;
@@ -174,8 +176,8 @@ export default function VaultPage() {
     let live = true;
     setTwinAddresses(null);
     setTestCardsError(false);
-    loadTestCards()
-      .then((list) => live && setTwinAddresses(new Set(list.map((card) => card.mainnet))))
+    loadTestCardRecord()
+      .then((record) => live && setTwinAddresses(new Set(record.cards.map((card) => card.mainnet))))
       .catch(() => live && setTestCardsError(true));
     return () => {
       live = false;
@@ -258,7 +260,9 @@ export default function VaultPage() {
     <div className="page vmkt">
       <VaultBanner cards={banner} />
 
-      <VaultInventory />
+      <ClaimTestCard onClaimed={() => setInventoryVersion((v) => v + 1)} />
+
+      <VaultInventory key={inventoryVersion} />
 
       <TestCards />
 

@@ -24,7 +24,7 @@ import { CLUSTER, USD_LABEL, type Cluster } from "./cluster";
 import { loadVaultCard } from "./collectorCrypt";
 import { HISTORY_POINTS, HISTORY_STEP_SECS, type IndexHistoryWire } from "./history";
 import { readLedger, simPrice, walletOf, type SimCard } from "./sim";
-import { loadTestCards, originalOf } from "./testCards";
+import { loadTestCardRecord, originalOf } from "./testCards";
 
 export { HISTORY_STEP_SECS };
 
@@ -556,7 +556,7 @@ export interface CardHolding extends SimCard {
 }
 
 async function clusterVaultedCards({ connection }: Cluster, owner: PublicKey): Promise<CardHolding[]> {
-  const [rows, twins] = await Promise.all([readVaultInventory(connection, owner), loadTestCards()]);
+  const [rows, twins] = await Promise.all([readVaultInventory(connection, owner), loadTestCardRecord(owner.toBase58())]);
   return Promise.all(
     rows.map(async (row) => {
       const asset = row.asset.toBase58();

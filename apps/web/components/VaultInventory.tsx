@@ -7,7 +7,7 @@ import { CLUSTER } from "@/lib/cluster";
 import { loadVaultCard } from "@/lib/collectorCrypt";
 import { titleParts, shortAddress } from "@/lib/cardText";
 import { fmtUsd } from "@/lib/market";
-import { loadTestCards, originalOf } from "@/lib/testCards";
+import { loadTestCardRecord, originalOf } from "@/lib/testCards";
 import { useWallet } from "@/lib/wallet";
 
 /**
@@ -30,7 +30,7 @@ export function VaultInventory() {
     setOriginals({});
     setError(null);
     if (!CLUSTER || status !== "connected" || !publicKey) return;
-    Promise.all([readVaultInventory(CLUSTER.connection, publicKey), loadTestCards()])
+    Promise.all([readVaultInventory(CLUSTER.connection, publicKey), loadTestCardRecord(publicKey.toBase58())])
       .then(([r, twins]) => {
         if (!live) return;
         setRows(r);

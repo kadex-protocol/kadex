@@ -56,9 +56,16 @@ export function equalWeightBps(count) {
   return Math.min(MAX_WEIGHT_BPS, Math.floor(10_000 / count));
 }
 
-export async function chooseCards(count, listed = process.env.KADEX_CARDS) {
+export function copiesFromEnv(raw = process.env.KADEX_CARD_COPIES) {
+  const copies = Number(raw ?? 1);
+  if (!Number.isInteger(copies) || copies < 1) throw new Error("KADEX_CARD_COPIES must be a whole number of at least 1");
+  return copies;
+}
+
+export async function chooseCards(count, listed = process.env.KADEX_CARDS, recorded = []) {
   const addresses = (listed ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   if (addresses.length > 0) return Promise.all(addresses.map((address) => fetchCard(address)));
+  if (recorded.length > 0) return originalsOf(recorded);
   const chosen = [];
   let cursor = null;
   for (let page = 0; page < MARKETPLACE_PAGES && chosen.length < count; page += 1) {
@@ -70,7 +77,28 @@ export async function chooseCards(count, listed = process.env.KADEX_CARDS) {
   return chosen.slice(0, count);
 }
 
-export async function mirrorCards({ conn, payer, vault, programData, owner, record, save, count = 7, log = console.log }) {
+function originalsOf(entries) {
+  const firstByOriginal = new Map();
+  for (const entry of entries) if (!firstByOriginal.has(entry.mainnet)) firstByOriginal.set(entry.mainnet, entry);
+  return [...firstByOriginal.values()].map((entry) => ({
+    nftAddress: entry.mainnet,
+    name: entry.name,
+    nftStandard: "core",
+    insuredValueUsdc: BigInt(Math.round(entry.valueUsd * 1e6)),
+  }));
+}
+
+async function existingAccounts(conn, addresses) {
+  const found = new Set();
+  for (let at = 0; at < addresses.length; at += 100) {
+    const batch = addresses.slice(at, at + 100);
+    const accounts = await conn.getMultipleAccountsInfo(batch);
+    accounts.forEach((account, i) => account && found.add(batch[i].toBase58()));
+  }
+  return found;
+}
+
+export async function mirrorCards({ conn, payer, vault, programData, owner, record, save, count = 7, copies = copiesFromEnv(), log = console.log }) {
   const confirm = { commitment: "confirmed" };
   const registry = findRegistry();
   let collection = (await conn.getAccountInfo(registry)) ? (await vault.account.registry.fetch(registry)).collection : null;
@@ -85,12 +113,25 @@ export async function mirrorCards({ conn, payer, vault, programData, owner, reco
   save();
   log(`  registry ${registry.toBase58()}  collection ${collection.toBase58()}`);
 
-  const cards = await chooseCards(count);
-  if (cards.length === 0) throw new Error("Collector Crypt returned no vaultable Core card to copy");
+  const cards = await chooseCards(count, process.env.KADEX_CARDS, record.cards);
+  if (cards.length === 0) throw new Error("no vaultable Core card to copy: Collector Crypt returned none and the record lists none");
   const weightBps = equalWeightBps(cards.length);
+
+  const assetsOnChain = await existingAccounts(conn, record.cards.map((c) => new PublicKey(c.asset)));
+  record.cards = record.cards.filter((c) => assetsOnChain.has(c.asset));
+  save();
+  const whitelisted = await existingAccounts(conn, record.cards.map((c) => findCard(new PublicKey(c.asset))));
+
   for (const card of cards) {
-    let entry = record.cards.find((c) => c.mainnet === card.nftAddress);
-    if (!entry || !(await conn.getAccountInfo(new PublicKey(entry.asset)))) {
+    const own = () => record.cards.filter((c) => c.mainnet === card.nftAddress && c.owner === owner.toBase58());
+    const copyOf = async (entry) => {
+      if (!whitelisted.has(findCard(new PublicKey(entry.asset)).toBase58())) {
+        await whitelistCoreCard(vault, { ...card, nftAddress: entry.asset }, weightBps);
+      }
+      log(`  ${entry.asset}  $${entry.valueUsd}  ${card.name}`);
+    };
+    for (const entry of own()) await copyOf(entry);
+    while (own().length < copies) {
       const asset = Keypair.generate();
       const uri = `https://collectorcrypt.com/assets/solana/${card.nftAddress}`;
       await sendAndConfirmTransaction(
@@ -99,20 +140,17 @@ export async function mirrorCards({ conn, payer, vault, programData, owner, reco
         [payer, asset],
         confirm,
       );
-      entry = {
+      const entry = {
         mainnet: card.nftAddress,
         asset: asset.publicKey.toBase58(),
         name: card.name,
         valueUsd: Number(card.insuredValueUsdc) / 1e6,
         owner: owner.toBase58(),
       };
-      record.cards = [...record.cards.filter((c) => c.mainnet !== card.nftAddress), entry];
+      record.cards = [...record.cards, entry];
       save();
+      await copyOf(entry);
     }
-    if (!(await conn.getAccountInfo(findCard(new PublicKey(entry.asset))))) {
-      await whitelistCoreCard(vault, { ...card, nftAddress: entry.asset }, weightBps);
-    }
-    log(`  ${entry.asset}  $${entry.valueUsd}  ${card.name}`);
   }
   return record.cards;
 }

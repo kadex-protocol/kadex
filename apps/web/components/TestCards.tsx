@@ -18,7 +18,8 @@ export function TestCards() {
     loadTestCardRecord()
       .then((record) => {
         if (live) setRecorded(record.recorded);
-        return Promise.all(record.cards.map((c) => loadVaultCard(c.mainnet).catch(() => null)));
+        const originals = [...new Set(record.cards.map((c) => c.mainnet))];
+        return Promise.all(originals.map((mainnet) => loadVaultCard(mainnet).catch(() => null)));
       })
       .then((found) => live && setCards(found.filter((c): c is VaultCard => c !== null)))
       .catch(() => live && setError(true));

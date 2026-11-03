@@ -13,7 +13,7 @@ import { CardStage } from "@/components/CardStage";
 import { TiltSlab } from "@/components/TiltSlab";
 import { ArrowIcon } from "@/components/ArrowIcon";
 import { VaultActions, type VaultStatus } from "@/components/VaultActions";
-import { loadTestCards, twinOf } from "@/lib/testCards";
+import { loadTestCardRecord, twinOf } from "@/lib/testCards";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "Could not reach Collector Crypt.");
 
@@ -51,6 +51,7 @@ function Strip({ title, cards }: { title: string; cards: VaultCard[] }) {
 export default function CardPage() {
   const { address } = useParams<{ address: string }>();
   const { status, publicKey, connect, signTransaction } = useWallet();
+  const wallet = publicKey?.toBase58() ?? null;
   const [card, setCard] = useState<VaultCard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [back, setBack] = useState(false);
@@ -71,13 +72,13 @@ export default function CardPage() {
     setTwin(undefined);
     setTwinError(false);
     setVaultStatus(null);
-    loadTestCards()
-      .then((list) => live && setTwin(twinOf(list, address)))
+    loadTestCardRecord(wallet)
+      .then((record) => live && setTwin(twinOf(record, address)))
       .catch(() => live && setTwinError(true));
     return () => {
       live = false;
     };
-  }, [address, twinVersion]);
+  }, [address, twinVersion, wallet]);
 
   useEffect(() => {
     let live = true;
@@ -152,7 +153,6 @@ export default function CardPage() {
   }
 
   const connected = status === "connected" && publicKey !== null;
-  const wallet = publicKey?.toBase58() ?? null;
   const t = card ? titleParts(card) : null;
   const value = card?.vaultable ? card.insuredValueUsdc : 0n;
   const clusterKind = vaultStatus?.action.kind;
